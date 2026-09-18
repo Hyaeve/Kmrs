@@ -1,0 +1,29 @@
+[package]
+name = "komga-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+komga-core = { path = "../komga-core" }
+komga-db = { path = "../komga-db" }
+komga-media = { path = "../komga-media" }
+komga-search = { path = "../komga-search" }
+tokio.workspace = true
+axum.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+time.workspace = true
+bcrypt.workspace = true
+sha2.workspace = true
+md5.workspace = true
+uuid.workspace = true
+moka.workspace = true
+form_urlencoded.workspace = true
+base64 = "0.22"

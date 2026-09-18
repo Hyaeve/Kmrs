@@ -1,0 +1,19 @@
+[package]
+name = "komga-media"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+komga-core = { path = "../komga-core" }
+thiserror.workspace = true
+tracing.workspace = true
+image.workspace = true
+zip.workspace = true
+roxmltree.workspace = true
+scraper.workspace = true
+xxhash-rust.workspace = true
+md5.workspace = true
+flate2.workspace = true
+serde.workspace = true
+serde_json.workspace = true

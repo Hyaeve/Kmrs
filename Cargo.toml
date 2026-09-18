@@ -1,0 +1,62 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/komga-core",
+    "crates/komga-db",
+    "crates/komga-media",
+    "crates/komga-search",
+    "crates/komga-server",
+    "xtask",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/gotson/komga"
+
+[workspace.dependencies]
+# async runtime
+tokio = { version = "1", features = ["full"] }
+# http
+axum = "0.8"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+# db
+rusqlite = { version = "0.32", features = ["bundled", "collation", "functions"] }
+r2d2 = "0.8"
+r2d2_sqlite = "0.25"
+# serde
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+quick-xml = { version = "0.37", features = ["serialize"] }
+# crypto / hash
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+md5 = "0.7"
+sha2 = "0.10"
+bcrypt = "0.17"
+flate2 = "1"
+crc32fast = "1"
+# time
+time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"] }
+# icu
+icu_collator = "2"
+icu_normalizer = "2"
+icu_locale = "2"
+# utils
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+thiserror = "2"
+uuid = { version = "1", features = ["v4"] }
+regex = "1"
+form_urlencoded = "1"
+image = "0.25"
+moka = { version = "0.12", features = ["future", "sync"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+roxmltree = "0.20"
+scraper = "0.23"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

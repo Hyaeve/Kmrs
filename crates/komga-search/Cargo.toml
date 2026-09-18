@@ -1,0 +1,12 @@
+[package]
+name = "komga-search"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+komga-core = { path = "../komga-core" }
+thiserror.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
