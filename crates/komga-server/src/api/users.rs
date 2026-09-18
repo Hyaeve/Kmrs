@@ -59,14 +59,6 @@ fn user_dao(state: &AppState) -> UserDao {
     UserDao::new(state.db.clone())
 }
 
-/// When ResponseStatusException(NOT_FOUND) has no reason, Spring's message is "404 NOT_FOUND".
-fn not_found() -> ApiError {
-    ApiError::Status {
-        status: StatusCode::NOT_FOUND,
-        message: "404 NOT_FOUND".into(),
-    }
-}
-
 async fn get_me(auth: RequireAuth) -> Json<UserDto> {
     Json(UserDto::from(&auth.0.user))
 }
@@ -90,7 +82,7 @@ async fn update_my_password(
     let dao = user_dao(&state);
     let mut user = dao
         .find_by_email_ignore_case(&auth.0.user.email)?
-        .ok_or_else(not_found)?;
+        .ok_or_else(|| ApiError::not_found(""))?;
     user.password =
         bcrypt::hash(&body.password, 10).map_err(|e| ApiError::Internal(e.to_string()))?;
     dao.update(&user)?;
@@ -209,7 +201,7 @@ async fn update_user(
         return Err(ApiError::forbidden(""));
     }
     let dao = user_dao(&state);
-    let mut existing = dao.find_by_id(&id)?.ok_or_else(not_found)?;
+    let mut existing = dao.find_by_id(&id)?.ok_or_else(|| ApiError::not_found(""))?;
 
     if let Some(roles) = &patch.roles {
         // komga NPEs on explicit null (roles!!); aligned here as a 500
@@ -264,7 +256,7 @@ async fn delete_user(
         return Err(ApiError::forbidden(""));
     }
     let dao = user_dao(&state);
-    dao.find_by_id(&id)?.ok_or_else(not_found)?;
+    dao.find_by_id(&id)?.ok_or_else(|| ApiError::not_found(""))?;
     dao.delete(&id)?;
     state.sessions.invalidate_user(&id);
     Ok(StatusCode::NO_CONTENT)
@@ -281,7 +273,7 @@ async fn update_password_by_id(
         return Err(ApiError::forbidden(""));
     }
     let dao = user_dao(&state);
-    let mut user = dao.find_by_id(&id)?.ok_or_else(not_found)?;
+    let mut user = dao.find_by_id(&id)?.ok_or_else(|| ApiError::not_found(""))?;
     user.password =
         bcrypt::hash(&body.password, 10).map_err(|e| ApiError::Internal(e.to_string()))?;
     dao.update(&user)?;
@@ -348,11 +340,11 @@ async fn latest_authentication_activity(
         return Err(ApiError::forbidden(""));
     }
     let dao = user_dao(&state);
-    let user = dao.find_by_id(&id)?.ok_or_else(not_found)?;
+    let user = dao.find_by_id(&id)?.ok_or_else(|| ApiError::not_found(""))?;
     let api_key_id = query.params.first("apikey_id").map(str::to_string);
     let activity = dao
         .find_most_recent_activity_by_user(&user.id, &user.email, api_key_id.as_deref())?
-        .ok_or_else(not_found)?;
+        .ok_or_else(|| ApiError::not_found(""))?;
     Ok(Json(AuthenticationActivityDto::from(&activity)))
 }
 
@@ -413,7 +405,7 @@ async fn delete_api_key(
 ) -> Result<StatusCode, ApiError> {
     let dao = user_dao(&state);
     if !dao.exists_api_key_by_id_and_user_id(&key_id, &auth.0.user.id)? {
-        return Err(not_found());
+        return Err(ApiError::not_found(""));
     }
     dao.delete_api_key_by_id_and_user_id(&key_id, &auth.0.user.id)?;
     Ok(StatusCode::NO_CONTENT)

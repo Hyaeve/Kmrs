@@ -104,6 +104,17 @@ fn reason_phrase(status: StatusCode) -> String {
     status.canonical_reason().unwrap_or("").to_string()
 }
 
+/// `ResponseStatusException.getMessage()`: `"404 NOT_FOUND"` without a reason,
+/// `404 NOT_FOUND "reason"` with one.
+fn spring_message(status: StatusCode, reason: &str) -> String {
+    let base = format!("{} {}", status.as_u16(), reason_phrase(status));
+    if reason.is_empty() {
+        base
+    } else {
+        format!("{base} \"{reason}\"")
+    }
+}
+
 /// Timestamp of Spring `DefaultErrorAttributes`: `yyyy-MM-dd'T'HH:mm:ss.SSS+00:00`.
 fn now_timestamp() -> String {
     let now = time::OffsetDateTime::now_utc();
@@ -136,7 +147,7 @@ impl IntoResponse for ApiError {
                     timestamp: now_timestamp(),
                     status: status.as_u16(),
                     error: reason_phrase(status),
-                    message,
+                    message: spring_message(status, &message),
                     path: String::new(), // filled in with the request path by error_path_middleware
                 };
                 let mut response = (status, Json(body)).into_response();

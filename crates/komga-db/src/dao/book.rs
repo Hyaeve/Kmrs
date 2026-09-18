@@ -55,6 +55,20 @@ impl BookDao {
         Ok(rows.next().transpose()?)
     }
 
+    pub fn get_library_id_or_null(&self, book_id: &str) -> Result<Option<String>> {
+        let conn = self.db.ro();
+        let mut stmt = conn.prepare("SELECT LIBRARY_ID FROM BOOK WHERE ID = ?")?;
+        let mut rows = stmt.query_map([book_id], |r| r.get(0))?;
+        Ok(rows.next().transpose()?)
+    }
+
+    pub fn get_series_id_or_null(&self, book_id: &str) -> Result<Option<String>> {
+        let conn = self.db.ro();
+        let mut stmt = conn.prepare("SELECT SERIES_ID FROM BOOK WHERE ID = ?")?;
+        let mut rows = stmt.query_map([book_id], |r| r.get(0))?;
+        Ok(rows.next().transpose()?)
+    }
+
     pub fn find_by_series_id(&self, series_id: &str) -> Result<Vec<Book>> {
         let conn = self.db.ro();
         let mut stmt = conn.prepare(&format!(

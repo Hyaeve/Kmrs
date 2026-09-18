@@ -90,6 +90,24 @@ impl ThumbnailBookDao {
         Ok(rows)
     }
 
+    pub fn get_library_id_or_null(&self, thumbnail_id: &str) -> Result<Option<String>> {
+        let conn = self.db.ro();
+        let mut stmt = conn.prepare(
+            "SELECT BOOK.LIBRARY_ID FROM THUMBNAIL_BOOK LEFT JOIN BOOK ON THUMBNAIL_BOOK.BOOK_ID = BOOK.ID WHERE THUMBNAIL_BOOK.ID = ?",
+        )?;
+        let mut rows = stmt.query_map([thumbnail_id], |r| r.get(0))?;
+        Ok(rows.next().transpose()?)
+    }
+
+    pub fn get_series_id_or_null(&self, thumbnail_id: &str) -> Result<Option<String>> {
+        let conn = self.db.ro();
+        let mut stmt = conn.prepare(
+            "SELECT BOOK.SERIES_ID FROM THUMBNAIL_BOOK LEFT JOIN BOOK ON THUMBNAIL_BOOK.BOOK_ID = BOOK.ID WHERE THUMBNAIL_BOOK.ID = ?",
+        )?;
+        let mut rows = stmt.query_map([thumbnail_id], |r| r.get(0))?;
+        Ok(rows.next().transpose()?)
+    }
+
     pub fn find_all_by_book_id_and_type(
         &self,
         book_id: &str,
@@ -268,6 +286,23 @@ impl ThumbnailSeriesDao {
             .query_map([series_id], Self::row_to_thumbnail)?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(rows)
+    }
+
+    pub fn get_library_id_or_null(&self, thumbnail_id: &str) -> Result<Option<String>> {
+        let conn = self.db.ro();
+        let mut stmt = conn.prepare(
+            "SELECT SERIES.LIBRARY_ID FROM THUMBNAIL_SERIES LEFT JOIN SERIES ON THUMBNAIL_SERIES.SERIES_ID = SERIES.ID WHERE THUMBNAIL_SERIES.ID = ?",
+        )?;
+        let mut rows = stmt.query_map([thumbnail_id], |r| r.get(0))?;
+        Ok(rows.next().transpose()?)
+    }
+
+    pub fn get_series_id_or_null(&self, thumbnail_id: &str) -> Result<Option<String>> {
+        let conn = self.db.ro();
+        let mut stmt =
+            conn.prepare("SELECT SERIES_ID FROM THUMBNAIL_SERIES WHERE ID = ?")?;
+        let mut rows = stmt.query_map([thumbnail_id], |r| r.get(0))?;
+        Ok(rows.next().transpose()?)
     }
 
     pub fn find_all_by_series_id_and_type(
