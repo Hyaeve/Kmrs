@@ -1,0 +1,385 @@
+//! Profile-based dispatch for page/file extraction, ported from `BookAnalyzer.kt`
+//! (`getPageContent` / `getPageContentRaw` / `getFileContent`) and `BookLifecycle.getBookPage`.
+//!
+//! Page numbers are 1-based, as in komga's REST API.
+
+use crate::error::{MediaError, Result};
+use crate::image::ImageType;
+use crate::{detect, image, pdf, rar, zip};
+use komga_core::model::media::{Media, MediaStatus};
+use komga_core::search::MediaProfile;
+use std::path::Path;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PageContent {
+    pub bytes: Vec<u8>,
+    pub media_type: String,
+}
+
+/// `MediaType.fromMediaType(mediaType)?.profile`
+pub fn media_profile(media_type: Option<&str>) -> Option<MediaProfile> {
+    Some(match media_type? {
+        detect::APPLICATION_ZIP
+        | "application/x-rar-compressed"
+        | detect::APPLICATION_RAR_4
+        | detect::APPLICATION_RAR_5 => MediaProfile::Divina,
+        detect::APPLICATION_EPUB => MediaProfile::Epub,
+        detect::APPLICATION_PDF => MediaProfile::Pdf,
+        _ => return None,
+    })
+}
+
+/// `BookAnalyzer.getPageContent`: the page bytes straight from the container.
+/// PDF pages are rendered to JPEG; EPUB pages only exist for divina-compatible books.
+pub fn get_page_content(book_path: &Path, media: &Media, number: usize) -> Result<Vec<u8>> {
+    if media.status != MediaStatus::Ready {
+        return Err(MediaError::NotReady);
+    }
+    if number > media.page_count as usize || number == 0 {
+        return Err(MediaError::PageOutOfBounds(number));
+    }
+
+    match media_profile(media.media_type.as_deref()) {
+        Some(MediaProfile::Divina) => {
+            get_divina_entry(book_path, media, &media.pages[number - 1].file_name)
+        }
+        Some(MediaProfile::Pdf) => pdf::get_page_content_as_image(book_path, number),
+        Some(MediaProfile::Epub) => {
+            if media.epub_divina_compatible {
+                zip::get_entry_bytes(book_path, &media.pages[number - 1].file_name)
+            } else {
+                Err(MediaError::unsupported(
+                    "Epub profile does not support getting page content",
+                ))
+            }
+        }
+        None => Err(MediaError::NotReady),
+    }
+}
+
+/// `BookAnalyzer.getPageContentRaw`: the raw page; only PDF supports it (single-page document).
+pub fn get_page_content_raw(book_path: &Path, media: &Media, number: usize) -> Result<PageContent> {
+    if media_profile(media.media_type.as_deref()) != Some(MediaProfile::Pdf) {
+        return Err(MediaError::unsupported(
+            "Extractor does not support raw extraction of pages",
+        ));
+    }
+    if media.status != MediaStatus::Ready {
+        return Err(MediaError::NotReady);
+    }
+    if number > media.page_count as usize || number == 0 {
+        return Err(MediaError::PageOutOfBounds(number));
+    }
+    Ok(PageContent {
+        bytes: pdf::get_page_content_as_pdf(book_path, number)?,
+        media_type: detect::APPLICATION_PDF.to_string(),
+    })
+}
+
+/// `BookAnalyzer.getFileContent`: an arbitrary file from the container (EPUB resources).
+pub fn get_file_content(book_path: &Path, media: &Media, file_name: &str) -> Result<Vec<u8>> {
+    if media.status != MediaStatus::Ready {
+        return Err(MediaError::NotReady);
+    }
+    match media_profile(media.media_type.as_deref()) {
+        Some(MediaProfile::Divina) => get_divina_entry(book_path, media, file_name),
+        Some(MediaProfile::Epub) => zip::get_entry_bytes(book_path, file_name),
+        _ => Err(MediaError::unsupported(
+            "Extractor does not support extraction of files",
+        )),
+    }
+}
+
+fn get_divina_entry(book_path: &Path, media: &Media, file_name: &str) -> Result<Vec<u8>> {
+    match media.media_type.as_deref() {
+        Some(detect::APPLICATION_ZIP) | Some(detect::APPLICATION_EPUB) => {
+            zip::get_entry_bytes(book_path, file_name)
+        }
+        Some("application/x-rar-compressed")
+        | Some(detect::APPLICATION_RAR_4)
+        | Some(detect::APPLICATION_RAR_5) => rar::get_entry_bytes(book_path, file_name),
+        Some(other) => Err(MediaError::unsupported(format!(
+            "no divina extractor for media type {other}"
+        ))),
+        None => Err(MediaError::NotReady),
+    }
+}
+
+/// Image media types decodable by the `image` crate: komga's JXL/HEIF/JPEG2000 readers have no
+/// equivalent yet (plan §7-4), so conversion from those formats fails like an unsupported reader.
+const READABLE_IMAGE_TYPES: &[&str] = &[
+    detect::IMAGE_JPEG,
+    detect::IMAGE_PNG,
+    detect::IMAGE_GIF,
+    detect::IMAGE_WEBP,
+    detect::IMAGE_TIFF,
+    detect::IMAGE_BMP,
+];
+
+/// `BookLifecycle.getBookPage`: container extraction plus optional resize/convert.
+pub fn get_book_page(
+    book_path: &Path,
+    book_name: &str,
+    media: &Media,
+    number: usize,
+    convert_to: Option<ImageType>,
+    resize_to: Option<u32>,
+) -> Result<PageContent> {
+    let page_content = get_page_content(book_path, media, number)?;
+    let page_media_type = if media_profile(media.media_type.as_deref()) == Some(MediaProfile::Pdf) {
+        detect::IMAGE_JPEG
+    } else {
+        media.pages[number - 1].media_type.as_str()
+    };
+
+    if let Some(resize_to) = resize_to {
+        let bytes = image::resize(&page_content, ImageType::Jpeg, resize_to).map_err(|e| {
+            MediaError::Conversion(format!(
+                "Resize page #{number} of book {book_name} to {resize_to}: failed: {e}"
+            ))
+        })?;
+        return Ok(PageContent {
+            bytes,
+            media_type: ImageType::Jpeg.media_type().to_string(),
+        });
+    }
+
+    if let Some(convert_to) = convert_to {
+        let msg = format!(
+            "Convert page #{number} of book {book_name} from {page_media_type} to {}",
+            convert_to.media_type()
+        );
+        if !READABLE_IMAGE_TYPES.contains(&page_media_type) {
+            return Err(MediaError::Conversion(format!(
+                "{msg}: unsupported read format {page_media_type}"
+            )));
+        }
+        if page_media_type == convert_to.media_type() {
+            return Ok(PageContent {
+                bytes: page_content,
+                media_type: page_media_type.to_string(),
+            });
+        }
+        let bytes = image::convert(&page_content, convert_to)
+            .map_err(|e| MediaError::Conversion(format!("{msg}: conversion failed: {e}")))?;
+        return Ok(PageContent {
+            bytes,
+            media_type: convert_to.media_type().to_string(),
+        });
+    }
+
+    Ok(PageContent {
+        bytes: page_content,
+        media_type: page_media_type.to_string(),
+    })
+}
+
+/// `BookAnalyzer.getPdfPagesDynamic`: synthetic pages with render-scaled dimensions,
+/// used by the pages endpoint for PDF books.
+pub fn get_pdf_pages_dynamic(media: &Media) -> Result<Vec<komga_core::model::media::BookPage>> {
+    if media_profile(media.media_type.as_deref()) != Some(MediaProfile::Pdf) {
+        return Err(MediaError::unsupported(
+            "Cannot get synthetic pages for non-PDF media",
+        ));
+    }
+    Ok(media
+        .pages
+        .iter()
+        .map(|page| komga_core::model::media::BookPage {
+            media_type: detect::IMAGE_JPEG.to_string(),
+            width: page
+                .width
+                .zip(page.height)
+                .map(|(w, h)| pdf::scale_dimension(w, h).0),
+            height: page
+                .width
+                .zip(page.height)
+                .map(|(w, h)| pdf::scale_dimension(w, h).1),
+            ..page.clone()
+        })
+        .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use komga_core::model::media::BookPage;
+    use komga_core::time_codec::now_utc;
+
+    fn fixtures() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../komga/komga/src/test/resources")
+    }
+
+    fn media(media_type: &str, pages: Vec<BookPage>) -> Media {
+        Media {
+            book_id: "b1".into(),
+            status: MediaStatus::Ready,
+            media_type: Some(media_type.into()),
+            comment: None,
+            page_count: pages.len() as i32,
+            pages,
+            files: vec![],
+            extension_class: None,
+            extension_value: None,
+            epub_divina_compatible: false,
+            epub_is_kepub: false,
+            created_date: now_utc(),
+            last_modified_date: now_utc(),
+        }
+    }
+
+    fn page(file_name: &str, media_type: &str) -> BookPage {
+        BookPage {
+            file_name: file_name.into(),
+            media_type: media_type.into(),
+            width: None,
+            height: None,
+            file_hash: String::new(),
+            file_size: None,
+        }
+    }
+
+    #[test]
+    fn profile_mapping() {
+        assert_eq!(
+            media_profile(Some(detect::APPLICATION_ZIP)),
+            Some(MediaProfile::Divina)
+        );
+        assert_eq!(
+            media_profile(Some(detect::APPLICATION_RAR_4)),
+            Some(MediaProfile::Divina)
+        );
+        assert_eq!(
+            media_profile(Some(detect::APPLICATION_RAR_5)),
+            Some(MediaProfile::Divina)
+        );
+        assert_eq!(
+            media_profile(Some("application/x-rar-compressed")),
+            Some(MediaProfile::Divina)
+        );
+        assert_eq!(
+            media_profile(Some(detect::APPLICATION_EPUB)),
+            Some(MediaProfile::Epub)
+        );
+        assert_eq!(
+            media_profile(Some(detect::APPLICATION_PDF)),
+            Some(MediaProfile::Pdf)
+        );
+        assert_eq!(media_profile(Some("text/plain")), None);
+        assert_eq!(media_profile(None), None);
+    }
+
+    #[test]
+    fn zip_book_page_content() {
+        let book = fixtures().join("archives/zip.zip");
+        let media = media(
+            detect::APPLICATION_ZIP,
+            vec![page("komga.png", detect::IMAGE_PNG)],
+        );
+        let bytes = get_page_content(&book, &media, 1).unwrap();
+        assert_eq!(&bytes[0..4], b"\x89PNG");
+
+        let content = get_book_page(&book, "zip", &media, 1, None, None).unwrap();
+        assert_eq!(content.media_type, detect::IMAGE_PNG);
+    }
+
+    #[test]
+    fn rar_book_page_content() {
+        let book = fixtures().join("archives/rar4.rar");
+        let media = media(
+            detect::APPLICATION_RAR_4,
+            vec![page("komga-1.png", detect::IMAGE_PNG)],
+        );
+        let bytes = get_page_content(&book, &media, 1).unwrap();
+        assert_eq!(&bytes[0..4], b"\x89PNG");
+    }
+
+    #[test]
+    fn epub_not_divina_compatible_has_no_pages() {
+        let book = fixtures().join("archives/epub3.epub");
+        let mut media = media(
+            detect::APPLICATION_EPUB,
+            vec![page("page_1.xhtml", "application/xhtml+xml")],
+        );
+        media.epub_divina_compatible = false;
+        assert!(matches!(
+            get_page_content(&book, &media, 1),
+            Err(MediaError::Unsupported { .. })
+        ));
+    }
+
+    #[test]
+    fn epub_file_content() {
+        let book = fixtures().join("archives/epub3.epub");
+        let media = media(detect::APPLICATION_EPUB, vec![]);
+        let bytes = get_file_content(&book, &media, "content.opf").unwrap();
+        assert!(String::from_utf8_lossy(&bytes).contains("<package"));
+        assert!(matches!(
+            get_file_content(&book, &media, "nope.xml"),
+            Err(MediaError::EntryNotFound(_))
+        ));
+    }
+
+    #[test]
+    fn out_of_bounds_and_not_ready() {
+        let book = fixtures().join("archives/zip.zip");
+        let media = media(
+            detect::APPLICATION_ZIP,
+            vec![page("komga.png", detect::IMAGE_PNG)],
+        );
+        assert!(matches!(
+            get_page_content(&book, &media, 2),
+            Err(MediaError::PageOutOfBounds(2))
+        ));
+        assert!(matches!(
+            get_page_content(&book, &media, 0),
+            Err(MediaError::PageOutOfBounds(0))
+        ));
+
+        let mut not_ready = media.clone();
+        not_ready.status = MediaStatus::Unknown;
+        assert!(matches!(
+            get_page_content(&book, &not_ready, 1),
+            Err(MediaError::NotReady)
+        ));
+    }
+
+    #[test]
+    fn convert_to_jpeg() {
+        let book = fixtures().join("archives/zip.zip");
+        let media = media(
+            detect::APPLICATION_ZIP,
+            vec![page("komga.png", detect::IMAGE_PNG)],
+        );
+        let content = get_book_page(&book, "zip", &media, 1, Some(ImageType::Jpeg), None).unwrap();
+        assert_eq!(content.media_type, detect::IMAGE_JPEG);
+        assert_eq!(&content.bytes[0..3], b"\xFF\xD8\xFF");
+    }
+
+    #[test]
+    fn resize_to_300() {
+        let book = fixtures().join("archives/zip.zip");
+        let media = media(
+            detect::APPLICATION_ZIP,
+            vec![page("komga.png", detect::IMAGE_PNG)],
+        );
+        let content = get_book_page(&book, "zip", &media, 1, None, Some(300)).unwrap();
+        assert_eq!(content.media_type, detect::IMAGE_JPEG);
+        // source is 48x48: no upscale
+        assert_eq!(image::get_dimension(&content.bytes), Some((48, 48)));
+    }
+
+    #[test]
+    fn raw_extraction_only_for_pdf() {
+        let book = fixtures().join("archives/zip.zip");
+        let media = media(
+            detect::APPLICATION_ZIP,
+            vec![page("komga.png", detect::IMAGE_PNG)],
+        );
+        assert!(matches!(
+            get_page_content_raw(&book, &media, 1),
+            Err(MediaError::Unsupported { .. })
+        ));
+    }
+}

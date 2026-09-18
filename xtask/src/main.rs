@@ -20,29 +20,34 @@ fn main() -> Result<()> {
 
 /// Root of the komga source checkout: from `KOMGA_REPO_DIR`, otherwise the `komga` directory next to this repo.
 fn komga_repo_dir() -> Result<PathBuf> {
-  if let Ok(dir) = std::env::var("KOMGA_REPO_DIR") {
-    let dir = PathBuf::from(dir);
-    if dir.join("komga/src/flyway").exists() {
-      return Ok(dir);
+    if let Ok(dir) = std::env::var("KOMGA_REPO_DIR") {
+        let dir = PathBuf::from(dir);
+        if dir.join("komga/src/flyway").exists() {
+            return Ok(dir);
+        }
+        bail!(
+            "KOMGA_REPO_DIR={} does not contain komga/src/flyway",
+            dir.display()
+        );
     }
-    bail!("KOMGA_REPO_DIR={} does not contain komga/src/flyway", dir.display());
-  }
-  let sibling = Path::new(env!("CARGO_MANIFEST_DIR"))
-    .parent()
-    .and_then(Path::parent)
-    .map(|p| p.join("komga"))
-    .filter(|p| p.join("komga/src/flyway").exists());
-  sibling.ok_or_else(|| {
-    anyhow::anyhow!("komga source checkout not found; set KOMGA_REPO_DIR or place komga next to this repo")
-  })
+    let sibling = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .map(|p| p.join("komga"))
+        .filter(|p| p.join("komga/src/flyway").exists());
+    sibling.ok_or_else(|| {
+        anyhow::anyhow!(
+            "komga source checkout not found; set KOMGA_REPO_DIR or place komga next to this repo"
+        )
+    })
 }
 
 /// Root of this repo (komga-rs).
 fn repo_root() -> PathBuf {
-  Path::new(env!("CARGO_MANIFEST_DIR"))
-    .parent()
-    .expect("xtask is at <repo>/xtask")
-    .to_path_buf()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("xtask is at <repo>/xtask")
+        .to_path_buf()
 }
 
 fn read_dir_map(dir: &Path) -> Result<BTreeMap<String, Vec<u8>>> {

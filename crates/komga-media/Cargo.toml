@@ -6,10 +6,13 @@ license.workspace = true
 
 [dependencies]
 komga-core = { path = "../komga-core" }
+anyhow.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 image.workspace = true
 zip.workspace = true
+compress-tools.workspace = true
+pdfium-render.workspace = true
 roxmltree.workspace = true
 scraper.workspace = true
 xxhash-rust.workspace = true

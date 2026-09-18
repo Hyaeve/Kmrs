@@ -56,6 +56,8 @@ moka = { version = "0.12", features = ["future", "sync"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 roxmltree = "0.20"
 scraper = "0.23"
+compress-tools = { version = "0.16", default-features = false, features = ["static"] }
+pdfium-render = "0.9"
 
 [profile.release]
 lto = "thin"

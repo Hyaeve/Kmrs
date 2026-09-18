@@ -139,14 +139,12 @@ fn equality_string(field: &str, op: &Equality<String>, ignore_case: bool) -> Sql
         field.to_string()
     };
     match op {
-        Equality::Is { value } => SqlWhere::bind(
-            format!("{field} = ?"),
-            vec![Value::Text(value.clone())],
-        ),
-        Equality::IsNot { value } => SqlWhere::bind(
-            format!("{field} <> ?"),
-            vec![Value::Text(value.clone())],
-        ),
+        Equality::Is { value } => {
+            SqlWhere::bind(format!("{field} = ?"), vec![Value::Text(value.clone())])
+        }
+        Equality::IsNot { value } => {
+            SqlWhere::bind(format!("{field} <> ?"), vec![Value::Text(value.clone())])
+        }
     }
 }
 
@@ -238,14 +236,12 @@ fn numeric_nullable_i32(field: &str, op: &NumericNullable<i32>) -> SqlWhere {
             format!("({field} <> ? OR {field} IS NULL)"),
             vec![Value::Integer(*value as i64)],
         ),
-        NumericNullable::GreaterThan { value } => SqlWhere::bind(
-            format!("{field} >= ?"),
-            vec![Value::Integer(*value as i64)],
-        ),
-        NumericNullable::LessThan { value } => SqlWhere::bind(
-            format!("{field} <= ?"),
-            vec![Value::Integer(*value as i64)],
-        ),
+        NumericNullable::GreaterThan { value } => {
+            SqlWhere::bind(format!("{field} >= ?"), vec![Value::Integer(*value as i64)])
+        }
+        NumericNullable::LessThan { value } => {
+            SqlWhere::bind(format!("{field} <= ?"), vec![Value::Integer(*value as i64)])
+        }
         NumericNullable::IsNull => SqlWhere::raw(format!("{field} IS NULL"), BTreeSet::new()),
         NumericNullable::IsNotNull => {
             SqlWhere::raw(format!("{field} IS NOT NULL"), BTreeSet::new())
@@ -255,22 +251,18 @@ fn numeric_nullable_i32(field: &str, op: &NumericNullable<i32>) -> SqlWhere {
 
 fn numeric_f32(field: &str, op: &Numeric<f32>) -> SqlWhere {
     match op {
-        Numeric::Is { value } => SqlWhere::bind(
-            format!("{field} = ?"),
-            vec![Value::Real(*value as f64)],
-        ),
-        Numeric::IsNot { value } => SqlWhere::bind(
-            format!("{field} <> ?"),
-            vec![Value::Real(*value as f64)],
-        ),
-        Numeric::GreaterThan { value } => SqlWhere::bind(
-            format!("{field} >= ?"),
-            vec![Value::Real(*value as f64)],
-        ),
-        Numeric::LessThan { value } => SqlWhere::bind(
-            format!("{field} <= ?"),
-            vec![Value::Real(*value as f64)],
-        ),
+        Numeric::Is { value } => {
+            SqlWhere::bind(format!("{field} = ?"), vec![Value::Real(*value as f64)])
+        }
+        Numeric::IsNot { value } => {
+            SqlWhere::bind(format!("{field} <> ?"), vec![Value::Real(*value as f64)])
+        }
+        Numeric::GreaterThan { value } => {
+            SqlWhere::bind(format!("{field} >= ?"), vec![Value::Real(*value as f64)])
+        }
+        Numeric::LessThan { value } => {
+            SqlWhere::bind(format!("{field} <= ?"), vec![Value::Real(*value as f64)])
+        }
     }
 }
 
@@ -281,7 +273,12 @@ fn boolean_op(field: &str, op: &BooleanOp) -> SqlWhere {
     }
 }
 
-fn equality_nullable(field_id: &str, inner_equals: SqlWhere, inner_any: SqlWhere, op: &EqualityNullable<String>) -> SqlWhere {
+fn equality_nullable(
+    field_id: &str,
+    inner_equals: SqlWhere,
+    inner_any: SqlWhere,
+    op: &EqualityNullable<String>,
+) -> SqlWhere {
     let in_sub = |sub: SqlWhere, negated: bool| {
         let kw = if negated { "NOT IN" } else { "IN" };
         SqlWhere {
@@ -374,7 +371,10 @@ fn library_ids_condition(table: &str, library_ids: Option<&BTreeSet<String>>) ->
 }
 
 /// `SeriesSearchHelper.toCondition(searchCondition)`: search condition AND base restrictions.
-pub fn series_condition(condition: Option<&SearchConditionSeries>, ctx: &SearchContext) -> SqlWhere {
+pub fn series_condition(
+    condition: Option<&SearchConditionSeries>,
+    ctx: &SearchContext,
+) -> SqlWhere {
     let base = content_restrictions_condition(&ctx.restrictions)
         .and(library_ids_condition("SERIES", ctx.library_ids.as_ref()));
     series_condition_internal(condition, ctx).and(base)
@@ -596,7 +596,10 @@ pub fn series_regex_condition(regex: &str, field: SearchField) -> SqlWhere {
         SearchField::Title => "SERIES_METADATA.TITLE",
         SearchField::TitleSort => "SERIES_METADATA.TITLE_SORT",
     };
-    SqlWhere::bind(format!("{column} REGEXP ?"), vec![Value::Text(regex.to_string())])
+    SqlWhere::bind(
+        format!("{column} REGEXP ?"),
+        vec![Value::Text(regex.to_string())],
+    )
 }
 
 pub fn collection_alias(collection_id: &str) -> String {
@@ -614,19 +617,24 @@ pub fn book_condition(condition: Option<&SearchConditionBook>, ctx: &SearchConte
     book_condition_internal(condition, ctx).and(base)
 }
 
-fn book_condition_internal(condition: Option<&SearchConditionBook>, ctx: &SearchContext) -> SqlWhere {
+fn book_condition_internal(
+    condition: Option<&SearchConditionBook>,
+    ctx: &SearchContext,
+) -> SqlWhere {
     let Some(condition) = condition else {
         return SqlWhere::no_condition();
     };
     match condition {
-        SearchConditionBook::AllOf { conditions } => conditions.iter().fold(
-            SqlWhere::no_condition(),
-            |acc, c| acc.and(book_condition_internal(Some(c), ctx)),
-        ),
-        SearchConditionBook::AnyOf { conditions } => conditions.iter().fold(
-            SqlWhere::no_condition(),
-            |acc, c| acc.or(book_condition_internal(Some(c), ctx)),
-        ),
+        SearchConditionBook::AllOf { conditions } => {
+            conditions.iter().fold(SqlWhere::no_condition(), |acc, c| {
+                acc.and(book_condition_internal(Some(c), ctx))
+            })
+        }
+        SearchConditionBook::AnyOf { conditions } => {
+            conditions.iter().fold(SqlWhere::no_condition(), |acc, c| {
+                acc.or(book_condition_internal(Some(c), ctx))
+            })
+        }
         SearchConditionBook::LibraryId { operator } => {
             equality_string("BOOK.LIBRARY_ID", operator, false)
         }
@@ -672,7 +680,9 @@ fn book_condition_internal(condition: Option<&SearchConditionBook>, ctx: &Search
                 let field = "READ_PROGRESS.COMPLETED";
                 let w = match operator {
                     Equality::Is { value } => match value {
-                        ReadStatus::Unread => SqlWhere::raw(format!("{field} IS NULL"), BTreeSet::new()),
+                        ReadStatus::Unread => {
+                            SqlWhere::raw(format!("{field} IS NULL"), BTreeSet::new())
+                        }
                         ReadStatus::Read => SqlWhere::raw(format!("{field} = 1"), BTreeSet::new()),
                         ReadStatus::InProgress => {
                             SqlWhere::raw(format!("{field} = 0"), BTreeSet::new())
@@ -727,17 +737,21 @@ fn book_condition_internal(condition: Option<&SearchConditionBook>, ctx: &Search
             w
         }
         SearchConditionBook::Tag { tag } => {
-            let inner_equals = |value: &str| SqlWhere::bind(
-                format!(
-                    "SELECT BOOK_ID FROM BOOK_METADATA_TAG WHERE {} = ?",
-                    unicode1("BOOK_METADATA_TAG.TAG"),
-                ),
-                vec![Value::Text(value.to_string())],
-            );
-            let inner_any = || SqlWhere::raw(
-                "SELECT BOOK_ID FROM BOOK_METADATA_TAG WHERE TAG IS NOT NULL",
-                BTreeSet::new(),
-            );
+            let inner_equals = |value: &str| {
+                SqlWhere::bind(
+                    format!(
+                        "SELECT BOOK_ID FROM BOOK_METADATA_TAG WHERE {} = ?",
+                        unicode1("BOOK_METADATA_TAG.TAG"),
+                    ),
+                    vec![Value::Text(value.to_string())],
+                )
+            };
+            let inner_any = || {
+                SqlWhere::raw(
+                    "SELECT BOOK_ID FROM BOOK_METADATA_TAG WHERE TAG IS NOT NULL",
+                    BTreeSet::new(),
+                )
+            };
             let (eq, any) = match tag {
                 EqualityNullable::Is { value } | EqualityNullable::IsNot { value } => {
                     (inner_equals(value), SqlWhere::no_condition())
@@ -754,11 +768,17 @@ fn book_condition_internal(condition: Option<&SearchConditionBook>, ctx: &Search
             let mut sql = "SELECT BOOK_ID FROM BOOK_METADATA_AUTHOR WHERE 1 = 1".to_string();
             let mut params = vec![];
             if let Some(name) = &value.name {
-                sql.push_str(&format!(" AND {} = ?", unicode1("BOOK_METADATA_AUTHOR.NAME")));
+                sql.push_str(&format!(
+                    " AND {} = ?",
+                    unicode1("BOOK_METADATA_AUTHOR.NAME")
+                ));
                 params.push(Value::Text(name.clone()));
             }
             if let Some(role) = &value.role {
-                sql.push_str(&format!(" AND {} = ?", unicode1("BOOK_METADATA_AUTHOR.ROLE")));
+                sql.push_str(&format!(
+                    " AND {} = ?",
+                    unicode1("BOOK_METADATA_AUTHOR.ROLE")
+                ));
                 params.push(Value::Text(role.clone()));
             }
             let kw = match author {
@@ -811,7 +831,7 @@ fn map_named<T, U: AsRef<str>>(op: &Equality<T>, f: impl Fn(&T) -> U) -> Equalit
 pub fn id_in_or_no_condition(field: &str, ids: Option<&[String]>) -> SqlWhere {
     match ids {
         None => SqlWhere::no_condition(),
-        Some(ids) if ids.is_empty() => SqlWhere::false_condition(),
+        Some([]) => SqlWhere::false_condition(),
         Some(ids) => {
             let ph = ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
             SqlWhere::bind(
@@ -862,28 +882,38 @@ mod tests {
         assert_eq!(c.sql, "a = 1");
         let c = SqlWhere::raw("a = 1", BTreeSet::new()).or(SqlWhere::no_condition());
         assert_eq!(c.sql, "a = 1");
-        let c = SqlWhere::raw("a = 1", BTreeSet::new()).and(SqlWhere::raw("b = 2", BTreeSet::new()));
+        let c =
+            SqlWhere::raw("a = 1", BTreeSet::new()).and(SqlWhere::raw("b = 2", BTreeSet::new()));
         assert_eq!(c.sql, "(a = 1) AND (b = 2)");
     }
 
     #[test]
     fn book_read_status() {
         let w = book_condition(
-            Some(&parse_book(r#"{"readStatus":{"operator":"is","value":"UNREAD"}}"#)),
+            Some(&parse_book(
+                r#"{"readStatus":{"operator":"is","value":"UNREAD"}}"#,
+            )),
             &ctx(Some("u1")),
         );
         assert_eq!(w.sql, "READ_PROGRESS.COMPLETED IS NULL");
         assert!(w.joins.contains(&RequiredJoin::ReadProgress("u1".into())));
 
         let w = book_condition(
-            Some(&parse_book(r#"{"readStatus":{"operator":"isNot","value":"READ"}}"#)),
+            Some(&parse_book(
+                r#"{"readStatus":{"operator":"isNot","value":"READ"}}"#,
+            )),
             &ctx(Some("u1")),
         );
-        assert_eq!(w.sql, "(READ_PROGRESS.COMPLETED IS NULL OR READ_PROGRESS.COMPLETED = 0)");
+        assert_eq!(
+            w.sql,
+            "(READ_PROGRESS.COMPLETED IS NULL OR READ_PROGRESS.COMPLETED = 0)"
+        );
 
         // no user in context: false condition
         let w = book_condition(
-            Some(&parse_book(r#"{"readStatus":{"operator":"is","value":"READ"}}"#)),
+            Some(&parse_book(
+                r#"{"readStatus":{"operator":"is","value":"READ"}}"#,
+            )),
             &ctx(None),
         );
         assert_eq!(w.sql, "1 = 0");
@@ -892,7 +922,9 @@ mod tests {
     #[test]
     fn series_read_status() {
         let w = series_condition(
-            Some(&parse_series(r#"{"readStatus":{"operator":"is","value":"READ"}}"#)),
+            Some(&parse_series(
+                r#"{"readStatus":{"operator":"is","value":"READ"}}"#,
+            )),
             &ctx(Some("u1")),
         );
         assert_eq!(w.sql, "READ_PROGRESS_SERIES.READ_COUNT = SERIES.BOOK_COUNT");
@@ -912,7 +944,9 @@ mod tests {
     #[test]
     fn string_operators() {
         let w = series_condition(
-            Some(&parse_series(r#"{"title":{"operator":"contains","value":"50%"}}"#)),
+            Some(&parse_series(
+                r#"{"title":{"operator":"contains","value":"50%"}}"#,
+            )),
             &ctx(None),
         );
         assert_eq!(
@@ -922,23 +956,32 @@ mod tests {
         assert_eq!(w.params, vec![Value::Text("%50!%%".to_string())]);
 
         let w = series_condition(
-            Some(&parse_series(r#"{"titleSort":{"operator":"is","value":"Berserk"}}"#)),
+            Some(&parse_series(
+                r#"{"titleSort":{"operator":"is","value":"Berserk"}}"#,
+            )),
             &ctx(None),
         );
-        assert_eq!(w.sql, "SERIES_METADATA.TITLE_SORT COLLATE COLLATION_UNICODE_1 = ?");
+        assert_eq!(
+            w.sql,
+            "SERIES_METADATA.TITLE_SORT COLLATE COLLATION_UNICODE_1 = ?"
+        );
     }
 
     #[test]
     fn collection_id_is_requires_join() {
         let w = series_condition(
-            Some(&parse_series(r#"{"collectionId":{"operator":"is","value":"c1"}}"#)),
+            Some(&parse_series(
+                r#"{"collectionId":{"operator":"is","value":"c1"}}"#,
+            )),
             &ctx(None),
         );
         assert_eq!(w.sql, "CS_c1.COLLECTION_ID = ?");
         assert!(w.joins.contains(&RequiredJoin::Collection("c1".into())));
 
         let w = series_condition(
-            Some(&parse_series(r#"{"collectionId":{"operator":"isNot","value":"c1"}}"#)),
+            Some(&parse_series(
+                r#"{"collectionId":{"operator":"isNot","value":"c1"}}"#,
+            )),
             &ctx(None),
         );
         assert_eq!(
@@ -951,7 +994,9 @@ mod tests {
     #[test]
     fn readlist_id_is_requires_join() {
         let w = book_condition(
-            Some(&parse_book(r#"{"readListId":{"operator":"is","value":"r1"}}"#)),
+            Some(&parse_book(
+                r#"{"readListId":{"operator":"is","value":"r1"}}"#,
+            )),
             &ctx(None),
         );
         assert_eq!(w.sql, "RLB_r1.READLIST_ID = ?");
@@ -961,15 +1006,17 @@ mod tests {
     #[test]
     fn media_profile_maps_types() {
         let w = book_condition(
-            Some(&parse_book(r#"{"mediaProfile":{"operator":"is","value":"DIVINA"}}"#)),
+            Some(&parse_book(
+                r#"{"mediaProfile":{"operator":"is","value":"DIVINA"}}"#,
+            )),
             &ctx(None),
         );
-        assert_eq!(
-            w.sql,
-            "MEDIA.MEDIA_TYPE IN (?, ?, ?, ?)"
-        );
+        assert_eq!(w.sql, "MEDIA.MEDIA_TYPE IN (?, ?, ?, ?)");
         assert_eq!(w.params.len(), 4);
-        assert_eq!(w.params[1], Value::Text("application/x-rar-compressed".to_string()));
+        assert_eq!(
+            w.params[1],
+            Value::Text("application/x-rar-compressed".to_string())
+        );
     }
 
     #[test]
@@ -1032,7 +1079,9 @@ mod tests {
     #[test]
     fn tag_unions_series_and_book_aggregation() {
         let w = series_condition(
-            Some(&parse_series(r#"{"tag":{"operator":"is","value":"seinen"}}"#)),
+            Some(&parse_series(
+                r#"{"tag":{"operator":"is","value":"seinen"}}"#,
+            )),
             &ctx(None),
         );
         assert!(w.sql.contains("UNION"));
@@ -1083,7 +1132,10 @@ mod tests {
     #[test]
     fn sort_by_values_case() {
         let (sql, params) = sort_by_values("BOOK.ID", &["a".into(), "b".into()], true);
-        assert_eq!(sql, "CASE BOOK.ID WHEN ? THEN 0 WHEN ? THEN 1 ELSE 2147483647 END");
+        assert_eq!(
+            sql,
+            "CASE BOOK.ID WHEN ? THEN 0 WHEN ? THEN 1 ELSE 2147483647 END"
+        );
         assert_eq!(params.len(), 2);
 
         let (sql, _) = sort_by_values("BOOK.ID", &["a".into()], false);
