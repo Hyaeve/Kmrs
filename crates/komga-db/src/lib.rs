@@ -1,6 +1,7 @@
 //! Persistence layer: Flyway-compatible migrator, connection pool, UDF/collation, DAOs.
 
 pub mod dao;
+pub mod dto_dao;
 pub mod error;
 mod java_migrations;
 pub mod migrate;

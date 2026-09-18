@@ -465,6 +465,37 @@ impl SearchContext {
     }
 }
 
+/// `FilterByEntity.kt`: the entity a referential v2 query is scoped to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FilterByEntity {
+    #[serde(rename = "LIBRARY")]
+    Library,
+    #[serde(rename = "COLLECTION")]
+    Collection,
+    #[serde(rename = "SERIES")]
+    Series,
+    #[serde(rename = "READLIST")]
+    ReadList,
+}
+
+/// `FilterBy.kt`: restricts a referential v2 query to entities of one type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FilterBy {
+    pub type_: FilterByEntity,
+    pub ids: BTreeSet<String>,
+}
+
+/// `FilterTags.kt`: which tag sources the v2 tags query includes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FilterTags {
+    #[serde(rename = "SERIES")]
+    Series,
+    #[serde(rename = "BOOK")]
+    Book,
+    #[serde(rename = "BOTH")]
+    Both,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
