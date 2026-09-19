@@ -1,16 +1,23 @@
-//! Server configuration: aligned with `KomgaProperties` and the key defaults of application.yml.
+//! Server configuration.
+//!
+//! The configuration file is always `<config-dir>/config.toml`; the config dir itself comes
+//! from `--config-dir` / `KOMGA_CONFIG_DIR` / `KOMGA_CONFIGDIR`, defaulting to `~/.komga`.
+//! On first start the file is generated from the built-in defaults, carrying over values
+//! from the Java komga's `application.yml`/`application.yaml` found in the same
+//! directory — see the `java` module.
 //!
 //! Precedence, lowest to highest: built-in defaults < TOML file < env vars < CLI flags.
-//! The TOML file (`<config-dir>/kmrs.toml` by default) mirrors the original komga property
-//! names (`komga.database.file`, `server.port`, `spring.security.oauth2.client.*`, ...).
-//! env variable names follow Spring relaxed binding (uppercase, dots to underscores, dashes
-//! removed: `komga.database.file` -> `KOMGA_DATABASE_FILE`).
+//! env variable names follow Spring relaxed binding (`database.file` -> `KOMGA_DATABASE_FILE`),
+//! so existing komga deployments keep working.
+
+mod file;
+mod java;
 
 use anyhow::Context;
 use clap::Parser;
+use file::{FileConfig, FileDatabase, FileOAuth2};
 use komga_db::pool::{DatabaseConfig, JournalMode};
 use komga_db::Placeholders;
-use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -22,14 +29,10 @@ use std::time::Duration;
     about = "komga-compatible media server, rewritten in Rust"
 )]
 pub struct Cli {
-    /// Path to the TOML configuration file.
-    /// Defaults to <config-dir>/kmrs.toml when that file exists.
-    #[arg(long, value_name = "FILE")]
-    pub config: Option<PathBuf>,
-    /// Base directory for the database, search index and fonts (komga.config-dir).
+    /// Base directory for config.toml, the database, search index and fonts.
     #[arg(long, value_name = "DIR")]
     pub config_dir: Option<PathBuf>,
-    /// HTTP listen port (server.port).
+    /// HTTP listen port (overrides server.port).
     #[arg(long, value_name = "PORT")]
     pub port: Option<u16>,
 }
@@ -40,24 +43,21 @@ type Env = [(String, String)];
 #[derive(Debug, Clone)]
 pub struct ServerConfig {
     pub config_dir: PathBuf,
-    pub database_file: PathBuf,
-    pub tasks_db_file: PathBuf,
     pub lucene_dir: PathBuf,
     pub fonts_dir: PathBuf,
     pub port: u16,
     pub database: DatabaseConfig,
     pub tasks_db: DatabaseConfig,
-    /// server.servlet.session.timeout, defaults to 7 days
+    /// defaults to 7 days
     pub session_timeout: Duration,
     pub cors_allowed_origins: Vec<String>,
     pub page_hashing: u32,
     pub epub_divina_letter_count_threshold: usize,
     pub kobo_sync_item_limit: u32,
     pub kepubify_path: Option<PathBuf>,
-    /// `server.servlet.context-path` (configurationSource of the settings DTO)
+    /// configurationSource of the settings DTO
     pub server_context_path: Option<String>,
     pub oauth2: OAuth2Config,
-    /// komga.file-hashing / libraries-scan-startup / delete-empty-collections / delete-empty-read-lists,
     /// substituted into the SQL migrations
     pub migration_placeholders: Placeholders,
 }
@@ -68,9 +68,7 @@ pub struct ServerConfig {
 #[derive(Debug, Clone, Default)]
 pub struct OAuth2Config {
     pub registrations: Vec<OAuth2ClientRegistration>,
-    /// `komga.oauth2-account-creation`, defaults to false
     pub account_creation: bool,
-    /// `komga.oidc-email-verification`, defaults to true
     pub oidc_email_verification: bool,
 }
 
@@ -131,227 +129,6 @@ impl OAuth2ClientRegistration {
     }
 }
 
-// ---- TOML file schema ----
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct FileConfig {
-    server: Option<FileServer>,
-    komga: Option<FileKomga>,
-    spring: Option<FileSpring>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "kebab-case")]
-struct FileServer {
-    port: Option<u16>,
-    /// kmrs always resolves X-Forwarded-* headers (framework strategy)
-    forward_headers_strategy: Option<String>,
-    /// kmrs always shuts down gracefully
-    shutdown: Option<String>,
-    servlet: Option<FileServerServlet>,
-    error: Option<FileServerError>,
-    tomcat: Option<FileServerTomcat>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "kebab-case")]
-struct FileServerServlet {
-    context_path: Option<String>,
-    session: Option<FileServerSession>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct FileServerSession {
-    timeout: Option<ConfigDuration>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "kebab-case")]
-#[allow(dead_code)] // accepted for komga parity, rejected with a warning at resolve time
-struct FileServerError {
-    include_message: Option<String>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "kebab-case")]
-#[allow(dead_code)] // accepted for komga parity, rejected with a warning at resolve time
-struct FileServerTomcat {
-    relaxed_query_chars: Option<Vec<String>>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "kebab-case")]
-struct FileKomga {
-    config_dir: Option<PathBuf>,
-    page_hashing: Option<u32>,
-    epub_divina_letter_count_threshold: Option<usize>,
-    oauth2_account_creation: Option<bool>,
-    oidc_email_verification: Option<bool>,
-    file_hashing: Option<bool>,
-    libraries_scan_startup: Option<bool>,
-    delete_empty_collections: Option<bool>,
-    delete_empty_read_lists: Option<bool>,
-    database: Option<FileDatabase>,
-    tasks_db: Option<FileDatabase>,
-    lucene: Option<FileLucene>,
-    fonts: Option<FileFonts>,
-    cors: Option<FileCors>,
-    kobo: Option<FileKobo>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "kebab-case")]
-struct FileDatabase {
-    file: Option<PathBuf>,
-    /// Java batch insert chunking, not applicable to kmrs
-    batch_chunk_size: Option<u32>,
-    pool_size: Option<u32>,
-    max_pool_size: Option<u32>,
-    journal_mode: Option<String>,
-    busy_timeout: Option<ConfigDuration>,
-    pragmas: Option<HashMap<String, String>>,
-    /// kmrs does not check whether the database sits on a local filesystem
-    check_local_filesystem: Option<bool>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "kebab-case")]
-struct FileLucene {
-    data_directory: Option<PathBuf>,
-    /// tantivy commits are managed by kmrs, not configurable
-    commit_delay: Option<ConfigDuration>,
-    /// the analyzer chain is fixed at build time; changing it would require a reindex
-    index_analyzer: Option<FileIndexAnalyzer>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "kebab-case")]
-#[allow(dead_code)] // accepted for komga parity, rejected with a warning at resolve time
-struct FileIndexAnalyzer {
-    min_gram: Option<u32>,
-    max_gram: Option<u32>,
-    preserve_original: Option<bool>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "kebab-case")]
-struct FileFonts {
-    data_directory: Option<PathBuf>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "kebab-case")]
-struct FileCors {
-    allowed_origins: Option<Vec<String>>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "kebab-case")]
-struct FileKobo {
-    sync_item_limit: Option<u32>,
-    kepubify_path: Option<PathBuf>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct FileSpring {
-    security: Option<FileSpringSecurity>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct FileSpringSecurity {
-    oauth2: Option<FileSpringOauth2>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct FileSpringOauth2 {
-    client: Option<FileSpringOauth2Client>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct FileSpringOauth2Client {
-    registration: Option<HashMap<String, FileOauth2Registration>>,
-    provider: Option<HashMap<String, FileOauth2Provider>>,
-}
-
-#[derive(Debug, Default, Clone, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "kebab-case")]
-struct FileOauth2Registration {
-    client_name: Option<String>,
-    client_id: Option<String>,
-    client_secret: Option<String>,
-    authorization_grant_type: Option<String>,
-    redirect_uri: Option<String>,
-    scope: Option<Vec<String>>,
-}
-
-#[derive(Debug, Default, Clone, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "kebab-case")]
-struct FileOauth2Provider {
-    issuer_uri: Option<String>,
-    authorization_uri: Option<String>,
-    token_uri: Option<String>,
-    user_info_uri: Option<String>,
-    user_name_attribute: Option<String>,
-}
-
-/// Duration accepting Spring-style strings ("500ms", "10s", "30m", "1h", "7d");
-/// a bare TOML integer means seconds.
-#[derive(Debug, Clone, Copy)]
-struct ConfigDuration(Duration);
-
-impl<'de> Deserialize<'de> for ConfigDuration {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct Visitor;
-        impl serde::de::Visitor<'_> for Visitor {
-            type Value = ConfigDuration;
-            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                f.write_str("a duration string like \"7d\"/\"1h\"/\"30m\"/\"10s\"/\"500ms\", or seconds as an integer")
-            }
-            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
-                parse_duration(v).map(ConfigDuration).map_err(E::custom)
-            }
-            fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<Self::Value, E> {
-                Ok(ConfigDuration(Duration::from_secs(v)))
-            }
-            fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<Self::Value, E> {
-                u64::try_from(v)
-                    .map(|s| ConfigDuration(Duration::from_secs(s)))
-                    .map_err(|_| E::custom(format!("negative duration: {v}")))
-            }
-        }
-        deserializer.deserialize_any(Visitor)
-    }
-}
-
-fn parse_duration(s: &str) -> Result<Duration, String> {
-    let s = s.trim();
-    // "ms" must be tried before "s"
-    for (suffix, millis) in [
-        ("ms", 1u64),
-        ("s", 1_000),
-        ("m", 60_000),
-        ("h", 3_600_000),
-        ("d", 86_400_000),
-    ] {
-        if let Some(num) = s.strip_suffix(suffix) {
-            let n: u64 = num
-                .trim()
-                .parse()
-                .map_err(|_| format!("invalid duration {s:?}"))?;
-            return Ok(Duration::from_millis(n * millis));
-        }
-    }
-    Err(format!(
-        "invalid duration {s:?}: expected a number followed by ms/s/m/h/d"
-    ))
-}
-
 // ---- resolution ----
 
 impl ServerConfig {
@@ -363,67 +140,78 @@ impl ServerConfig {
 
     pub fn load(cli: &Cli) -> anyhow::Result<Self> {
         let env: Vec<(String, String)> = std::env::vars().collect();
-        let file = Self::load_file(cli, &env)?;
-        Self::resolve(file.as_ref(), cli, &env)
+        Self::load_with(cli, &env)
     }
 
-    fn load_file(cli: &Cli, env: &Env) -> anyhow::Result<Option<FileConfig>> {
-        let path = match &cli.config {
-            Some(p) => Some(p.clone()),
-            None => {
-                let dir = cli
-                    .config_dir
-                    .clone()
-                    .or_else(|| env_path(env, "KOMGA_CONFIG_DIR"))
-                    .or_else(|| env_path(env, "KOMGA_CONFIGDIR"))
-                    .unwrap_or_else(default_config_dir);
-                let candidate = dir.join("kmrs.toml");
-                candidate.exists().then_some(candidate)
+    fn load_with(cli: &Cli, env: &Env) -> anyhow::Result<Self> {
+        let config_dir = cli
+            .config_dir
+            .clone()
+            .or_else(|| env_path(env, "KOMGA_CONFIG_DIR"))
+            .or_else(|| env_path(env, "KOMGA_CONFIGDIR"))
+            .unwrap_or_else(default_config_dir);
+        let path = config_dir.join("config.toml");
+        let file = if path.exists() {
+            let text = std::fs::read_to_string(&path)
+                .with_context(|| format!("read config file {}", path.display()))?;
+            let parsed: FileConfig = toml::from_str(&text)
+                .with_context(|| format!("parse config file {}", path.display()))?;
+            tracing::info!("loaded configuration from {}", path.display());
+            parsed
+        } else {
+            let migrated = java::migrate(&config_dir);
+            let source = migrated.as_ref().map(|(_, p)| p.clone());
+            let file = migrated.map(|(f, _)| f).unwrap_or_default();
+            // env vars and CLI flags are runtime overrides; the generated file must
+            // reflect only defaults and migrated values
+            let render_cli = Cli {
+                config_dir: Some(config_dir.clone()),
+                port: None,
+            };
+            let rendered = Self::resolve(Some(&file), &render_cli, &[])?;
+            match std::fs::create_dir_all(&config_dir).and_then(|()| {
+                std::fs::write(&path, file::render(&file, &rendered, source.as_deref()))
+            }) {
+                Ok(()) => match &source {
+                    Some(p) => tracing::info!(
+                        "wrote configuration to {}, migrated from {}",
+                        path.display(),
+                        p.display()
+                    ),
+                    None => {
+                        tracing::info!("wrote default configuration to {}", path.display())
+                    }
+                },
+                Err(e) => tracing::warn!("could not write {}: {e:#}", path.display()),
             }
+            file
         };
-        match path {
-            Some(p) => {
-                let text = std::fs::read_to_string(&p)
-                    .with_context(|| format!("read config file {}", p.display()))?;
-                let parsed: FileConfig = toml::from_str(&text)
-                    .with_context(|| format!("parse config file {}", p.display()))?;
-                tracing::info!("loaded configuration from {}", p.display());
-                Ok(Some(parsed))
-            }
-            None => Ok(None),
-        }
+        Self::resolve(Some(&file), cli, env)
     }
 
     fn resolve(file: Option<&FileConfig>, cli: &Cli, env: &Env) -> anyhow::Result<Self> {
-        let mut warnings: Vec<String> = vec![];
         let server = file.and_then(|f| f.server.as_ref());
-        let komga = file.and_then(|f| f.komga.as_ref());
 
         let config_dir = cli
             .config_dir
             .clone()
             .or_else(|| env_path(env, "KOMGA_CONFIG_DIR"))
             .or_else(|| env_path(env, "KOMGA_CONFIGDIR"))
-            .or_else(|| komga.and_then(|k| k.config_dir.clone()))
             .unwrap_or_else(default_config_dir);
 
         let database = merge_database(
-            komga.and_then(|k| k.database.as_ref()),
+            file.and_then(|f| f.database.as_ref()),
             env,
             "KOMGA_DATABASE",
             config_dir.join("database.sqlite"),
             true,
-            "komga.database",
-            &mut warnings,
         )?;
         let tasks_db = merge_database(
-            komga.and_then(|k| k.tasks_db.as_ref()),
+            file.and_then(|f| f.tasks_db.as_ref()),
             env,
             "KOMGA_TASKSDB",
             config_dir.join("tasks.sqlite"),
             false,
-            "komga.tasks-db",
-            &mut warnings,
         )?;
 
         let port = cli
@@ -436,66 +224,23 @@ impl ServerConfig {
 
         let session_timeout = env_duration(env, "SERVER_SERVLET_SESSION_TIMEOUT")
             .transpose()?
-            .or_else(|| {
-                server
-                    .and_then(|s| s.servlet.as_ref())
-                    .and_then(|s| s.session.as_ref())
-                    .and_then(|s| s.timeout)
-                    .map(|d| d.0)
-            })
+            .or_else(|| server.and_then(|s| s.session_timeout).map(|d| d.0))
             .unwrap_or(Duration::from_secs(7 * 24 * 3600));
 
         let server_context_path = env_string(env, "SERVER_SERVLET_CONTEXT_PATH")
-            .or_else(|| {
-                server
-                    .and_then(|s| s.servlet.as_ref())
-                    .and_then(|s| s.context_path.clone())
-            })
+            .or_else(|| server.and_then(|s| s.context_path.clone()))
             .filter(|v| !v.is_empty());
 
-        if let Some(strategy) = server.and_then(|s| s.forward_headers_strategy.as_deref()) {
-            if !strategy.eq_ignore_ascii_case("framework") {
-                warnings.push(format!(
-                    "server.forward-headers-strategy={strategy:?}: kmrs always applies the framework strategy"
-                ));
-            }
-        }
-        if let Some(shutdown) = server.and_then(|s| s.shutdown.as_deref()) {
-            if !shutdown.eq_ignore_ascii_case("graceful") {
-                warnings.push(format!(
-                    "server.shutdown={shutdown:?}: kmrs always shuts down gracefully"
-                ));
-            }
-        }
-        if server.and_then(|s| s.error.as_ref()).is_some() {
-            warnings.push("server.error.include-message: not supported by kmrs".into());
-        }
-        if server.and_then(|s| s.tomcat.as_ref()).is_some() {
-            warnings.push("server.tomcat.*: tomcat-specific, not supported by kmrs".into());
-        }
-
-        let lucene = komga.and_then(|k| k.lucene.as_ref());
-        if lucene.and_then(|l| l.commit_delay).is_some() {
-            warnings.push("komga.lucene.commit-delay: not supported by kmrs".into());
-        }
-        if lucene.and_then(|l| l.index_analyzer.as_ref()).is_some() {
-            warnings.push("komga.lucene.index-analyzer.*: not supported by kmrs".into());
-        }
-
-        for warning in &warnings {
-            tracing::warn!("{warning}");
-        }
-
         Ok(Self {
-            database_file: database.file.clone(),
-            tasks_db_file: tasks_db.file.clone(),
             lucene_dir: env_path(env, "KOMGA_LUCENE_DATA_DIRECTORY")
-                .or_else(|| lucene.and_then(|l| l.data_directory.clone()))
+                .or_else(|| {
+                    file.and_then(|f| f.search.as_ref())
+                        .and_then(|s| s.data_directory.clone())
+                })
                 .unwrap_or_else(|| config_dir.join("lucene")),
             fonts_dir: env_path(env, "KOMGA_FONTS_DATA_DIRECTORY")
                 .or_else(|| {
-                    komga
-                        .and_then(|k| k.fonts.as_ref())
+                    file.and_then(|f| f.fonts.as_ref())
                         .and_then(|f| f.data_directory.clone())
                 })
                 .unwrap_or_else(|| config_dir.join("fonts")),
@@ -506,47 +251,62 @@ impl ServerConfig {
             session_timeout,
             cors_allowed_origins: env_list(env, "KOMGA_CORS_ALLOWEDORIGINS")
                 .or_else(|| {
-                    komga
-                        .and_then(|k| k.cors.as_ref())
+                    file.and_then(|f| f.cors.as_ref())
                         .and_then(|c| c.allowed_origins.clone())
                 })
                 .unwrap_or_default(),
             page_hashing: env_u32(env, "KOMGA_PAGEHASHING")
-                .or_else(|| komga.and_then(|k| k.page_hashing))
+                .or_else(|| {
+                    file.and_then(|f| f.books.as_ref())
+                        .and_then(|b| b.page_hashing)
+                })
                 .unwrap_or(3),
             epub_divina_letter_count_threshold: env_u32(
                 env,
                 "KOMGA_EPUBDIVINALETTERCOUNTTHRESHOLD",
             )
             .map(|v| v as usize)
-            .or_else(|| komga.and_then(|k| k.epub_divina_letter_count_threshold))
+            .or_else(|| {
+                file.and_then(|f| f.books.as_ref())
+                    .and_then(|b| b.epub_divina_letter_count_threshold)
+            })
             .unwrap_or(15),
             kobo_sync_item_limit: env_u32(env, "KOMGA_KOBO_SYNCITEMLIMIT")
                 .or_else(|| {
-                    komga
-                        .and_then(|k| k.kobo.as_ref())
+                    file.and_then(|f| f.kobo.as_ref())
                         .and_then(|k| k.sync_item_limit)
                 })
                 .unwrap_or(100),
             kepubify_path: env_path(env, "KOMGA_KOBO_KEPUBIFY_PATH").or_else(|| {
-                komga
-                    .and_then(|k| k.kobo.as_ref())
+                file.and_then(|f| f.kobo.as_ref())
                     .and_then(|k| k.kepubify_path.clone())
             }),
             server_context_path,
-            oauth2: merge_oauth2(file.and_then(|f| f.spring.as_ref()), komga, env),
+            oauth2: merge_oauth2(file.and_then(|f| f.oauth2.as_ref()), env),
             migration_placeholders: Placeholders {
                 library_file_hashing: env_bool(env, "KOMGA_FILEHASHING")
-                    .or_else(|| komga.and_then(|k| k.file_hashing))
+                    .or_else(|| {
+                        file.and_then(|f| f.libraries.as_ref())
+                            .and_then(|l| l.file_hashing)
+                    })
                     .unwrap_or(true),
                 library_scan_startup: env_bool(env, "KOMGA_LIBRARIESSCANSTARTUP")
-                    .or_else(|| komga.and_then(|k| k.libraries_scan_startup))
+                    .or_else(|| {
+                        file.and_then(|f| f.libraries.as_ref())
+                            .and_then(|l| l.scan_on_startup)
+                    })
                     .unwrap_or(false),
                 delete_empty_collections: env_bool(env, "KOMGA_DELETEEMPTYCOLLECTIONS")
-                    .or_else(|| komga.and_then(|k| k.delete_empty_collections))
+                    .or_else(|| {
+                        file.and_then(|f| f.libraries.as_ref())
+                            .and_then(|l| l.delete_empty_collections)
+                    })
                     .unwrap_or(true),
                 delete_empty_read_lists: env_bool(env, "KOMGA_DELETEEMPTYREADLISTS")
-                    .or_else(|| komga.and_then(|k| k.delete_empty_read_lists))
+                    .or_else(|| {
+                        file.and_then(|f| f.libraries.as_ref())
+                            .and_then(|l| l.delete_empty_read_lists)
+                    })
                     .unwrap_or(true),
             },
         })
@@ -559,26 +319,12 @@ fn merge_database(
     env_prefix: &str,
     default_file: PathBuf,
     register_udfs: bool,
-    toml_path: &str,
-    warnings: &mut Vec<String>,
 ) -> anyhow::Result<DatabaseConfig> {
     let journal_mode = env_string(env, &format!("{env_prefix}_JOURNALMODE"))
         .or_else(|| file.and_then(|d| d.journal_mode.clone()))
         .map(|mode| parse_journal_mode(&mode))
         .transpose()?
         .unwrap_or_default();
-    if let Some(d) = file {
-        if d.batch_chunk_size.is_some() {
-            warnings.push(format!(
-                "{toml_path}.batch-chunk-size: not supported by kmrs"
-            ));
-        }
-        if d.check_local_filesystem.is_some() {
-            warnings.push(format!(
-                "{toml_path}.check-local-filesystem: not supported by kmrs"
-            ));
-        }
-    }
     let mut pragmas: Vec<(String, String)> = file
         .and_then(|d| d.pragmas.clone())
         .unwrap_or_default()
@@ -617,20 +363,24 @@ fn parse_journal_mode(mode: &str) -> anyhow::Result<JournalMode> {
 
 /// File registrations come first, env vars override individual fields on top
 /// (same-id entries merge, matching Spring's property-source precedence).
-fn merge_oauth2(spring: Option<&FileSpring>, komga: Option<&FileKomga>, env: &Env) -> OAuth2Config {
+fn merge_oauth2(file: Option<&FileOAuth2>, env: &Env) -> OAuth2Config {
     const REG_PREFIX: &str = "SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_";
     const PROV_PREFIX: &str = "SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_";
 
-    let client = spring
-        .and_then(|s| s.security.as_ref())
-        .and_then(|s| s.oauth2.as_ref())
-        .and_then(|o| o.client.as_ref());
+    #[derive(Default)]
+    struct EnvProvider {
+        issuer_uri: Option<String>,
+        authorization_uri: Option<String>,
+        token_uri: Option<String>,
+        user_info_uri: Option<String>,
+        user_name_attribute: Option<String>,
+    }
 
     let mut registrations: HashMap<String, OAuth2ClientRegistration> = HashMap::new();
-    let mut providers: HashMap<String, FileOauth2Provider> = HashMap::new();
+    let mut providers: HashMap<String, EnvProvider> = HashMap::new();
 
-    if let Some(client) = client {
-        for (id, reg) in client.registration.clone().unwrap_or_default() {
+    if let Some(file) = file {
+        for (id, reg) in file.registrations.clone().unwrap_or_default() {
             let entry = registrations
                 .entry(id.clone())
                 .or_insert_with(|| OAuth2ClientRegistration::empty(id));
@@ -649,11 +399,25 @@ fn merge_oauth2(spring: Option<&FileSpring>, komga: Option<&FileKomga>, env: &En
             if let Some(v) = reg.redirect_uri {
                 entry.redirect_uri = Some(v);
             }
-            if let Some(v) = reg.scope {
+            if let Some(v) = reg.scopes {
                 entry.scopes = v;
             }
+            if let Some(v) = reg.issuer_uri {
+                entry.issuer_uri = Some(v);
+            }
+            if let Some(v) = reg.authorization_uri {
+                entry.authorization_uri = Some(v);
+            }
+            if let Some(v) = reg.token_uri {
+                entry.token_uri = Some(v);
+            }
+            if let Some(v) = reg.user_info_uri {
+                entry.user_info_uri = Some(v);
+            }
+            if let Some(v) = reg.user_name_attribute {
+                entry.user_name_attribute = Some(v);
+            }
         }
-        providers.extend(client.provider.clone().unwrap_or_default());
     }
 
     for (key, value) in env {
@@ -727,10 +491,10 @@ fn merge_oauth2(spring: Option<&FileSpring>, komga: Option<&FileKomga>, env: &En
     OAuth2Config {
         registrations,
         account_creation: env_bool(env, "KOMGA_OAUTH2ACCOUNTCREATION")
-            .or_else(|| komga.and_then(|k| k.oauth2_account_creation))
+            .or_else(|| file.and_then(|f| f.account_creation))
             .unwrap_or(false),
         oidc_email_verification: env_bool(env, "KOMGA_OIDCMAILVERIFICATION")
-            .or_else(|| komga.and_then(|k| k.oidc_email_verification))
+            .or_else(|| file.and_then(|f| f.oidc_email_verification))
             .unwrap_or(true),
     }
 }
@@ -757,7 +521,7 @@ fn env_u32(env: &Env, key: &str) -> Option<u32> {
 }
 
 fn env_duration(env: &Env, key: &str) -> Option<anyhow::Result<Duration>> {
-    env_get(env, key).map(|v| parse_duration(v).map_err(anyhow::Error::msg))
+    env_get(env, key).map(|v| file::parse_duration(v).map_err(anyhow::Error::msg))
 }
 
 fn default_config_dir() -> PathBuf {
@@ -797,20 +561,6 @@ mod tests {
     }
 
     #[test]
-    fn duration_parsing() {
-        assert_eq!(parse_duration("500ms").unwrap(), Duration::from_millis(500));
-        assert_eq!(parse_duration("10s").unwrap(), Duration::from_secs(10));
-        assert_eq!(parse_duration("30m").unwrap(), Duration::from_secs(1800));
-        assert_eq!(parse_duration("1h").unwrap(), Duration::from_secs(3600));
-        assert_eq!(
-            parse_duration("7d").unwrap(),
-            Duration::from_secs(7 * 86400)
-        );
-        assert!(parse_duration("7").is_err());
-        assert!(parse_duration("abc").is_err());
-    }
-
-    #[test]
     fn defaults_without_file() {
         let config = ServerConfig::resolve(None, &Cli::default(), &[]).unwrap();
         assert_eq!(config.port, 25600);
@@ -826,32 +576,37 @@ mod tests {
         assert_eq!(config.database.max_pool_size, 1);
         assert!(matches!(config.database.journal_mode, JournalMode::Wal));
         let home = default_config_dir();
-        assert_eq!(config.database_file, home.join("database.sqlite"));
+        assert_eq!(config.database.file, home.join("database.sqlite"));
         assert_eq!(config.lucene_dir, home.join("lucene"));
     }
 
     #[test]
     fn file_values_apply_and_derive_from_config_dir() {
+        let cli = Cli {
+            config_dir: Some(PathBuf::from("/data/komga")),
+            port: None,
+        };
         let config = resolve(
             r#"
-[komga]
-config-dir = "/data/komga"
+[books]
 page-hashing = 5
+
+[libraries]
 delete-empty-collections = false
 
-[komga.cors]
+[cors]
 allowed-origins = ["https://a.example", "https://b.example"]
 
-[komga.kobo]
+[kobo]
 sync-item-limit = 50
 kepubify-path = "/usr/local/bin/kepubify"
 "#,
-            Cli::default(),
+            cli,
             &[],
         );
         assert_eq!(config.config_dir, PathBuf::from("/data/komga"));
         assert_eq!(
-            config.database_file,
+            config.database.file,
             PathBuf::from("/data/komga/database.sqlite")
         );
         assert_eq!(config.lucene_dir, PathBuf::from("/data/komga/lucene"));
@@ -875,7 +630,6 @@ kepubify-path = "/usr/local/bin/kepubify"
     #[test]
     fn precedence_file_env_cli() {
         let cli = Cli {
-            config: None,
             config_dir: None,
             port: Some(9000),
         };
@@ -899,7 +653,7 @@ kepubify-path = "/usr/local/bin/kepubify"
     fn database_tuning_from_file_and_env() {
         let config = resolve(
             r#"
-[komga.database]
+[database]
 journal-mode = "delete"
 pool-size = 4
 max-pool-size = 8
@@ -928,16 +682,14 @@ pragmas = { cache_size = "-2000", synchronous = "NORMAL" }
     fn oauth2_file_plus_env_merge() {
         let config = resolve(
             r#"
-[komga]
-oauth2-account-creation = true
+[oauth2]
+account-creation = true
 
-[spring.security.oauth2.client.registration.github]
+[oauth2.registrations.github]
 client-id = "file-id"
 client-secret = "file-secret"
 client-name = "GitHub"
-scope = ["read:user"]
-
-[spring.security.oauth2.client.provider.github]
+scopes = ["read:user"]
 issuer-uri = "https://github.com"
 "#,
             Cli::default(),
@@ -988,23 +740,130 @@ issuer-uri = "https://github.com"
 
     #[test]
     fn unknown_keys_are_rejected() {
-        let err = toml::from_str::<FileConfig>("[komga]\npage-hshing = 5\n").unwrap_err();
+        let err = toml::from_str::<FileConfig>("[books]\npage-hshing = 5\n").unwrap_err();
         assert!(err.to_string().contains("unknown field"));
     }
 
     #[test]
     fn session_timeout_from_file() {
-        let config = resolve(
-            "[server.servlet.session]\ntimeout = \"12h\"\n",
-            Cli::default(),
-            &[],
-        );
+        let config = resolve("[server]\nsession-timeout = \"12h\"\n", Cli::default(), &[]);
         assert_eq!(config.session_timeout, Duration::from_secs(12 * 3600));
         let config = resolve(
-            "[server.servlet.session]\ntimeout = \"12h\"\n",
+            "[server]\nsession-timeout = \"12h\"\n",
             Cli::default(),
             &env(&[("SERVER_SERVLET_SESSION_TIMEOUT", "1d")]),
         );
         assert_eq!(config.session_timeout, Duration::from_secs(86400));
+    }
+
+    #[test]
+    fn rendered_config_round_trips() {
+        let cli = Cli {
+            config_dir: Some(PathBuf::from("/data/komga")),
+            port: None,
+        };
+        let file: FileConfig = toml::from_str(
+            r#"
+[database]
+pool-size = 4
+busy-timeout = "30s"
+pragmas = { synchronous = "NORMAL" }
+
+[kobo]
+kepubify-path = "/usr/local/bin/kepubify"
+
+[oauth2.registrations.github]
+client-id = "gh-id"
+client-secret = "gh-secret"
+scopes = ["read:user"]
+issuer-uri = "https://github.com"
+"#,
+        )
+        .unwrap();
+        let config = ServerConfig::resolve(Some(&file), &cli, &[]).unwrap();
+        let rendered = file::render(&file, &config, None);
+        let reparsed: FileConfig = toml::from_str(&rendered).unwrap();
+        let config2 = ServerConfig::resolve(Some(&reparsed), &cli, &[]).unwrap();
+        assert_eq!(config2.database.pool_size, Some(4));
+        assert_eq!(config2.database.busy_timeout, Some(Duration::from_secs(30)));
+        assert_eq!(
+            config2.database.pragmas,
+            vec![("synchronous".to_string(), "NORMAL".to_string())]
+        );
+        assert_eq!(
+            config2.database.file,
+            PathBuf::from("/data/komga/database.sqlite")
+        );
+        assert_eq!(
+            config2.kepubify_path,
+            Some(PathBuf::from("/usr/local/bin/kepubify"))
+        );
+        let reg = &config2.oauth2.registrations[0];
+        assert_eq!(reg.registration_id, "github");
+        assert_eq!(reg.client_id, "gh-id");
+        assert_eq!(reg.client_secret, "gh-secret");
+        assert_eq!(reg.scopes, vec!["read:user".to_string()]);
+        assert_eq!(reg.issuer_uri.as_deref(), Some("https://github.com"));
+    }
+
+    #[test]
+    fn config_toml_is_generated_on_first_start() {
+        let dir = tempfile::tempdir().unwrap();
+        let cli = Cli {
+            config_dir: Some(dir.path().to_path_buf()),
+            port: None,
+        };
+        let config = ServerConfig::load_with(&cli, &[]).unwrap();
+        assert_eq!(config.port, 25600);
+        let written = dir.path().join("config.toml");
+        let text = std::fs::read_to_string(&written).unwrap();
+        // defaults are commented out; only explicit overrides are written live
+        assert!(text.contains("# port = 25600"));
+        let parsed: FileConfig = toml::from_str(&text).unwrap();
+        let reparsed = ServerConfig::resolve(Some(&parsed), &cli, &[]).unwrap();
+        assert_eq!(reparsed.port, 25600);
+        assert_eq!(reparsed.database.file, dir.path().join("database.sqlite"));
+        assert_eq!(reparsed.lucene_dir, dir.path().join("lucene"));
+    }
+
+    #[test]
+    fn first_start_migrates_java_config() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("application.yml"),
+            "server:\n  port: 8080\nkomga:\n  page-hashing: 7\n",
+        )
+        .unwrap();
+        let cli = Cli {
+            config_dir: Some(dir.path().to_path_buf()),
+            port: None,
+        };
+        let config = ServerConfig::load_with(&cli, &[]).unwrap();
+        assert_eq!(config.port, 8080);
+        assert_eq!(config.page_hashing, 7);
+        let text = std::fs::read_to_string(dir.path().join("config.toml")).unwrap();
+        assert!(text.contains("port = 8080"));
+        assert!(text.contains("page-hashing = 7"));
+        // untouched defaults stay commented
+        assert!(text.contains("# session-timeout = \"7d\""));
+    }
+
+    #[test]
+    fn existing_config_toml_wins_over_java_config() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("config.toml"), "[server]\nport = 9000\n").unwrap();
+        std::fs::write(
+            dir.path().join("application.yml"),
+            "server:\n  port: 8080\n",
+        )
+        .unwrap();
+        let cli = Cli {
+            config_dir: Some(dir.path().to_path_buf()),
+            port: None,
+        };
+        let config = ServerConfig::load_with(&cli, &[]).unwrap();
+        assert_eq!(config.port, 9000);
+        let text = std::fs::read_to_string(dir.path().join("config.toml")).unwrap();
+        assert_eq!(text, "[server]\nport = 9000\n");
     }
 }

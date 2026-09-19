@@ -1,0 +1,71 @@
+# kmrs configuration file.
+#
+# Always loaded from <config-dir>/config.toml; there is no flag to point elsewhere.
+# The config dir itself comes from --config-dir / KOMGA_CONFIG_DIR, default ~/.komga.
+# On first start the file is generated automatically — with values migrated from a
+# Java komga application.yml/application.yaml found in the same directory — so you
+# normally never write it by hand.
+#
+# Every key below is commented out at its default value; uncomment to change it.
+# Precedence (lowest to highest): defaults < this file < env vars < CLI flags.
+# Env vars keep the komga/Spring names (e.g. `database.file` -> KOMGA_DATABASE_FILE).
+
+[server]
+# port = 25600 # env: SERVER_PORT; CLI: --port
+# session-timeout = "7d" # env: SERVER_SERVLET_SESSION_TIMEOUT; "500ms"/"10s"/"30m"/"1h"/"7d", bare integer = seconds
+# context-path = "/" # env: SERVER_SERVLET_CONTEXT_PATH; URL prefix, empty = root
+
+[cors]
+# allowed-origins = [] # env: KOMGA_CORS_ALLOWEDORIGINS (comma-separated)
+
+[database]
+# file = "<config-dir>/database.sqlite" # env: KOMGA_DATABASE_FILE
+# pool-size = 4 # read pool size; default min(CPU cores, max-pool-size). env: KOMGA_DATABASE_POOLSIZE
+# max-pool-size = 1 # env: KOMGA_DATABASE_MAXPOOLSIZE
+# journal-mode = "WAL" # WAL/DELETE/TRUNCATE/PERSIST/MEMORY/OFF; env: KOMGA_DATABASE_JOURNALMODE
+# busy-timeout = "30s" # env: KOMGA_DATABASE_BUSYTIMEOUT
+# [database.pragmas] # extra SQLite pragmas, TOML only
+# synchronous = "NORMAL"
+
+[tasks-db]
+# file = "<config-dir>/tasks.sqlite" # env: KOMGA_TASKSDB_FILE; same keys as [database], env prefix KOMGA_TASKSDB
+
+[search]
+# data-directory = "<config-dir>/lucene" # tantivy index; env: KOMGA_LUCENE_DATA_DIRECTORY
+
+[fonts]
+# data-directory = "<config-dir>/fonts" # env: KOMGA_FONTS_DATA_DIRECTORY
+
+[books]
+# page-hashing = 3 # env: KOMGA_PAGEHASHING
+# epub-divina-letter-count-threshold = 15 # env: KOMGA_EPUBDIVINALETTERCOUNTTHRESHOLD
+
+[libraries]
+# only consulted when database migrations run (fresh or upgraded data directory)
+# file-hashing = true # env: KOMGA_FILEHASHING
+# scan-on-startup = false # env: KOMGA_LIBRARIESSCANSTARTUP
+# delete-empty-collections = true # env: KOMGA_DELETEEMPTYCOLLECTIONS
+# delete-empty-read-lists = true # env: KOMGA_DELETEEMPTYREADLISTS
+
+[kobo]
+# sync-item-limit = 100 # env: KOMGA_KOBO_SYNCITEMLIMIT
+# kepubify-path = "/usr/local/bin/kepubify" # env: KOMGA_KOBO_KEPUBIFY_PATH
+
+[oauth2]
+# account-creation = false # env: KOMGA_OAUTH2ACCOUNTCREATION
+# oidc-email-verification = true # env: KOMGA_OIDCMAILVERIFICATION
+# One table per provider; setting `issuer-uri` switches it to OIDC discovery mode.
+# env vars SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_<ID>_*/PROVIDER_<ID>_* override single fields.
+#
+# [oauth2.registrations.github]
+# client-id = "..."
+# client-secret = "..."
+# client-name = "GitHub" # defaults to the registration id
+# authorization-grant-type = "authorization_code"
+# redirect-uri = "{baseUrl}/login/oauth2/code/{registrationId}"
+# scopes = ["read:user", "user:email"]
+# issuer-uri = "https://accounts.google.com"
+# authorization-uri = "..."
+# token-uri = "..."
+# user-info-uri = "..."
+# user-name-attribute = "..."

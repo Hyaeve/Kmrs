@@ -488,8 +488,6 @@ pub(crate) mod test_support {
     fn test_config() -> crate::config::ServerConfig {
         crate::config::ServerConfig {
             config_dir: PathBuf::new(),
-            database_file: PathBuf::new(),
-            tasks_db_file: PathBuf::new(),
             lucene_dir: PathBuf::new(),
             fonts_dir: PathBuf::new(),
             port: 25600,

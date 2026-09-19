@@ -1608,8 +1608,6 @@ mod tests {
         };
         let config = ServerConfig {
             config_dir: std::env::temp_dir(),
-            database_file: std::env::temp_dir(),
-            tasks_db_file: std::env::temp_dir(),
             lucene_dir: std::env::temp_dir(),
             fonts_dir: std::env::temp_dir(),
             port: 0,

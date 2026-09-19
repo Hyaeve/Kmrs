@@ -31,7 +31,7 @@ Run: `cargo run -p komga-server` produces the `kmrs` binary (default port 25600,
 
 ## Configuration
 
-`kmrs --help` lists the CLI flags (`--config`, `--config-dir`, `--port`). Configuration comes from a TOML file — `<config-dir>/kmrs.toml` by default, or an explicit path via `--config`. The file mirrors the original komga property names (`komga.database.file`, `server.port`, `spring.security.oauth2.client.*`, ...); see [examples/kmrs.toml](examples/kmrs.toml) for the full list with defaults. Precedence: defaults < TOML file < env vars (Spring relaxed binding, e.g. `KOMGA_DATABASE_FILE`) < CLI flags.
+`kmrs --help` lists the CLI flags (`--config-dir`, `--port`). The configuration file is always `<config-dir>/config.toml`; on first start it is generated from the built-in defaults, carrying over values from the Java komga's `application.yml`/`application.yaml` found in the same directory. See [examples/config.toml](examples/config.toml) for the full key list with defaults. Precedence: defaults < TOML file < env vars (Spring relaxed binding, e.g. `KOMGA_DATABASE_FILE`) < CLI flags.
 
 ## Compatibility testing
 
