@@ -19,7 +19,7 @@ repository = "https://github.com/gotson/komga"
 # async runtime
 tokio = { version = "1", features = ["full"] }
 # http
-axum = "0.8"
+axum = { version = "0.8", features = ["multipart"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "trace"] }
 # db

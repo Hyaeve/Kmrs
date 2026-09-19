@@ -2,8 +2,8 @@
 //! /api/v1/readlists/**.
 
 use crate::api::collections::{
-    book_thumbnail_bytes, bool_op, create_mosaic, enum_conversion_error, jpeg_response,
-    library_id_param, page_of, parse_read_status, to_page_request,
+    bool_op, enum_conversion_error, jpeg_response, library_id_param, page_of, parse_read_status,
+    to_page_request,
 };
 use crate::auth::RequireAuth;
 use crate::dto::common::{Page, SortOrder};
@@ -23,12 +23,14 @@ use komga_core::dto::thumbnail::ThumbnailReadListDto;
 use komga_core::model::media::MediaStatus;
 use komga_core::model::read_progress::ReadProgress;
 use komga_core::model::readlist::ReadList;
+use komga_core::model::thumbnail::ThumbnailReadList;
 use komga_core::model::user::{KomgaUser, UserRole};
 use komga_core::search::*;
 use komga_core::time_codec::now_utc;
 use komga_db::dao::book::BookDao;
 use komga_db::dao::media::MediaDao;
 use komga_db::dao::read_progress::ReadProgressDao;
+use komga_db::dao::readlist::ReadListDao;
 use komga_db::dao::thumbnail::ThumbnailReadListDao;
 use komga_db::dto_dao::book::BookDtoDao;
 use komga_db::dto_dao::read_progress::ReadProgressDtoDao;
@@ -38,19 +40,36 @@ use std::io::Write;
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/api/v1/readlists", routing::get(get_readlists))
-        .route("/api/v1/readlists/{id}", routing::get(get_readlist_by_id))
+        .route(
+            "/api/v1/readlists",
+            routing::get(get_readlists).post(create_readlist),
+        )
+        .route(
+            "/api/v1/readlists/{id}",
+            routing::get(get_readlist_by_id)
+                .patch(update_readlist_by_id)
+                .delete(delete_readlist_by_id),
+        )
+        .route(
+            "/api/v1/readlists/match/comicrack",
+            routing::post(match_comic_rack_list),
+        )
         .route(
             "/api/v1/readlists/{id}/thumbnail",
             routing::get(get_readlist_thumbnail),
         )
         .route(
             "/api/v1/readlists/{id}/thumbnails",
-            routing::get(get_readlist_thumbnails),
+            routing::get(get_readlist_thumbnails).post(add_user_uploaded_readlist_thumbnail),
         )
         .route(
             "/api/v1/readlists/{id}/thumbnails/{thumbnailId}",
-            routing::get(get_readlist_thumbnail_by_id),
+            routing::get(get_readlist_thumbnail_by_id)
+                .delete(delete_user_uploaded_readlist_thumbnail),
+        )
+        .route(
+            "/api/v1/readlists/{id}/thumbnails/{thumbnailId}/selected",
+            routing::put(mark_readlist_thumbnail_selected),
         )
         .route(
             "/api/v1/readlists/{id}/books",
@@ -358,6 +377,226 @@ async fn download_readlist_as_zip(
         .expect("zip response"))
 }
 
+// endregion
+
+// region write endpoints (`ReadListController` mutations)
+
+async fn create_readlist(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Json(body): Json<crate::dto::readlist::ReadListCreationDto>,
+) -> Result<Json<ReadListDto>, ApiError> {
+    auth.0.require_admin()?;
+    let violations = body.violations();
+    if !violations.is_empty() {
+        return Err(ApiError::Violations(violations));
+    }
+    let readlist = crate::service::readlist::add_read_list(
+        &state,
+        ReadList {
+            id: String::new(),
+            name: body.name,
+            summary: body.summary,
+            ordered: body.ordered,
+            book_ids: crate::service::readlist::to_indexed_map(&body.book_ids),
+            filtered: false,
+            created_date: now_utc(),
+            last_modified_date: now_utc(),
+        },
+    )
+    .map_err(|e| match e {
+        crate::service::readlist::ReadListError::DuplicateName => {
+            ApiError::bad_request(crate::service::readlist::DUPLICATE_NAME_MESSAGE)
+        }
+        crate::service::readlist::ReadListError::Db(e) => ApiError::from(e),
+    })?;
+    Ok(Json(ReadListDto::from(&readlist)))
+}
+
+async fn update_readlist_by_id(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(id): Path<String>,
+    Json(body): Json<crate::dto::readlist::ReadListUpdateDto>,
+) -> Result<StatusCode, ApiError> {
+    auth.0.require_admin()?;
+    let violations = body.violations();
+    if !violations.is_empty() {
+        return Err(ApiError::Violations(violations));
+    }
+    let existing = ReadListDao::new(state.db.clone())
+        .find_by_id(&id)?
+        .ok_or_else(|| ApiError::not_found(""))?;
+    let updated = ReadList {
+        name: body.name.unwrap_or(existing.name.clone()),
+        summary: body.summary.unwrap_or(existing.summary.clone()),
+        ordered: body.ordered.unwrap_or(existing.ordered),
+        book_ids: body
+            .book_ids
+            .map(|ids| crate::service::readlist::to_indexed_map(&ids))
+            .unwrap_or(existing.book_ids.clone()),
+        ..existing
+    };
+    crate::service::readlist::update_read_list(&state, &updated).map_err(|e| match e {
+        crate::service::readlist::ReadListError::DuplicateName => {
+            ApiError::bad_request(crate::service::readlist::DUPLICATE_NAME_MESSAGE)
+        }
+        crate::service::readlist::ReadListError::Db(e) => ApiError::from(e),
+    })?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn delete_readlist_by_id(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    auth.0.require_admin()?;
+    let readlist = ReadListDao::new(state.db.clone())
+        .find_by_id(&id)?
+        .ok_or_else(|| ApiError::not_found(""))?;
+    crate::service::readlist::delete_read_list(&state, &readlist)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn match_comic_rack_list(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    mut multipart: axum::extract::Multipart,
+) -> Result<Json<crate::dto::readlist::ReadListRequestMatchDto>, ApiError> {
+    auth.0.require_admin()?;
+    let mut file = None;
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| ApiError::bad_request(e.to_string()))?
+    {
+        if field.name() == Some("file") {
+            file = Some(
+                field
+                    .bytes()
+                    .await
+                    .map_err(|e| ApiError::bad_request(e.to_string()))?
+                    .to_vec(),
+            );
+        }
+    }
+    let file =
+        file.ok_or_else(|| ApiError::bad_request("Required request part 'file' is not present"))?;
+    let matched = crate::service::readlist::match_comic_rack_list(&state, &file)?;
+    Ok(Json(crate::dto::readlist::ReadListRequestMatchDto::from(
+        &matched,
+    )))
+}
+
+async fn add_user_uploaded_readlist_thumbnail(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(id): Path<String>,
+    mut multipart: axum::extract::Multipart,
+) -> Result<Json<ThumbnailReadListDto>, ApiError> {
+    auth.0.require_admin()?;
+    let readlist = find_visible_readlist(&state, &auth.0.user, &id)?;
+    let (bytes, selected) = parse_thumbnail_upload(&mut multipart).await?;
+    let media_type = komga_media::detect::detect_media_type(&bytes);
+    if !komga_media::detect::is_image(&media_type) {
+        return Err(ApiError::unsupported_media_type(""));
+    }
+    let dimension = komga_media::image::get_dimension(&bytes)
+        .map(|(w, h)| komga_core::model::thumbnail::Dimension {
+            width: w as i32,
+            height: h as i32,
+        })
+        .unwrap_or_else(crate::service::collection::zero_dimension);
+    let thumbnail = crate::service::readlist::add_thumbnail(
+        &state,
+        ThumbnailReadList {
+            id: String::new(),
+            read_list_id: readlist.id,
+            thumbnail: bytes.clone(),
+            selected,
+            type_: komga_core::model::thumbnail::ThumbnailType::UserUploaded,
+            file_size: bytes.len() as i64,
+            media_type,
+            dimension,
+            created_date: now_utc(),
+            last_modified_date: now_utc(),
+        },
+    )?;
+    Ok(Json(ThumbnailReadListDto::from(&thumbnail)))
+}
+
+async fn mark_readlist_thumbnail_selected(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path((id, thumbnail_id)): Path<(String, String)>,
+) -> Result<StatusCode, ApiError> {
+    auth.0.require_admin()?;
+    let readlist = find_visible_readlist(&state, &auth.0.user, &id)?;
+    if let Some(poster) = ThumbnailReadListDao::new(state.db.clone()).find_by_id(&thumbnail_id)? {
+        if poster.read_list_id != readlist.id {
+            return Err(ApiError::bad_request(""));
+        }
+        crate::service::readlist::mark_selected_thumbnail(&state, &poster)?;
+    }
+    // a missing thumbnail is silently accepted, as in komga
+    Ok(StatusCode::ACCEPTED)
+}
+
+async fn delete_user_uploaded_readlist_thumbnail(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path((id, thumbnail_id)): Path<(String, String)>,
+) -> Result<StatusCode, ApiError> {
+    auth.0.require_admin()?;
+    let readlist = find_visible_readlist(&state, &auth.0.user, &id)?;
+    if let Some(poster) = ThumbnailReadListDao::new(state.db.clone()).find_by_id(&thumbnail_id)? {
+        if poster.read_list_id != readlist.id {
+            return Err(ApiError::bad_request(""));
+        }
+        crate::service::readlist::delete_thumbnail(&state, &poster)?;
+    }
+    Ok(StatusCode::ACCEPTED)
+}
+
+/// `file` (image bytes) and `selected` (default true) from the multipart body
+async fn parse_thumbnail_upload(
+    multipart: &mut axum::extract::Multipart,
+) -> Result<(Vec<u8>, bool), ApiError> {
+    let mut bytes = None;
+    let mut selected = true;
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| ApiError::bad_request(e.to_string()))?
+    {
+        match field.name() {
+            Some("file") => {
+                bytes = Some(
+                    field
+                        .bytes()
+                        .await
+                        .map_err(|e| ApiError::bad_request(e.to_string()))?
+                        .to_vec(),
+                );
+            }
+            Some("selected") => {
+                let value = field
+                    .text()
+                    .await
+                    .map_err(|e| ApiError::bad_request(e.to_string()))?;
+                selected = value.eq_ignore_ascii_case("true");
+            }
+            _ => {}
+        }
+    }
+    let bytes = bytes
+        .ok_or_else(|| ApiError::bad_request("Required request part 'file' is not present"))?;
+    Ok((bytes, selected))
+}
+
+// endregion
+
 fn find_visible_readlist(
     state: &AppState,
     user: &KomgaUser,
@@ -372,25 +611,9 @@ fn find_visible_readlist(
         .ok_or_else(|| ApiError::not_found(""))
 }
 
-/// `ReadListLifecycle.getThumbnailBytes`: the selected thumbnail, or a 2x2 mosaic of the first
-/// 4 member books' thumbnails (the id list is cycled to fill the grid, as in komga)
+/// `ReadListLifecycle.getThumbnailBytes`: delegated to the service layer
 fn readlist_thumbnail_bytes(state: &AppState, readlist: &ReadList) -> Result<Vec<u8>, ApiError> {
-    if let Some(selected) =
-        ThumbnailReadListDao::new(state.db.clone()).find_selected_by_read_list_id(&readlist.id)?
-    {
-        return Ok(selected.thumbnail);
-    }
-    let mut ids = Vec::new();
-    let book_ids: Vec<&String> = readlist.book_ids.values().collect();
-    while ids.len() < 4 && !book_ids.is_empty() {
-        ids.extend(book_ids.iter().take(4).map(|id| id.to_string()));
-    }
-    ids.truncate(4);
-    let images: Vec<Vec<u8>> = ids
-        .iter()
-        .filter_map(|id| book_thumbnail_bytes(state, id))
-        .collect();
-    create_mosaic(&images, state.settings.get().thumbnail_size.max_edge())
+    crate::service::readlist::get_thumbnail_bytes(state, readlist).map_err(ApiError::from)
 }
 
 /// Filter conditions of `getBooksByReadListId`: read list membership plus the query params
@@ -978,4 +1201,453 @@ mod tests {
         std::io::Read::read_to_end(&mut entry, &mut content).unwrap();
         assert_eq!(content, b"content-one");
     }
+
+    // region write endpoint tests
+
+    fn json_request(method: &str, path: &str, api_key: &str, body: &str) -> Request<Body> {
+        Request::builder()
+            .method(method)
+            .uri(path)
+            .header("X-API-Key", api_key)
+            .header("Content-Type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    }
+
+    fn multipart_request(
+        path: &str,
+        api_key: &str,
+        file_bytes: &[u8],
+        file_name: &str,
+        selected: Option<&str>,
+    ) -> Request<Body> {
+        let boundary = "testboundary";
+        let mut body = Vec::new();
+        body.extend_from_slice(
+            format!("--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{file_name}\"\r\nContent-Type: application/octet-stream\r\n\r\n").as_bytes(),
+        );
+        body.extend_from_slice(file_bytes);
+        body.extend_from_slice(b"\r\n");
+        if let Some(selected) = selected {
+            body.extend_from_slice(
+                format!("--{boundary}\r\nContent-Disposition: form-data; name=\"selected\"\r\n\r\n{selected}\r\n").as_bytes(),
+            );
+        }
+        body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+        Request::builder()
+            .method("POST")
+            .uri(path)
+            .header("X-API-Key", api_key)
+            .header(
+                "Content-Type",
+                format!("multipart/form-data; boundary={boundary}"),
+            )
+            .body(Body::from(body))
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn create_readlist_full_flow_and_duplicate() {
+        let state = test_state();
+        seed_base_with_readlists(&state.db);
+        let (status, _, body) = call(
+            &state,
+            router(),
+            json_request(
+                "POST",
+                "/api/v1/readlists",
+                ADMIN_KEY,
+                r#"{"name":"My RL","summary":"s","ordered":true,"bookIds":["b2","b1"]}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let dto: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(dto["name"], "My RL");
+        assert_eq!(dto["summary"], "s");
+        assert_eq!(dto["ordered"], true);
+        assert_eq!(
+            dto["bookIds"].as_array().unwrap(),
+            &vec![serde_json::json!("b2"), serde_json::json!("b1")]
+        );
+
+        // duplicate name -> 400 with the exact message
+        let (status, _, body) = call(
+            &state,
+            router(),
+            json_request(
+                "POST",
+                "/api/v1/readlists",
+                ADMIN_KEY,
+                r#"{"name":"my rl","bookIds":["b1"]}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let error: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            error["message"],
+            "400 BAD_REQUEST \"Read list name already exists\""
+        );
+
+        // violations: blank name, empty ids, duplicate ids
+        let (status, _, body) = call(
+            &state,
+            router(),
+            json_request(
+                "POST",
+                "/api/v1/readlists",
+                ADMIN_KEY,
+                r#"{"name":"  ","bookIds":[]}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let violations: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let messages: Vec<&str> = violations["violations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v["message"].as_str().unwrap())
+            .collect();
+        assert!(messages.contains(&"must not be blank"));
+        assert!(messages.contains(&"must not be empty"));
+
+        let (status, _, body) = call(
+            &state,
+            router(),
+            json_request(
+                "POST",
+                "/api/v1/readlists",
+                ADMIN_KEY,
+                r#"{"name":"Dup","bookIds":["b1","b1"]}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let violations: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            violations["violations"][0]["message"],
+            "must not contain duplicate elements"
+        );
+
+        // non-admin -> 403
+        let (status, _, _) = call(
+            &state,
+            router(),
+            json_request(
+                "POST",
+                "/api/v1/readlists",
+                USER_KEY,
+                r#"{"name":"X","bookIds":["b1"]}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn update_and_delete_readlist() {
+        let state = test_state();
+        seed_base_with_readlists(&state.db);
+        // update name + members (re-indexed 0..n)
+        let (status, _, _) = call(
+            &state,
+            router(),
+            json_request(
+                "PATCH",
+                "/api/v1/readlists/r1",
+                ADMIN_KEY,
+                r#"{"name":"Renamed","bookIds":["b2","b1"]}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let (status, _, body) =
+            call(&state, router(), get("/api/v1/readlists/r1", ADMIN_KEY)).await;
+        assert_eq!(status, StatusCode::OK);
+        let dto: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(dto["name"], "Renamed");
+        assert_eq!(
+            dto["bookIds"].as_array().unwrap(),
+            &vec![serde_json::json!("b2"), serde_json::json!("b1")]
+        );
+
+        // duplicate with existing name (r2) -> 400
+        let (status, _, _) = call(
+            &state,
+            router(),
+            json_request(
+                "PATCH",
+                "/api/v1/readlists/r1",
+                ADMIN_KEY,
+                r#"{"name":"z-last"}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        // same name with different case is allowed
+        let (status, _, _) = call(
+            &state,
+            router(),
+            json_request(
+                "PATCH",
+                "/api/v1/readlists/r1",
+                ADMIN_KEY,
+                r#"{"name":"RENAMED"}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+
+        // update missing -> 404, non-admin -> 403
+        let (status, _, _) = call(
+            &state,
+            router(),
+            json_request("PATCH", "/api/v1/readlists/nope", ADMIN_KEY, r#"{}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (status, _, _) = call(
+            &state,
+            router(),
+            json_request("PATCH", "/api/v1/readlists/r1", USER_KEY, r#"{}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+
+        // delete
+        let (status, _, _) = call(
+            &state,
+            router(),
+            json_request("DELETE", "/api/v1/readlists/r1", ADMIN_KEY, ""),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let (status, _, _) = call(&state, router(), get("/api/v1/readlists/r1", ADMIN_KEY)).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn thumbnail_upload_select_delete() {
+        let state = test_state();
+        seed_base_with_readlists(&state.db);
+        let image = tiny_jpeg();
+
+        let (status, _, body) = call(
+            &state,
+            router(),
+            multipart_request(
+                "/api/v1/readlists/r1/thumbnails",
+                ADMIN_KEY,
+                &image,
+                "cover.jpg",
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let dto: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(dto["readListId"], "r1");
+        assert_eq!(dto["type"], "USER_UPLOADED");
+        assert_eq!(dto["selected"], true);
+        let first_id = dto["id"].as_str().unwrap().to_string();
+
+        let (status, _, body) = call(
+            &state,
+            router(),
+            multipart_request(
+                "/api/v1/readlists/r1/thumbnails",
+                ADMIN_KEY,
+                &image,
+                "cover.jpg",
+                Some("false"),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let dto: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(dto["selected"], false);
+        let second_id = dto["id"].as_str().unwrap().to_string();
+
+        // mark selected
+        let (status, _, _) = call(
+            &state,
+            router(),
+            json_request(
+                "PUT",
+                &format!("/api/v1/readlists/r1/thumbnails/{second_id}/selected"),
+                ADMIN_KEY,
+                "",
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        let selected = ThumbnailReadListDao::new(state.db.clone())
+            .find_selected_by_read_list_id("r1")
+            .unwrap()
+            .unwrap();
+        assert_eq!(selected.id, second_id);
+
+        // non-image -> 415
+        let (status, _, _) = call(
+            &state,
+            router(),
+            multipart_request(
+                "/api/v1/readlists/r1/thumbnails",
+                ADMIN_KEY,
+                b"not an image",
+                "x.bin",
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+
+        // wrong owner -> 400
+        let (status, _, _) = call(
+            &state,
+            router(),
+            json_request(
+                "PUT",
+                &format!("/api/v1/readlists/r2/thumbnails/{second_id}/selected"),
+                ADMIN_KEY,
+                "",
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        // delete; housekeeping selects the remaining one
+        let (status, _, _) = call(
+            &state,
+            router(),
+            json_request(
+                "DELETE",
+                &format!("/api/v1/readlists/r1/thumbnails/{second_id}"),
+                ADMIN_KEY,
+                "",
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        let selected = ThumbnailReadListDao::new(state.db.clone())
+            .find_selected_by_read_list_id("r1")
+            .unwrap()
+            .unwrap();
+        assert_eq!(selected.id, first_id);
+    }
+
+    #[tokio::test]
+    async fn match_comic_rack_list_endpoint() {
+        let state = test_state();
+        seed_base_with_readlists(&state.db);
+        exec(
+            &state.db,
+            "UPDATE BOOK_METADATA_AGGREGATION SET RELEASE_DATE = '2020-05-01' WHERE SERIES_ID = 's1'",
+            [],
+        );
+        exec(
+            &state.db,
+            "UPDATE BOOK_METADATA SET NUMBER = '01', TITLE = 'Book One' WHERE BOOK_ID = 'b1'",
+            [],
+        );
+        exec(
+            &state.db,
+            "UPDATE SERIES_METADATA SET TITLE = 'Alpha' WHERE SERIES_ID = 's1'",
+            [],
+        );
+
+        let cbl = br#"<?xml version="1.0" encoding="UTF-8"?>
+<ReadingList>
+  <Name>Imported</Name>
+  <Books>
+    <Book><Series>Alpha</Series><Number>1</Number></Book>
+    <Book><Series>Unknown</Series><Number>7</Number></Book>
+  </Books>
+</ReadingList>"#;
+        let (status, _, body) = call(
+            &state,
+            router(),
+            multipart_request(
+                "/api/v1/readlists/match/comicrack",
+                ADMIN_KEY,
+                cbl,
+                "list.cbl",
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let dto: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(dto["readListMatch"]["name"], "Imported");
+        assert_eq!(dto["readListMatch"]["errorCode"], "");
+        assert_eq!(dto["errorCode"], "");
+        let requests = dto["requests"].as_array().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0]["request"]["series"][0], "Alpha");
+        assert_eq!(requests[0]["request"]["number"], "1");
+        let matches = requests[0]["matches"].as_array().unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0]["series"]["seriesId"], "s1");
+        assert_eq!(matches[0]["series"]["title"], "Alpha");
+        assert_eq!(matches[0]["series"]["releaseDate"], "2020-05-01");
+        assert_eq!(matches[0]["books"][0]["bookId"], "b1");
+        assert_eq!(matches[0]["books"][0]["number"], "01");
+        assert_eq!(matches[0]["books"][0]["title"], "Book One");
+        assert_eq!(requests[1]["matches"].as_array().unwrap().len(), 0);
+
+        // an existing read list name -> ERR_1009 on readListMatch
+        let cbl_existing = br#"<ReadingList><Name>Marvel</Name><Books><Book><Series>Alpha</Series><Number>1</Number></Book></Books></ReadingList>"#;
+        let (status, _, body) = call(
+            &state,
+            router(),
+            multipart_request(
+                "/api/v1/readlists/match/comicrack",
+                ADMIN_KEY,
+                cbl_existing,
+                "list.cbl",
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let dto: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(dto["readListMatch"]["errorCode"], "ERR_1009");
+
+        // invalid CBL -> 400 with the coded message
+        let (status, _, body) = call(
+            &state,
+            router(),
+            multipart_request(
+                "/api/v1/readlists/match/comicrack",
+                ADMIN_KEY,
+                b"not xml",
+                "x.cbl",
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let error: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(error["message"], "400 BAD_REQUEST \"ERR_1015\"");
+
+        // non-admin -> 403
+        let (status, _, _) = call(
+            &state,
+            router(),
+            multipart_request(
+                "/api/v1/readlists/match/comicrack",
+                USER_KEY,
+                cbl,
+                "list.cbl",
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    // endregion
 }

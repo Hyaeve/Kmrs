@@ -3,13 +3,17 @@
 
 use crate::api::restriction;
 use crate::auth::{MaybeAuth, RequireAuth};
+use crate::dto::book::BookMetadataUpdateDto;
 use crate::dto::common::{Page, Pageable, SortOrder};
 use crate::error::{ApiError, Violation};
 use crate::http::headers::{check_not_modified, content_disposition, format_http_date};
 use crate::http::pagination::{QueryExt, QueryPageable};
+use crate::service::book::{
+    add_thumbnail_for_book, delete_thumbnail_for_book, MarkSelectedPreference,
+};
 use crate::state::AppState;
 use axum::body::Body;
-use axum::extract::{Path, State};
+use axum::extract::{Multipart, Path, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::{routing, Json, Router};
@@ -21,7 +25,7 @@ use komga_core::dto::url_to_file_path;
 use komga_core::model::book::Book;
 use komga_core::model::media::{Media, MediaStatus};
 use komga_core::model::read_progress::ReadProgress;
-use komga_core::model::thumbnail::ThumbnailBook;
+use komga_core::model::thumbnail::{Dimension, ThumbnailBook, ThumbnailType};
 use komga_core::model::user::{KomgaUser, UserRole};
 use komga_core::search::{
     BookSearch, DateOp, Equality, MediaProfile, ReadStatus, SearchConditionBook, SearchContext,
@@ -30,7 +34,7 @@ use komga_core::task::{
     BookMetadataPatchCapability, CopyMode, HIGHEST_PRIORITY, HIGH_PRIORITY, LOWEST_PRIORITY,
 };
 use komga_core::time_codec;
-use komga_db::dao::book::BookDao;
+use komga_db::dao::book::{BookDao, BookMetadataDao};
 use komga_db::dao::media::MediaDao;
 use komga_db::dao::read_progress::ReadProgressDao;
 use komga_db::dao::thumbnail::ThumbnailBookDao;
@@ -40,7 +44,7 @@ use komga_db::dto_dao::{DtoPage, PageRequest};
 use komga_media::container;
 use komga_media::detect;
 use komga_media::error::MediaError;
-use komga_media::image::ImageType;
+use komga_media::image::{get_dimension, ImageType};
 use std::collections::BTreeSet;
 use std::io::Read;
 use std::path::PathBuf;
@@ -82,11 +86,23 @@ pub fn router() -> Router<AppState> {
         )
         .route(
             "/api/v1/books/{bookId}/thumbnails",
-            routing::get(get_book_thumbnails),
+            routing::get(get_book_thumbnails).post(add_user_uploaded_book_thumbnail),
         )
         .route(
             "/api/v1/books/{bookId}/thumbnails/{thumbnailId}",
-            routing::get(get_book_thumbnail_by_id),
+            routing::get(get_book_thumbnail_by_id).delete(delete_user_uploaded_book_thumbnail),
+        )
+        .route(
+            "/api/v1/books/{bookId}/thumbnails/{thumbnailId}/selected",
+            routing::put(mark_book_thumbnail_selected),
+        )
+        .route(
+            "/api/v1/books/{bookId}/metadata",
+            routing::patch(update_book_metadata),
+        )
+        .route(
+            "/api/v1/books/metadata",
+            routing::patch(update_book_metadata_by_batch),
         )
         .route("/api/v1/books/{bookId}/pages", routing::get(get_book_pages))
         .route(
@@ -620,6 +636,219 @@ async fn get_book_thumbnail_by_id(
         return Err(ApiError::not_found(""));
     };
     Ok(jpeg_response(bytes))
+}
+
+// region thumbnail write endpoints
+
+/// Multipart parsing for the poster upload endpoints: the `file` part is required, `selected`
+/// defaults to true.
+pub(crate) async fn parse_thumbnail_upload(
+    mut multipart: Multipart,
+) -> Result<(Vec<u8>, bool), ApiError> {
+    let mut file: Option<Vec<u8>> = None;
+    let mut selected = true;
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| ApiError::bad_request(e.to_string()))?
+    {
+        match field.name() {
+            Some("file") => {
+                let bytes = field
+                    .bytes()
+                    .await
+                    .map_err(|e| ApiError::bad_request(e.to_string()))?;
+                file = Some(bytes.to_vec());
+            }
+            Some("selected") => {
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| ApiError::bad_request(e.to_string()))?;
+                selected = text.trim().eq_ignore_ascii_case("true");
+            }
+            _ => {}
+        }
+    }
+    let bytes =
+        file.ok_or_else(|| ApiError::bad_request("Required request part 'file' is not present"))?;
+    Ok((bytes, selected))
+}
+
+async fn add_user_uploaded_book_thumbnail(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(book_id): Path<String>,
+    multipart: Multipart,
+) -> Result<Json<ThumbnailBookDto>, ApiError> {
+    auth.0.require_admin()?;
+    let book = book_dao(&state)
+        .find_by_id(&book_id)?
+        .ok_or_else(|| ApiError::not_found(""))?;
+    let (bytes, selected) = parse_thumbnail_upload(multipart).await?;
+    let media_type = detect::detect_media_type(&bytes);
+    if !detect::is_image(&media_type) {
+        return Err(ApiError::unsupported_media_type(""));
+    }
+    let (width, height) = get_dimension(&bytes).unwrap_or((0, 0));
+    let thumbnail = ThumbnailBook {
+        id: String::new(),
+        book_id: book.id.clone(),
+        thumbnail: Some(bytes.clone()),
+        url: None,
+        selected: false,
+        type_: ThumbnailType::UserUploaded,
+        media_type,
+        file_size: bytes.len() as i64,
+        dimension: Dimension {
+            width: width as i32,
+            height: height as i32,
+        },
+        created_date: time_codec::now_utc(),
+        last_modified_date: time_codec::now_utc(),
+    };
+    let added = add_thumbnail_for_book(
+        &state,
+        thumbnail,
+        if selected {
+            MarkSelectedPreference::Yes
+        } else {
+            MarkSelectedPreference::No
+        },
+    )?;
+    Ok(Json(ThumbnailBookDto::from(&added)))
+}
+
+async fn mark_book_thumbnail_selected(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path((book_id, thumbnail_id)): Path<(String, String)>,
+) -> Result<StatusCode, ApiError> {
+    auth.0.require_admin()?;
+    let book = book_dao(&state)
+        .find_by_id(&book_id)?
+        .ok_or_else(|| ApiError::not_found(""))?;
+    let dao = thumbnail_dao(&state);
+    let Some(poster) = dao.find_by_id(&thumbnail_id)? else {
+        return Err(ApiError::not_found(""));
+    };
+    if poster.book_id != book.id {
+        return Err(ApiError::bad_request(""));
+    }
+    dao.mark_selected(&poster)?;
+    let _ = state
+        .events
+        .send(crate::events::DomainEvent::ThumbnailBookAdded(
+            ThumbnailBook {
+                selected: true,
+                ..poster
+            },
+        ));
+    Ok(StatusCode::ACCEPTED)
+}
+
+async fn delete_user_uploaded_book_thumbnail(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path((book_id, thumbnail_id)): Path<(String, String)>,
+) -> Result<StatusCode, ApiError> {
+    auth.0.require_admin()?;
+    let book = book_dao(&state)
+        .find_by_id(&book_id)?
+        .ok_or_else(|| ApiError::not_found(""))?;
+    let dao = thumbnail_dao(&state);
+    let Some(poster) = dao.find_by_id(&thumbnail_id)? else {
+        return Err(ApiError::not_found(""));
+    };
+    if poster.book_id != book.id {
+        return Err(ApiError::bad_request(""));
+    }
+    if poster.type_ != ThumbnailType::UserUploaded {
+        // BookController maps the lifecycle's IllegalArgumentException to 400 with this message
+        return Err(ApiError::bad_request(
+            "Only uploaded thumbnails can be deleted",
+        ));
+    }
+    delete_thumbnail_for_book(&state, &poster)?;
+    Ok(StatusCode::ACCEPTED)
+}
+
+// endregion
+
+// region metadata update
+
+async fn update_book_metadata(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(book_id): Path<String>,
+    Json(body): Json<BookMetadataUpdateDto>,
+) -> Result<StatusCode, ApiError> {
+    auth.0.require_admin()?;
+    let violations = body.violations();
+    if !violations.is_empty() {
+        return Err(ApiError::Violations(violations));
+    }
+    let dao = BookMetadataDao::new(state.db.clone());
+    let Some(existing) = dao.find_by_id(&book_id)? else {
+        return Err(ApiError::not_found(""));
+    };
+    dao.update(&body.apply_to(&existing))?;
+    if let Some(book) = book_dao(&state).find_by_id(&book_id)? {
+        state
+            .task_emitter
+            .aggregate_series_metadata(&book.series_id, komga_core::task::DEFAULT_PRIORITY)?;
+        let _ = state
+            .events
+            .send(crate::events::DomainEvent::BookUpdated(book));
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn update_book_metadata_by_batch(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Json(body): Json<serde_json::Map<String, serde_json::Value>>,
+) -> Result<StatusCode, ApiError> {
+    auth.0.require_admin()?;
+    let mut violations = vec![];
+    let mut patches = vec![];
+    for (book_id, value) in &body {
+        let dto: BookMetadataUpdateDto = serde_json::from_value(value.clone())
+            .map_err(|e| ApiError::bad_request(e.to_string()))?;
+        for violation in dto.violations() {
+            violations.push(Violation {
+                field_name: format!("{book_id}.{}", violation.field_name),
+                message: violation.message,
+            });
+        }
+        patches.push((book_id.clone(), dto));
+    }
+    if !violations.is_empty() {
+        return Err(ApiError::Violations(violations));
+    }
+    let metadata_dao = BookMetadataDao::new(state.db.clone());
+    let mut updated_books = vec![];
+    for (book_id, dto) in patches {
+        let Some(existing) = metadata_dao.find_by_id(&book_id)? else {
+            continue;
+        };
+        metadata_dao.update(&dto.apply_to(&existing))?;
+        if let Some(book) = book_dao(&state).find_by_id(&book_id)? {
+            updated_books.push(book);
+        }
+    }
+    for book in &updated_books {
+        let _ = state
+            .events
+            .send(crate::events::DomainEvent::BookUpdated(book.clone()));
+    }
+    let series_ids: BTreeSet<String> = updated_books.iter().map(|b| b.series_id.clone()).collect();
+    for series_id in series_ids {
+        state
+            .task_emitter
+            .aggregate_series_metadata(&series_id, komga_core::task::DEFAULT_PRIORITY)?;
+    }
+    Ok(StatusCode::NO_CONTENT)
 }
 
 // endregion
@@ -3193,6 +3422,377 @@ mod tests {
         assert_eq!(tasks[0].unique_id(), "FIND_BOOK_THUMBNAILS_TO_REGENERATE");
         assert_eq!(tasks[0].priority(), 0);
         assert_eq!(tasks[0].to_payload()["forBiggerResultOnly"], true);
+    }
+
+    // endregion
+
+    // region metadata PATCH
+
+    #[tokio::test]
+    async fn patch_book_metadata_isset_and_aggregate() {
+        let state = test_state_with_settings();
+        seed_library(&state.db, "lib1");
+        seed_series(&state.db, "s1", "lib1");
+        set_series_book_count(&state.db, "s1", 1);
+        seed_book(&state.db, "b1", "s1", "lib1", "file:/data/b1.cbz");
+        seed_user(&state.db, "admin@example.org", "pw", true);
+        let mut events = state.events.subscribe();
+        let app = test_router(state.clone());
+
+        let (status, _, _) = call(
+            &app,
+            "PATCH",
+            "/api/v1/books/b1/metadata",
+            Some(&basic("admin@example.org", "pw")),
+            Some(
+                serde_json::json!({
+                    "title": "Renamed",
+                    "summary": null,
+                    "number": "2",
+                    "numberSort": 2.0,
+                    "releaseDate": "2020-05-01",
+                    "authors": [{"name": "  Studio Gaga  ", "role": " Penciller "}],
+                    "tags": ["action", "seinen", "action"],
+                    "isbn": "978-1-23-456789-7",
+                    "links": [{"label": "wiki", "url": "https://example.org/wiki"}],
+                    "titleLock": true
+                })
+                .to_string(),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+
+        let dao = BookMetadataDao::new(state.db.clone());
+        let updated = dao.find_by_id("b1").unwrap().unwrap();
+        assert_eq!(updated.title, "Renamed");
+        assert!(updated.title_lock);
+        assert_eq!(updated.summary, ""); // isSet explicit null → cleared
+        assert_eq!(updated.number, "2");
+        assert_eq!(updated.number_sort, 2.0);
+        assert_eq!(
+            updated.release_date,
+            time::Date::from_calendar_date(2020, time::Month::May, 1).ok()
+        );
+        assert_eq!(updated.authors.len(), 1);
+        assert_eq!(updated.authors[0].name, "Studio Gaga");
+        assert_eq!(updated.authors[0].role, "penciller");
+        assert_eq!(updated.tags, vec!["action", "seinen"]); // dedup by first occurrence
+        assert_eq!(updated.isbn, "9781234567897");
+        assert_eq!(updated.links.len(), 1);
+
+        // aggregate task for the book's series + BookUpdated event
+        let tasks = komga_db::dao::tasks::TasksDao::new(state.tasks_db.clone())
+            .find_all()
+            .unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].unique_id(), "AGGREGATE_SERIES_METADATA_s1");
+        assert_eq!(tasks[0].priority(), 4);
+        assert!(matches!(
+            events.try_recv().unwrap(),
+            crate::events::DomainEvent::BookUpdated(ref b) if b.id == "b1"
+        ));
+
+        // empty body: nothing changes, no new event
+        let (status, _, _) = call(
+            &app,
+            "PATCH",
+            "/api/v1/books/b1/metadata",
+            Some(&basic("admin@example.org", "pw")),
+            Some("{}".into()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert_eq!(dao.find_by_id("b1").unwrap().unwrap().title, "Renamed");
+    }
+
+    #[tokio::test]
+    async fn patch_book_metadata_violations_and_404() {
+        let state = test_state_with_settings();
+        seed_library(&state.db, "lib1");
+        seed_series(&state.db, "s1", "lib1");
+        seed_book(&state.db, "b1", "s1", "lib1", "file:/data/b1.cbz");
+        seed_user(&state.db, "admin@example.org", "pw", true);
+        let app = test_router(state.clone());
+
+        let (status, _, body) = call(
+            &app,
+            "PATCH",
+            "/api/v1/books/b1/metadata",
+            Some(&basic("admin@example.org", "pw")),
+            Some(
+                serde_json::json!({
+                    "title": "  ",
+                    "number": " ",
+                    "isbn": "9781234567890",
+                    "authors": [{"role": "writer"}],
+                    "links": [{"url": "nope"}]
+                })
+                .to_string(),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let violations = json(&body)["violations"].as_array().unwrap().clone();
+        let fields: Vec<&str> = violations
+            .iter()
+            .map(|v| v["fieldName"].as_str().unwrap())
+            .collect();
+        assert!(fields.contains(&"title"));
+        assert!(fields.contains(&"number"));
+        assert!(fields.contains(&"isbn"));
+        assert!(fields.contains(&"authors[0].name"));
+        assert!(fields.contains(&"links[0].url"));
+
+        let (status, _, _) = call(
+            &app,
+            "PATCH",
+            "/api/v1/books/nope/metadata",
+            Some(&basic("admin@example.org", "pw")),
+            Some(r#"{"title":"x"}"#.into()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn patch_book_metadata_bulk() {
+        let state = test_state_with_settings();
+        seed_library(&state.db, "lib1");
+        seed_series(&state.db, "s1", "lib1");
+        seed_series(&state.db, "s2", "lib1");
+        seed_book(&state.db, "b1", "s1", "lib1", "file:/data/b1.cbz");
+        seed_book(&state.db, "b2", "s2", "lib1", "file:/data/b2.cbz");
+        seed_user(&state.db, "admin@example.org", "pw", true);
+        let app = test_router(state.clone());
+
+        let (status, _, _) = call(
+            &app,
+            "PATCH",
+            "/api/v1/books/metadata",
+            Some(&basic("admin@example.org", "pw")),
+            Some(
+                serde_json::json!({
+                    "b1": {"title": "Bulk One"},
+                    "b2": {"tags": ["x"]},
+                    "missing": {"title": "Skipped"}
+                })
+                .to_string(),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+
+        let dao = BookMetadataDao::new(state.db.clone());
+        assert_eq!(dao.find_by_id("b1").unwrap().unwrap().title, "Bulk One");
+        assert_eq!(dao.find_by_id("b2").unwrap().unwrap().tags, vec!["x"]);
+
+        // aggregate tasks for both distinct series, nothing for the skipped one
+        let mut tasks = komga_db::dao::tasks::TasksDao::new(state.tasks_db.clone())
+            .find_all()
+            .unwrap();
+        tasks.sort_by_key(|t| t.unique_id());
+        assert_eq!(tasks.len(), 2);
+        assert_eq!(tasks[0].unique_id(), "AGGREGATE_SERIES_METADATA_s1");
+        assert_eq!(tasks[1].unique_id(), "AGGREGATE_SERIES_METADATA_s2");
+    }
+
+    // endregion
+
+    // region thumbnail write
+
+    fn tiny_png() -> Vec<u8> {
+        let img = image::RgbImage::from_pixel(12, 8, image::Rgb([10, 30, 200]));
+        let mut out = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(img)
+            .write_to(&mut out, image::ImageFormat::Png)
+            .unwrap();
+        out.into_inner()
+    }
+
+    fn multipart_body(bytes: &[u8], selected: Option<&str>) -> (String, Vec<u8>) {
+        let boundary = "----komgatestboundary";
+        let mut body = Vec::new();
+        body.extend_from_slice(
+            format!("--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"cover.png\"\r\nContent-Type: image/png\r\n\r\n")
+                .as_bytes(),
+        );
+        body.extend_from_slice(bytes);
+        body.extend_from_slice(b"\r\n");
+        if let Some(selected) = selected {
+            body.extend_from_slice(
+                format!("--{boundary}\r\nContent-Disposition: form-data; name=\"selected\"\r\n\r\n{selected}\r\n")
+                    .as_bytes(),
+            );
+        }
+        body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+        (format!("multipart/form-data; boundary={boundary}"), body)
+    }
+
+    async fn call_multipart(
+        app: &Router,
+        method: &str,
+        uri: &str,
+        auth: &str,
+        content_type: &str,
+        body: Vec<u8>,
+    ) -> (StatusCode, HeaderMap, Vec<u8>) {
+        let request = axum::http::Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("authorization", auth)
+            .header("content-type", content_type)
+            .body(Body::from(body))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        let status = response.status();
+        let headers = response.headers().clone();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .to_vec();
+        (status, headers, bytes)
+    }
+
+    #[tokio::test]
+    async fn book_thumbnail_upload_select_and_delete() {
+        let state = test_state_with_settings();
+        seed_library(&state.db, "lib1");
+        seed_series(&state.db, "s1", "lib1");
+        seed_book(&state.db, "b1", "s1", "lib1", "file:/data/b1.cbz");
+        seed_user(&state.db, "admin@example.org", "pw", true);
+        let mut events = state.events.subscribe();
+        let app = test_router(state.clone());
+
+        // upload (default selected=true)
+        let (content_type, body) = multipart_body(&tiny_png(), None);
+        let (status, _, resp) = call_multipart(
+            &app,
+            "POST",
+            "/api/v1/books/b1/thumbnails",
+            &basic("admin@example.org", "pw"),
+            &content_type,
+            body,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let dto = json(&resp);
+        assert_eq!(dto["type"], "USER_UPLOADED");
+        assert_eq!(dto["selected"], true);
+        assert_eq!(dto["mediaType"], "image/png");
+        assert_eq!(dto["width"], 12);
+        assert_eq!(dto["height"], 8);
+        let thumbnail_id = dto["id"].as_str().unwrap().to_string();
+
+        let dao = thumbnail_dao(&state);
+        assert!(dao.find_by_id(&thumbnail_id).unwrap().is_some());
+        assert!(matches!(
+            events.try_recv().unwrap(),
+            crate::events::DomainEvent::ThumbnailBookAdded(_)
+        ));
+
+        // upload with selected=false
+        let (content_type, body) = multipart_body(&tiny_png(), Some("false"));
+        let (status, _, resp) = call_multipart(
+            &app,
+            "POST",
+            "/api/v1/books/b1/thumbnails",
+            &basic("admin@example.org", "pw"),
+            &content_type,
+            body,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let second_id = json(&resp)["id"].as_str().unwrap().to_string();
+        assert!(matches!(
+            events.try_recv().unwrap(),
+            crate::events::DomainEvent::ThumbnailBookAdded(ref t) if !t.selected
+        ));
+
+        // mark the second one selected
+        let (status, _, _) = call(
+            &app,
+            "PUT",
+            &format!("/api/v1/books/b1/thumbnails/{second_id}/selected"),
+            Some(&basic("admin@example.org", "pw")),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        assert!(dao.find_by_id(&second_id).unwrap().unwrap().selected);
+        assert!(!dao.find_by_id(&thumbnail_id).unwrap().unwrap().selected);
+        assert!(matches!(
+            events.try_recv().unwrap(),
+            crate::events::DomainEvent::ThumbnailBookAdded(ref t) if t.selected
+        ));
+
+        // delete it
+        let (status, _, _) = call(
+            &app,
+            "DELETE",
+            &format!("/api/v1/books/b1/thumbnails/{second_id}"),
+            Some(&basic("admin@example.org", "pw")),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        assert!(dao.find_by_id(&second_id).unwrap().is_none());
+        assert!(matches!(
+            events.try_recv().unwrap(),
+            crate::events::DomainEvent::ThumbnailBookDeleted(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn book_thumbnail_write_rejections() {
+        let state = test_state_with_settings();
+        seed_library(&state.db, "lib1");
+        seed_series(&state.db, "s1", "lib1");
+        seed_book(&state.db, "b1", "s1", "lib1", "file:/data/b1.cbz");
+        seed_thumbnail(&state.db, "t1", "b1", true);
+        seed_user(&state.db, "admin@example.org", "pw", true);
+        let app = test_router(state.clone());
+
+        // non-image upload: 415
+        let (content_type, body) = multipart_body(b"not an image", None);
+        let (status, _, _) = call_multipart(
+            &app,
+            "POST",
+            "/api/v1/books/b1/thumbnails",
+            &basic("admin@example.org", "pw"),
+            &content_type,
+            body,
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+
+        // delete a GENERATED thumbnail: 400 with the lifecycle message
+        let (status, _, resp) = call(
+            &app,
+            "DELETE",
+            "/api/v1/books/b1/thumbnails/t1",
+            Some(&basic("admin@example.org", "pw")),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            json(&resp)["message"],
+            "400 BAD_REQUEST \"Only uploaded thumbnails can be deleted\""
+        );
+
+        // thumbnail of another book: 400
+        seed_book(&state.db, "b2", "s1", "lib1", "file:/data/b2.cbz");
+        seed_thumbnail(&state.db, "t2", "b2", true);
+        let (status, _, _) = call(
+            &app,
+            "PUT",
+            "/api/v1/books/b1/thumbnails/t2/selected",
+            Some(&basic("admin@example.org", "pw")),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 
     // endregion

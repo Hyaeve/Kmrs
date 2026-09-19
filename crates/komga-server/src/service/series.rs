@@ -2,7 +2,7 @@
 //! thumbnails).
 
 use crate::events::DomainEvent;
-use crate::service::book::MarkSelectedPreference;
+pub use crate::service::book::MarkSelectedPreference;
 use crate::state::AppState;
 use komga_core::model::book::{Book, BookMetadata};
 use komga_core::model::history::{HistoricalEvent, HistoricalEventType};
@@ -466,8 +466,6 @@ fn bytes_from_thumbnail(thumbnail: &ThumbnailSeries) -> Result<Option<Vec<u8>>> 
     }
 }
 
-// used by the M5 thumbnail write endpoints (addUserUploadedSeriesThumbnail et al.)
-#[allow(dead_code)]
 pub fn add_thumbnail_for_series(
     state: &AppState,
     thumbnail: ThumbnailSeries,
@@ -505,8 +503,6 @@ pub fn add_thumbnail_for_series(
     Ok(inserted)
 }
 
-// used by the M5 thumbnail write endpoints (deleteUserUploadedSeriesThumbnail)
-#[allow(dead_code)]
 pub fn delete_thumbnail_for_series(state: &AppState, thumbnail: &ThumbnailSeries) -> Result<()> {
     if thumbnail.type_ != ThumbnailType::UserUploaded {
         // SeriesController maps this IllegalArgumentException to 400 with the same message

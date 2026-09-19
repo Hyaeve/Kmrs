@@ -14,28 +14,28 @@ use komga_core::dto::collection::CollectionDto;
 use komga_core::dto::series::SeriesDto;
 use komga_core::dto::thumbnail::ThumbnailSeriesCollectionDto;
 use komga_core::model::collection::SeriesCollection;
-use komga_core::model::library::SeriesCover;
 use komga_core::model::series::SeriesStatus;
+use komga_core::model::thumbnail::ThumbnailSeriesCollection;
 use komga_core::model::user::KomgaUser;
 use komga_core::search::*;
-use komga_db::dao::library::LibraryDao;
-use komga_db::dao::series::SeriesDao;
-use komga_db::dao::thumbnail::{
-    ThumbnailBookDao, ThumbnailSeriesCollectionDao, ThumbnailSeriesDao,
-};
+use komga_db::dao::thumbnail::ThumbnailSeriesCollectionDao;
 use komga_db::dto_dao::collection::CollectionDtoDao;
 use komga_db::dto_dao::series::SeriesDtoDao;
 use komga_db::dto_dao::{DtoPage, PageRequest};
-use komga_db::pool::Database;
 use serde::Serialize;
 use std::collections::BTreeSet;
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/api/v1/collections", routing::get(get_collections))
+        .route(
+            "/api/v1/collections",
+            routing::get(get_collections).post(create_collection),
+        )
         .route(
             "/api/v1/collections/{id}",
-            routing::get(get_collection_by_id),
+            routing::get(get_collection_by_id)
+                .patch(update_collection_by_id)
+                .delete(delete_collection_by_id),
         )
         .route(
             "/api/v1/collections/{id}/thumbnail",
@@ -43,11 +43,16 @@ pub fn router() -> Router<AppState> {
         )
         .route(
             "/api/v1/collections/{id}/thumbnails",
-            routing::get(get_collection_thumbnails),
+            routing::get(get_collection_thumbnails).post(add_user_uploaded_collection_thumbnail),
         )
         .route(
             "/api/v1/collections/{id}/thumbnails/{thumbnailId}",
-            routing::get(get_collection_thumbnail_by_id),
+            routing::get(get_collection_thumbnail_by_id)
+                .delete(delete_user_uploaded_collection_thumbnail),
+        )
+        .route(
+            "/api/v1/collections/{id}/thumbnails/{thumbnailId}/selected",
+            routing::put(mark_collection_thumbnail_selected),
         )
         .route(
             "/api/v1/collections/{id}/series",
@@ -182,6 +187,195 @@ async fn get_series_by_collection_id(
     )))
 }
 
+// endregion
+
+// region write endpoints (`SeriesCollectionController` mutations)
+
+async fn create_collection(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Json(body): Json<crate::dto::collection::CollectionCreationDto>,
+) -> Result<Json<CollectionDto>, ApiError> {
+    auth.0.require_admin()?;
+    let violations = body.violations();
+    if !violations.is_empty() {
+        return Err(ApiError::Violations(violations));
+    }
+    let collection = crate::service::collection::add_collection(
+        &state,
+        SeriesCollection {
+            id: String::new(),
+            name: body.name,
+            ordered: body.ordered,
+            series_ids: body.series_ids,
+            filtered: false,
+            created_date: komga_core::time_codec::now_utc(),
+            last_modified_date: komga_core::time_codec::now_utc(),
+        },
+    )
+    .map_err(|e| match e {
+        crate::service::collection::CollectionError::DuplicateName => {
+            ApiError::bad_request(crate::service::collection::DUPLICATE_NAME_MESSAGE)
+        }
+        crate::service::collection::CollectionError::Db(e) => ApiError::from(e),
+    })?;
+    Ok(Json(CollectionDto::from(&collection)))
+}
+
+async fn update_collection_by_id(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(id): Path<String>,
+    Json(body): Json<crate::dto::collection::CollectionUpdateDto>,
+) -> Result<axum::http::StatusCode, ApiError> {
+    auth.0.require_admin()?;
+    let violations = body.violations();
+    if !violations.is_empty() {
+        return Err(ApiError::Violations(violations));
+    }
+    let existing = komga_db::dao::collection::CollectionDao::new(state.db.clone())
+        .find_by_id(&id)?
+        .ok_or_else(|| ApiError::not_found(""))?;
+    let updated = SeriesCollection {
+        name: body.name.unwrap_or(existing.name.clone()),
+        ordered: body.ordered.unwrap_or(existing.ordered),
+        series_ids: body.series_ids.unwrap_or(existing.series_ids.clone()),
+        ..existing
+    };
+    crate::service::collection::update_collection(&state, &updated).map_err(|e| match e {
+        crate::service::collection::CollectionError::DuplicateName => {
+            ApiError::bad_request(crate::service::collection::DUPLICATE_NAME_MESSAGE)
+        }
+        crate::service::collection::CollectionError::Db(e) => ApiError::from(e),
+    })?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+async fn delete_collection_by_id(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(id): Path<String>,
+) -> Result<axum::http::StatusCode, ApiError> {
+    auth.0.require_admin()?;
+    let collection = komga_db::dao::collection::CollectionDao::new(state.db.clone())
+        .find_by_id(&id)?
+        .ok_or_else(|| ApiError::not_found(""))?;
+    crate::service::collection::delete_collection(&state, &collection)?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+async fn add_user_uploaded_collection_thumbnail(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(id): Path<String>,
+    mut multipart: axum::extract::Multipart,
+) -> Result<Json<ThumbnailSeriesCollectionDto>, ApiError> {
+    auth.0.require_admin()?;
+    let collection = find_visible_collection(&state, &auth.0.user, &id)?;
+    let (bytes, selected) = parse_thumbnail_upload(&mut multipart).await?;
+    let media_type = komga_media::detect::detect_media_type(&bytes);
+    if !komga_media::detect::is_image(&media_type) {
+        return Err(ApiError::unsupported_media_type(""));
+    }
+    let dimension = komga_media::image::get_dimension(&bytes)
+        .map(|(w, h)| komga_core::model::thumbnail::Dimension {
+            width: w as i32,
+            height: h as i32,
+        })
+        .unwrap_or_else(crate::service::collection::zero_dimension);
+    let thumbnail = crate::service::collection::add_thumbnail(
+        &state,
+        ThumbnailSeriesCollection {
+            id: String::new(),
+            collection_id: collection.id,
+            file_size: bytes.len() as i64,
+            thumbnail: bytes,
+            type_: komga_core::model::thumbnail::ThumbnailType::UserUploaded,
+            selected,
+            media_type,
+            dimension,
+            created_date: komga_core::time_codec::now_utc(),
+            last_modified_date: komga_core::time_codec::now_utc(),
+        },
+    )?;
+    Ok(Json(ThumbnailSeriesCollectionDto::from(&thumbnail)))
+}
+
+async fn mark_collection_thumbnail_selected(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path((id, thumbnail_id)): Path<(String, String)>,
+) -> Result<axum::http::StatusCode, ApiError> {
+    auth.0.require_admin()?;
+    let collection = find_visible_collection(&state, &auth.0.user, &id)?;
+    if let Some(poster) =
+        ThumbnailSeriesCollectionDao::new(state.db.clone()).find_by_id(&thumbnail_id)?
+    {
+        if poster.collection_id != collection.id {
+            return Err(ApiError::bad_request(""));
+        }
+        crate::service::collection::mark_selected_thumbnail(&state, &poster)?;
+    }
+    // a missing thumbnail is silently accepted, as in komga
+    Ok(axum::http::StatusCode::ACCEPTED)
+}
+
+async fn delete_user_uploaded_collection_thumbnail(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path((id, thumbnail_id)): Path<(String, String)>,
+) -> Result<axum::http::StatusCode, ApiError> {
+    auth.0.require_admin()?;
+    let collection = find_visible_collection(&state, &auth.0.user, &id)?;
+    if let Some(poster) =
+        ThumbnailSeriesCollectionDao::new(state.db.clone()).find_by_id(&thumbnail_id)?
+    {
+        if poster.collection_id != collection.id {
+            return Err(ApiError::bad_request(""));
+        }
+        crate::service::collection::delete_thumbnail(&state, &poster)?;
+    }
+    Ok(axum::http::StatusCode::ACCEPTED)
+}
+
+/// `file` (image bytes) and `selected` (default true) from the multipart body
+async fn parse_thumbnail_upload(
+    multipart: &mut axum::extract::Multipart,
+) -> Result<(Vec<u8>, bool), ApiError> {
+    let mut bytes = None;
+    let mut selected = true;
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| ApiError::bad_request(e.to_string()))?
+    {
+        match field.name() {
+            Some("file") => {
+                bytes = Some(
+                    field
+                        .bytes()
+                        .await
+                        .map_err(|e| ApiError::bad_request(e.to_string()))?
+                        .to_vec(),
+                );
+            }
+            Some("selected") => {
+                let value = field
+                    .text()
+                    .await
+                    .map_err(|e| ApiError::bad_request(e.to_string()))?;
+                selected = value.eq_ignore_ascii_case("true");
+            }
+            _ => {}
+        }
+    }
+    let bytes = bytes
+        .ok_or_else(|| ApiError::bad_request("Required request part 'file' is not present"))?;
+    Ok((bytes, selected))
+}
+
+// endregion
+
 fn find_visible_collection(
     state: &AppState,
     user: &KomgaUser,
@@ -196,181 +390,14 @@ fn find_visible_collection(
         .ok_or_else(|| ApiError::not_found(""))
 }
 
-/// `SeriesCollectionLifecycle.getThumbnailBytes`: the selected thumbnail, or a 2x2 mosaic of the
-/// first 4 member series' covers (the id list is cycled to fill the grid, as in komga)
+/// `SeriesCollectionLifecycle.getThumbnailBytes`: delegated to the service layer
 fn collection_thumbnail_bytes(
     state: &AppState,
     user: &KomgaUser,
     collection: &SeriesCollection,
 ) -> Result<Vec<u8>, ApiError> {
-    if let Some(selected) = ThumbnailSeriesCollectionDao::new(state.db.clone())
-        .find_selected_by_collection_id(&collection.id)?
-    {
-        return Ok(selected.thumbnail);
-    }
-    let mut ids = Vec::new();
-    while ids.len() < 4 && !collection.series_ids.is_empty() {
-        ids.extend(collection.series_ids.iter().take(4).cloned());
-    }
-    ids.truncate(4);
-    let images: Vec<Vec<u8>> = ids
-        .iter()
-        .filter_map(|id| series_thumbnail_bytes(state, id, &user.id))
-        .collect();
-    create_mosaic(&images, state.settings.get().thumbnail_size.max_edge())
-}
-
-/// `SeriesLifecycle.getThumbnailBytes`: selected thumbnail, else the cover book's thumbnail
-/// chosen by the library's series-cover rule
-fn series_thumbnail_bytes(state: &AppState, series_id: &str, user_id: &str) -> Option<Vec<u8>> {
-    let db = &state.db;
-    if let Some(bytes) = effective_series_thumbnail_bytes(db, series_id) {
-        return Some(bytes);
-    }
-    let series = SeriesDao::new(db.clone())
-        .find_by_id(series_id)
-        .ok()
-        .flatten()?;
-    let library = LibraryDao::new(db.clone())
-        .find_by_id(&series.library_id)
-        .ok()
-        .flatten()?;
-    let book_id = match library.series_cover {
-        SeriesCover::First => first_book_id(db, series_id),
-        SeriesCover::FirstUnreadOrFirst => {
-            first_unread_book_id(db, series_id, user_id).or_else(|| first_book_id(db, series_id))
-        }
-        SeriesCover::FirstUnreadOrLast => {
-            first_unread_book_id(db, series_id, user_id).or_else(|| last_book_id(db, series_id))
-        }
-        SeriesCover::Last => last_book_id(db, series_id),
-    }?;
-    book_thumbnail_bytes(state, &book_id)
-}
-
-/// Read-side equivalent of `getSelectedThumbnail` + `thumbnailsHouseKeeping`: the first selected
-/// thumbnail that exists, else the first existing one (housekeeping only re-selects, which this
-/// order reproduces without writing)
-fn effective_series_thumbnail_bytes(db: &Database, series_id: &str) -> Option<Vec<u8>> {
-    let all = ThumbnailSeriesDao::new(db.clone())
-        .find_all_by_series_id(series_id)
-        .ok()?;
-    let existing: Vec<_> = all
-        .into_iter()
-        .filter(|t| thumbnail_exists(&t.thumbnail, &t.url))
-        .collect();
-    let first = existing
-        .iter()
-        .find(|t| t.selected)
-        .or_else(|| existing.first())?;
-    thumbnail_bytes(first.thumbnail.clone(), first.url.clone())
-}
-
-/// `BookLifecycle.getThumbnailBytes` (no resize): the effective selected book thumbnail's bytes
-pub(crate) fn book_thumbnail_bytes(state: &AppState, book_id: &str) -> Option<Vec<u8>> {
-    let all = ThumbnailBookDao::new(state.db.clone())
-        .find_all_by_book_id(book_id)
-        .ok()?;
-    let existing: Vec<_> = all
-        .into_iter()
-        .filter(|t| thumbnail_exists(&t.thumbnail, &t.url))
-        .collect();
-    let first = existing
-        .iter()
-        .find(|t| t.selected)
-        .or_else(|| existing.first())?;
-    thumbnail_bytes(first.thumbnail.clone(), first.url.clone())
-}
-
-fn thumbnail_bytes(blob: Option<Vec<u8>>, url: Option<String>) -> Option<Vec<u8>> {
-    if let Some(blob) = blob {
-        return Some(blob);
-    }
-    let url = url?;
-    std::fs::read(komga_core::dto::url_to_file_path(&url)).ok()
-}
-
-/// `ThumbnailBook/ThumbnailSeries.exists()`: a URL thumbnail exists when the file does
-fn thumbnail_exists(blob: &Option<Vec<u8>>, url: &Option<String>) -> bool {
-    match url {
-        Some(url) => std::path::Path::new(&komga_core::dto::url_to_file_path(url)).exists(),
-        None => blob.is_some(),
-    }
-}
-
-/// `BookRepository.findFirstIdInSeriesOrNull` (deleted books included, as in komga)
-fn first_book_id(db: &Database, series_id: &str) -> Option<String> {
-    book_id_by_number_sort(db, series_id, "ASC")
-}
-
-/// `BookRepository.findLastIdInSeriesOrNull`
-fn last_book_id(db: &Database, series_id: &str) -> Option<String> {
-    book_id_by_number_sort(db, series_id, "DESC")
-}
-
-fn book_id_by_number_sort(db: &Database, series_id: &str, dir: &str) -> Option<String> {
-    db.ro()
-        .prepare(&format!(
-            "SELECT BOOK.ID FROM BOOK LEFT JOIN BOOK_METADATA ON (BOOK.ID = BOOK_METADATA.BOOK_ID) \
-             WHERE BOOK.SERIES_ID = ? ORDER BY BOOK_METADATA.NUMBER_SORT {dir} LIMIT 1"
-        ))
-        .ok()?
-        .query_map([series_id], |r| r.get(0))
-        .ok()?
-        .next()
-        .transpose()
-        .ok()
-        .flatten()
-}
-
-/// `BookRepository.findFirstUnreadIdInSeriesOrNull`
-fn first_unread_book_id(db: &Database, series_id: &str, user_id: &str) -> Option<String> {
-    db.ro()
-        .prepare(
-            "SELECT BOOK.ID FROM BOOK \
-             LEFT JOIN BOOK_METADATA ON (BOOK.ID = BOOK_METADATA.BOOK_ID) \
-             LEFT JOIN READ_PROGRESS ON (BOOK.ID = READ_PROGRESS.BOOK_ID \
-               AND (READ_PROGRESS.USER_ID = ? OR READ_PROGRESS.USER_ID IS NULL)) \
-             WHERE BOOK.SERIES_ID = ? AND (READ_PROGRESS.COMPLETED IS NULL OR READ_PROGRESS.COMPLETED = 0) \
-             ORDER BY BOOK_METADATA.NUMBER_SORT LIMIT 1",
-        )
-        .ok()?
-        .query_map(rusqlite::params![user_id, series_id], |r| r.get(0))
-        .ok()?
-        .next()
-        .transpose()
-        .ok()
-        .flatten()
-}
-
-/// `MosaicGenerator.createMosaic`: 2x2 grid with top-left anchored cells on a black background,
-/// JPEG output; width = round(height * 0.7066666667)
-pub(crate) fn create_mosaic(images: &[Vec<u8>], max_edge: u32) -> Result<Vec<u8>, ApiError> {
-    let height = max_edge;
-    let width = (height as f64 * 0.7066666667).round() as u32;
-    let mut mosaic = image::RgbImage::new(width, height);
-    let positions = [
-        (0i64, 0i64),
-        ((width / 2) as i64, 0),
-        (0, (height / 2) as i64),
-        ((width / 2) as i64, (height / 2) as i64),
-    ];
-    for (bytes, (x, y)) in images.iter().take(4).zip(positions) {
-        let img = image::load_from_memory(bytes)
-            .map_err(|e| ApiError::Internal(format!("could not decode mosaic image: {e}")))?;
-        // `resize` keeps the aspect ratio and never upscales, like Thumbnailator's size()
-        let thumb = img.resize(
-            height / 2,
-            height / 2,
-            image::imageops::FilterType::Lanczos3,
-        );
-        image::imageops::overlay(&mut mosaic, &thumb.to_rgb8(), x, y);
-    }
-    let mut out = std::io::Cursor::new(Vec::new());
-    image::DynamicImage::ImageRgb8(mosaic)
-        .write_to(&mut out, image::ImageFormat::Jpeg)
-        .map_err(|e| ApiError::Internal(format!("could not encode mosaic: {e}")))?;
-    Ok(out.into_inner())
+    crate::service::collection::get_thumbnail_bytes(state, collection, &user.id)
+        .map_err(ApiError::from)
 }
 
 /// Filter conditions of `getSeriesByCollectionId`: collection membership plus the query params
@@ -611,6 +638,7 @@ pub(crate) mod tests {
     use komga_core::model::user::{ApiKey, ContentRestrictions, KomgaUser, UserRole};
     use komga_core::time_codec::now_utc;
     use komga_db::dao::user::UserDao;
+    use komga_db::pool::Database;
     use komga_db::{Migrator, Placeholders};
     use std::sync::Arc;
     use std::time::Duration;
@@ -1143,4 +1171,388 @@ pub(crate) mod tests {
         let page: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(page["totalElements"], 0);
     }
+
+    // region write endpoint tests
+
+    fn json_request(method: &str, path: &str, api_key: &str, body: &str) -> Request<Body> {
+        Request::builder()
+            .method(method)
+            .uri(path)
+            .header("X-API-Key", api_key)
+            .header("Content-Type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    }
+
+    fn multipart_request(
+        path: &str,
+        api_key: &str,
+        file_bytes: &[u8],
+        selected: Option<&str>,
+    ) -> Request<Body> {
+        let boundary = "testboundary";
+        let mut body = Vec::new();
+        body.extend_from_slice(
+            format!("--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"cover.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n").as_bytes(),
+        );
+        body.extend_from_slice(file_bytes);
+        body.extend_from_slice(b"\r\n");
+        if let Some(selected) = selected {
+            body.extend_from_slice(
+                format!("--{boundary}\r\nContent-Disposition: form-data; name=\"selected\"\r\n\r\n{selected}\r\n").as_bytes(),
+            );
+        }
+        body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+        Request::builder()
+            .method("POST")
+            .uri(path)
+            .header("X-API-Key", api_key)
+            .header(
+                "Content-Type",
+                format!("multipart/form-data; boundary={boundary}"),
+            )
+            .body(Body::from(body))
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn create_collection_full_flow_and_duplicate() {
+        let state = test_state();
+        seed_base(&state.db);
+        let (status, _, body) = call(
+            &state,
+            router(),
+            json_request(
+                "POST",
+                "/api/v1/collections",
+                ADMIN_KEY,
+                r#"{"name":"My List","ordered":true,"seriesIds":["s2","s1"]}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let dto: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(dto["name"], "My List");
+        assert_eq!(dto["ordered"], true);
+        assert_eq!(dto["seriesIds"].as_array().unwrap().len(), 2);
+        let id = dto["id"].as_str().unwrap().to_string();
+
+        // duplicate name (any case) -> 400 with the exact message
+        let (status, _, body) = call(
+            &state,
+            router(),
+            json_request(
+                "POST",
+                "/api/v1/collections",
+                ADMIN_KEY,
+                r#"{"name":"my list","ordered":false,"seriesIds":["s1"]}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let error: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            error["message"],
+            "400 BAD_REQUEST \"Collection name already exists\""
+        );
+
+        // non-admin -> 403
+        let (status, _, _) = call(
+            &state,
+            router(),
+            json_request(
+                "POST",
+                "/api/v1/collections",
+                USER_KEY,
+                r#"{"name":"X","ordered":false,"seriesIds":["s1"]}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+
+        // validation: blank name + empty ids + duplicate ids -> violations
+        let (status, _, body) = call(
+            &state,
+            router(),
+            json_request(
+                "POST",
+                "/api/v1/collections",
+                ADMIN_KEY,
+                r#"{"name":"  ","ordered":false,"seriesIds":[]}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let violations: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let messages: Vec<&str> = violations["violations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v["message"].as_str().unwrap())
+            .collect();
+        assert!(messages.contains(&"must not be blank"));
+        assert!(messages.contains(&"must not be empty"));
+
+        let (status, _, body) = call(
+            &state,
+            router(),
+            json_request(
+                "POST",
+                "/api/v1/collections",
+                ADMIN_KEY,
+                r#"{"name":"Dup","ordered":false,"seriesIds":["s1","s1"]}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let violations: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            violations["violations"][0]["message"],
+            "must not contain duplicate elements"
+        );
+        let _ = id;
+    }
+
+    #[tokio::test]
+    async fn update_and_delete_collection() {
+        let state = test_state();
+        seed_base(&state.db);
+        // update name + members
+        let (status, _, _) = call(
+            &state,
+            router(),
+            json_request(
+                "PATCH",
+                "/api/v1/collections/c1",
+                ADMIN_KEY,
+                r#"{"name":"Renamed","seriesIds":["s3"]}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let (status, _, body) =
+            call(&state, router(), get("/api/v1/collections/c1", ADMIN_KEY)).await;
+        assert_eq!(status, StatusCode::OK);
+        let dto: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(dto["name"], "Renamed");
+        assert_eq!(dto["seriesIds"].as_array().unwrap().len(), 1);
+
+        // duplicate with existing name (c2) -> 400
+        let (status, _, _) = call(
+            &state,
+            router(),
+            json_request(
+                "PATCH",
+                "/api/v1/collections/c1",
+                ADMIN_KEY,
+                r#"{"name":"another"}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        // same name with different case is allowed
+        let (status, _, _) = call(
+            &state,
+            router(),
+            json_request(
+                "PATCH",
+                "/api/v1/collections/c1",
+                ADMIN_KEY,
+                r#"{"name":"RENAMED"}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+
+        // NullOrNotBlank violation
+        let (status, _, body) = call(
+            &state,
+            router(),
+            json_request(
+                "PATCH",
+                "/api/v1/collections/c1",
+                ADMIN_KEY,
+                r#"{"name":"  "}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let violations: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            violations["violations"][0]["message"],
+            "Must be null or not blank"
+        );
+
+        // update missing -> 404, non-admin -> 403
+        let (status, _, _) = call(
+            &state,
+            router(),
+            json_request("PATCH", "/api/v1/collections/nope", ADMIN_KEY, r#"{}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (status, _, _) = call(
+            &state,
+            router(),
+            json_request("PATCH", "/api/v1/collections/c1", USER_KEY, r#"{}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+
+        // delete
+        let (status, _, _) = call(
+            &state,
+            router(),
+            json_request("DELETE", "/api/v1/collections/c1", ADMIN_KEY, ""),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let (status, _, _) = call(&state, router(), get("/api/v1/collections/c1", ADMIN_KEY)).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn thumbnail_upload_select_delete() {
+        let state = test_state();
+        seed_base(&state.db);
+        let image = tiny_jpeg();
+
+        // upload with selected=true (default)
+        let (status, _, body) = call(
+            &state,
+            router(),
+            multipart_request("/api/v1/collections/c1/thumbnails", ADMIN_KEY, &image, None),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let dto: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(dto["collectionId"], "c1");
+        assert_eq!(dto["type"], "USER_UPLOADED");
+        assert_eq!(dto["selected"], true);
+        assert_eq!(dto["mediaType"], "image/jpeg");
+        assert_eq!(dto["width"], 12);
+        assert_eq!(dto["height"], 8);
+        let first_id = dto["id"].as_str().unwrap().to_string();
+
+        // second upload with selected=false
+        let (status, _, body) = call(
+            &state,
+            router(),
+            multipart_request(
+                "/api/v1/collections/c1/thumbnails",
+                ADMIN_KEY,
+                &image,
+                Some("false"),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let dto: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(dto["selected"], false);
+        let second_id = dto["id"].as_str().unwrap().to_string();
+
+        // mark the second one selected
+        let (status, _, _) = call(
+            &state,
+            router(),
+            json_request(
+                "PUT",
+                &format!("/api/v1/collections/c1/thumbnails/{second_id}/selected"),
+                ADMIN_KEY,
+                "",
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        let selected = ThumbnailSeriesCollectionDao::new(state.db.clone())
+            .find_selected_by_collection_id("c1")
+            .unwrap()
+            .unwrap();
+        assert_eq!(selected.id, second_id);
+
+        // non-image upload -> 415
+        let (status, _, _) = call(
+            &state,
+            router(),
+            multipart_request(
+                "/api/v1/collections/c1/thumbnails",
+                ADMIN_KEY,
+                b"not an image",
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+
+        // mark selected on a thumbnail of another collection -> 400
+        let (status, _, _) = call(
+            &state,
+            router(),
+            json_request(
+                "PUT",
+                &format!("/api/v1/collections/c2/thumbnails/{second_id}/selected"),
+                ADMIN_KEY,
+                "",
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        // delete the selected one; housekeeping selects the remaining one
+        let (status, _, _) = call(
+            &state,
+            router(),
+            json_request(
+                "DELETE",
+                &format!("/api/v1/collections/c1/thumbnails/{second_id}"),
+                ADMIN_KEY,
+                "",
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        let selected = ThumbnailSeriesCollectionDao::new(state.db.clone())
+            .find_selected_by_collection_id("c1")
+            .unwrap()
+            .unwrap();
+        assert_eq!(selected.id, first_id);
+
+        // silently accepted on missing thumbnail (both mark and delete)
+        let (status, _, _) = call(
+            &state,
+            router(),
+            json_request(
+                "PUT",
+                "/api/v1/collections/c1/thumbnails/nope/selected",
+                ADMIN_KEY,
+                "",
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        let (status, _, _) = call(
+            &state,
+            router(),
+            json_request(
+                "DELETE",
+                "/api/v1/collections/c1/thumbnails/nope",
+                ADMIN_KEY,
+                "",
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+
+        // non-admin -> 403
+        let (status, _, _) = call(
+            &state,
+            router(),
+            multipart_request("/api/v1/collections/c1/thumbnails", USER_KEY, &image, None),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    // endregion
 }

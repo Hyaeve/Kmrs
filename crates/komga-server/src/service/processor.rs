@@ -205,7 +205,7 @@ pub(crate) fn dispatch_task(state: &AppState, task: &Task) -> anyhow::Result<()>
                 );
                 return Ok(());
             };
-            tracing::warn!("RefreshBookMetadata is not implemented until M5 (metadata providers)");
+            crate::service::metadata::refresh_book_metadata(state, &book, &t.capabilities)?;
             state
                 .task_emitter
                 .refresh_series_metadata(&book.series_id, t.priority - 1)?;
@@ -219,27 +219,43 @@ pub(crate) fn dispatch_task(state: &AppState, task: &Task) -> anyhow::Result<()>
                 );
                 return Ok(());
             };
-            let _ = series;
-            tracing::warn!(
-                "RefreshSeriesMetadata is not implemented until M5 (metadata providers)"
-            );
+            crate::service::metadata::refresh_series_metadata(state, &series)?;
             state
                 .task_emitter
                 .aggregate_series_metadata(&t.series_id, t.priority)?;
             Ok(())
         }
-        Task::AggregateSeriesMetadata(_) => {
-            tracing::warn!(
-                "AggregateSeriesMetadata is not implemented until M5 (metadata providers)"
-            );
+        Task::AggregateSeriesMetadata(t) => {
+            let Some(series) = SeriesDao::new(state.db.clone()).find_by_id(&t.series_id)? else {
+                tracing::warn!(
+                    "Cannot execute task {}: Series does not exist",
+                    task.describe()
+                );
+                return Ok(());
+            };
+            crate::service::metadata::aggregate_series_metadata(state, &series)?;
             Ok(())
         }
-        Task::RefreshBookLocalArtwork(_) => {
-            tracing::warn!("RefreshBookLocalArtwork is not implemented until M5 (local artwork)");
+        Task::RefreshBookLocalArtwork(t) => {
+            let Some(book) = BookDao::new(state.db.clone()).find_by_id(&t.book_id)? else {
+                tracing::warn!(
+                    "Cannot execute task {}: Book does not exist",
+                    task.describe()
+                );
+                return Ok(());
+            };
+            crate::service::metadata::refresh_book_local_artwork(state, &book)?;
             Ok(())
         }
-        Task::RefreshSeriesLocalArtwork(_) => {
-            tracing::warn!("RefreshSeriesLocalArtwork is not implemented until M5 (local artwork)");
+        Task::RefreshSeriesLocalArtwork(t) => {
+            let Some(series) = SeriesDao::new(state.db.clone()).find_by_id(&t.series_id)? else {
+                tracing::warn!(
+                    "Cannot execute task {}: Series does not exist",
+                    task.describe()
+                );
+                return Ok(());
+            };
+            crate::service::metadata::refresh_series_local_artwork(state, &series)?;
             Ok(())
         }
         Task::HashBook(t) => {

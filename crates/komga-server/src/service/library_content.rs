@@ -19,9 +19,7 @@ use komga_db::dao::read_progress::ReadProgressDao;
 use komga_db::dao::readlist::ReadListDao;
 use komga_db::dao::series::{SeriesDao, SeriesMetadataDao};
 use komga_db::dao::sidecar::SidecarDao;
-use komga_db::dao::thumbnail::{
-    ThumbnailBookDao, ThumbnailReadListDao, ThumbnailSeriesCollectionDao, ThumbnailSeriesDao,
-};
+use komga_db::dao::thumbnail::{ThumbnailBookDao, ThumbnailSeriesDao};
 use komga_db::Result;
 use komga_media::hash::compute_hash;
 use komga_media::scanner::{ScanError, ScanOptions, Scanner};
@@ -389,35 +387,11 @@ pub fn empty_trash(state: &AppState, library: &Library) -> Result<()> {
 fn cleanup_empty_sets(state: &AppState) -> Result<()> {
     let settings = state.settings.get();
     if settings.delete_empty_collections {
-        let dao = CollectionDao::new(state.db.clone());
-        let to_delete = dao.find_all_empty()?;
-        if !to_delete.is_empty() {
-            let ids: Vec<String> = to_delete.iter().map(|c| c.id.clone()).collect();
-            ThumbnailSeriesCollectionDao::new(state.db.clone()).delete_by_collection_ids(&ids)?;
-            for id in &ids {
-                dao.delete(id)?;
-            }
-            for collection in to_delete {
-                let _ = state
-                    .events
-                    .send(DomainEvent::CollectionDeleted(collection));
-            }
-        }
+        crate::service::collection::delete_empty_collections(state)?;
     }
 
     if settings.delete_empty_readlists {
-        let dao = ReadListDao::new(state.db.clone());
-        let to_delete = dao.find_all_empty()?;
-        if !to_delete.is_empty() {
-            let ids: Vec<String> = to_delete.iter().map(|r| r.id.clone()).collect();
-            ThumbnailReadListDao::new(state.db.clone()).delete_by_read_list_ids(&ids)?;
-            for id in &ids {
-                dao.delete(id)?;
-            }
-            for readlist in to_delete {
-                let _ = state.events.send(DomainEvent::ReadListDeleted(readlist));
-            }
-        }
+        crate::service::readlist::delete_empty_read_lists(state)?;
     }
     Ok(())
 }

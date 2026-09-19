@@ -2,9 +2,12 @@
 //! the filesystem, the task queue, and the event bus.
 
 pub mod book;
+pub mod collection;
 pub mod library;
 pub mod library_content;
+pub mod metadata;
 pub mod processor;
+pub mod readlist;
 pub mod scheduler;
 pub mod series;
 pub mod tasks;

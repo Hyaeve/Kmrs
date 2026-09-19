@@ -15,6 +15,7 @@ pub mod codes {
     pub const ERR_1006: &str = "ERR_1006"; // No pages
     pub const ERR_1007: &str = "ERR_1007"; // Some entries have unknown type (entry names attached to message)
     pub const ERR_1008: &str = "ERR_1008"; // Extraction failed
+    pub const ERR_1009: &str = "ERR_1009"; // A read list with that name already exists
     pub const ERR_1015: &str = "ERR_1015"; // ComicRack reading list deserialization failed
     pub const ERR_1016: &str = "ERR_1016"; // Library root not accessible
     pub const ERR_1017: &str = "ERR_1017"; // Scanned directory already belongs to another library

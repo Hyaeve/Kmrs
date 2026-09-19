@@ -6,11 +6,13 @@
 use crate::api::restriction;
 use crate::auth::RequireAuth;
 use crate::dto::common::{Page, Pageable, SortOrder};
+use crate::dto::series::SeriesMetadataUpdateDto;
 use crate::error::ApiError;
 use crate::http::headers::{content_disposition, parse_authors, parse_delimited_pair};
 use crate::http::pagination::{QueryExt, QueryPageable};
+use crate::service::book::MarkSelectedPreference;
 use crate::state::AppState;
-use axum::extract::{Path, State};
+use axum::extract::{Multipart, Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::{routing, Json, Router};
@@ -24,6 +26,7 @@ use komga_core::dto::url_to_file_path;
 use komga_core::model::media::MediaStatus;
 use komga_core::model::read_progress::ReadProgress;
 use komga_core::model::series::SeriesStatus;
+use komga_core::model::thumbnail::{Dimension, ThumbnailSeries, ThumbnailType};
 use komga_core::model::user::{KomgaUser, UserRole};
 use komga_core::search::*;
 use komga_core::task::{BookMetadataPatchCapability, HIGHEST_PRIORITY, HIGH_PRIORITY};
@@ -31,7 +34,7 @@ use komga_core::time_codec::now_utc;
 use komga_db::dao::book::BookDao;
 use komga_db::dao::media::MediaDao;
 use komga_db::dao::read_progress::ReadProgressDao;
-use komga_db::dao::series::SeriesMetadataDao;
+use komga_db::dao::series::{SeriesDao, SeriesMetadataDao};
 use komga_db::dao::thumbnail::ThumbnailSeriesDao;
 use komga_db::dto_dao::book::BookDtoDao;
 use komga_db::dto_dao::collection::CollectionDtoDao;
@@ -39,6 +42,8 @@ use komga_db::dto_dao::read_progress::ReadProgressDtoDao;
 use komga_db::dto_dao::series::SeriesDtoDao;
 use komga_db::dto_dao::{DtoPage, PageRequest, SortOrder as DbSortOrder};
 use komga_db::pool::Database;
+use komga_media::detect::{detect_media_type, is_image};
+use komga_media::image::get_dimension;
 use std::collections::HashMap;
 use time::OffsetDateTime;
 
@@ -64,11 +69,19 @@ pub fn router() -> Router<AppState> {
         )
         .route(
             "/api/v1/series/{seriesId}/thumbnails",
-            routing::get(get_series_thumbnails),
+            routing::get(get_series_thumbnails).post(add_user_uploaded_series_thumbnail),
         )
         .route(
             "/api/v1/series/{seriesId}/thumbnails/{thumbnailId}",
-            routing::get(get_series_thumbnail_by_id),
+            routing::get(get_series_thumbnail_by_id).delete(delete_user_uploaded_series_thumbnail),
+        )
+        .route(
+            "/api/v1/series/{seriesId}/thumbnails/{thumbnailId}/selected",
+            routing::put(mark_series_thumbnail_selected),
+        )
+        .route(
+            "/api/v1/series/{seriesId}/metadata",
+            routing::patch(update_series_metadata),
         )
         .route(
             "/api/v1/series/{seriesId}/books",
@@ -536,6 +549,139 @@ async fn get_series_thumbnail_by_id(
     };
     Ok(([(axum::http::header::CONTENT_TYPE, "image/jpeg")], bytes).into_response())
 }
+
+// region thumbnail write endpoints
+
+async fn add_user_uploaded_series_thumbnail(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(series_id): Path<String>,
+    multipart: Multipart,
+) -> Result<Json<ThumbnailSeriesDto>, ApiError> {
+    auth.0.require_admin()?;
+    let series = SeriesDao::new(state.db.clone())
+        .find_by_id(&series_id)?
+        .ok_or_else(|| ApiError::not_found(""))?;
+    if series.oneshot {
+        return Err(ApiError::bad_request(""));
+    }
+    let (bytes, selected) = crate::api::books::parse_thumbnail_upload(multipart).await?;
+    let media_type = detect_media_type(&bytes);
+    if !is_image(&media_type) {
+        return Err(ApiError::unsupported_media_type(""));
+    }
+    let (width, height) = get_dimension(&bytes).unwrap_or((0, 0));
+    let thumbnail = ThumbnailSeries {
+        id: String::new(),
+        series_id: series.id.clone(),
+        thumbnail: Some(bytes.clone()),
+        url: None,
+        selected: false,
+        type_: ThumbnailType::UserUploaded,
+        media_type,
+        file_size: bytes.len() as i64,
+        dimension: Dimension {
+            width: width as i32,
+            height: height as i32,
+        },
+        created_date: now_utc(),
+        last_modified_date: now_utc(),
+    };
+    let added = crate::service::series::add_thumbnail_for_series(
+        &state,
+        thumbnail,
+        if selected {
+            MarkSelectedPreference::Yes
+        } else {
+            MarkSelectedPreference::No
+        },
+    )?;
+    Ok(Json(ThumbnailSeriesDto::from(&added)))
+}
+
+async fn mark_series_thumbnail_selected(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path((series_id, thumbnail_id)): Path<(String, String)>,
+) -> Result<StatusCode, ApiError> {
+    auth.0.require_admin()?;
+    let series = SeriesDao::new(state.db.clone())
+        .find_by_id(&series_id)?
+        .ok_or_else(|| ApiError::not_found(""))?;
+    let dao = ThumbnailSeriesDao::new(state.db.clone());
+    let Some(poster) = dao.find_by_id(&thumbnail_id)? else {
+        return Err(ApiError::not_found(""));
+    };
+    if poster.series_id != series.id {
+        return Err(ApiError::bad_request(""));
+    }
+    dao.mark_selected(&poster)?;
+    let _ = state
+        .events
+        .send(crate::events::DomainEvent::ThumbnailSeriesAdded(
+            ThumbnailSeries {
+                selected: true,
+                ..poster
+            },
+        ));
+    Ok(StatusCode::ACCEPTED)
+}
+
+async fn delete_user_uploaded_series_thumbnail(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path((series_id, thumbnail_id)): Path<(String, String)>,
+) -> Result<StatusCode, ApiError> {
+    auth.0.require_admin()?;
+    let series = SeriesDao::new(state.db.clone())
+        .find_by_id(&series_id)?
+        .ok_or_else(|| ApiError::not_found(""))?;
+    let dao = ThumbnailSeriesDao::new(state.db.clone());
+    let Some(poster) = dao.find_by_id(&thumbnail_id)? else {
+        return Err(ApiError::not_found(""));
+    };
+    if poster.series_id != series.id {
+        return Err(ApiError::bad_request(""));
+    }
+    if poster.type_ != ThumbnailType::UserUploaded {
+        // SeriesController maps the lifecycle's IllegalArgumentException to 400 with this message
+        return Err(ApiError::bad_request(
+            "Only uploaded thumbnails can be deleted",
+        ));
+    }
+    crate::service::series::delete_thumbnail_for_series(&state, &poster)?;
+    Ok(StatusCode::ACCEPTED)
+}
+
+// endregion
+
+// region metadata update
+
+async fn update_series_metadata(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(series_id): Path<String>,
+    Json(body): Json<SeriesMetadataUpdateDto>,
+) -> Result<StatusCode, ApiError> {
+    auth.0.require_admin()?;
+    let violations = body.violations();
+    if !violations.is_empty() {
+        return Err(ApiError::Violations(violations));
+    }
+    let dao = SeriesMetadataDao::new(state.db.clone());
+    let Some(existing) = dao.find_by_id(&series_id)? else {
+        return Err(ApiError::not_found(""));
+    };
+    dao.update(&body.apply_to(&existing))?;
+    if let Some(series) = SeriesDao::new(state.db.clone()).find_by_id(&series_id)? {
+        let _ = state
+            .events
+            .send(crate::events::DomainEvent::SeriesUpdated(series));
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// endregion
 
 async fn get_books_by_series_id(
     State(state): State<AppState>,
@@ -1915,4 +2061,399 @@ mod tests {
         let response = app.oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
+
+    // region metadata PATCH
+
+    fn rich_metadata(state: &AppState, series_id: &str) {
+        let dao = SeriesMetadataDao::new(state.db.clone());
+        let mut metadata = dao.find_by_id(series_id).unwrap().unwrap();
+        metadata.summary = "old summary".into();
+        metadata.reading_direction = Some(komga_core::model::series::ReadingDirection::RightToLeft);
+        metadata.age_rating = Some(18);
+        metadata.genres = ["action".to_string()].into_iter().collect();
+        metadata.tags = ["seinen".to_string()].into_iter().collect();
+        metadata.total_book_count = Some(41);
+        metadata.sharing_labels = ["nsfw".to_string()].into_iter().collect();
+        metadata.title_lock = true;
+        dao.update(&metadata).unwrap();
+    }
+
+    #[tokio::test]
+    async fn patch_series_metadata_merge_isset_and_event() {
+        let state = test_state();
+        admin(&state);
+        seed_library(&state, "lib1", "Library One");
+        seed_series(&state, "s1", "lib1", "Berserk");
+        rich_metadata(&state, "s1");
+        let mut events = state.events.subscribe();
+        let app = test_app(&state);
+
+        // full update with isSet fields
+        let response = app
+            .clone()
+            .oneshot(authed_json(
+                "PATCH",
+                "/api/v1/series/s1/metadata",
+                ADMIN_KEY,
+                serde_json::json!({
+                    "title": "Berserk Deluxe",
+                    "status": "HIATUS",
+                    "summary": "new summary",
+                    "readingDirection": null,
+                    "ageRating": 12,
+                    "genres": ["drama", "fantasy"],
+                    "tags": null,
+                    "totalBookCount": 42,
+                    "sharingLabels": ["kids"],
+                    "links": [{"label": "wiki", "url": "https://example.org/wiki"}],
+                    "alternateTitles": [{"label": "en", "title": "Berserk Deluxe"}],
+                    "language": "en",
+                    "publisher": "Dark Horse"
+                }),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+        let dao = SeriesMetadataDao::new(state.db.clone());
+        let updated = dao.find_by_id("s1").unwrap().unwrap();
+        assert_eq!(updated.title, "Berserk Deluxe");
+        assert!(updated.title_lock); // untouched by the patch
+        assert_eq!(updated.status, SeriesStatus::Hiatus);
+        assert_eq!(updated.summary, "new summary");
+        assert_eq!(updated.reading_direction, None);
+        assert_eq!(updated.age_rating, Some(12));
+        assert_eq!(
+            updated.genres,
+            ["drama", "fantasy"]
+                .into_iter()
+                .map(String::from)
+                .collect::<std::collections::BTreeSet<_>>()
+        );
+        assert!(updated.tags.is_empty());
+        assert_eq!(updated.total_book_count, Some(42));
+        assert_eq!(
+            updated.sharing_labels,
+            ["kids".to_string()]
+                .into_iter()
+                .collect::<std::collections::BTreeSet<_>>()
+        );
+        assert_eq!(updated.links.len(), 1);
+        assert_eq!(updated.links[0].url, "https://example.org/wiki");
+        assert_eq!(updated.alternate_titles.len(), 1);
+        assert_eq!(updated.language, "en");
+        assert_eq!(updated.publisher, "Dark Horse");
+
+        // SeriesUpdated event fired
+        let event = events.try_recv().unwrap();
+        assert!(matches!(
+            event,
+            crate::events::DomainEvent::SeriesUpdated(ref s) if s.id == "s1"
+        ));
+
+        // empty body: nothing changes
+        let response = app
+            .clone()
+            .oneshot(authed_json(
+                "PATCH",
+                "/api/v1/series/s1/metadata",
+                ADMIN_KEY,
+                serde_json::json!({}),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(
+            dao.find_by_id("s1").unwrap().unwrap().title,
+            "Berserk Deluxe"
+        );
+    }
+
+    #[tokio::test]
+    async fn patch_series_metadata_violations_and_404() {
+        let state = test_state();
+        admin(&state);
+        seed_library(&state, "lib1", "Library One");
+        seed_series(&state, "s1", "lib1", "Berserk");
+        let app = test_app(&state);
+
+        let response = app
+            .clone()
+            .oneshot(authed_json(
+                "PATCH",
+                "/api/v1/series/s1/metadata",
+                ADMIN_KEY,
+                serde_json::json!({
+                    "title": "  ",
+                    "ageRating": -1,
+                    "language": "not a language",
+                    "totalBookCount": 0,
+                    "links": [{"label": "", "url": "nope"}],
+                    "alternateTitles": [{"label": "x"}]
+                }),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = body_json(response).await;
+        let violations = body["violations"].as_array().unwrap();
+        let fields: Vec<&str> = violations
+            .iter()
+            .map(|v| v["fieldName"].as_str().unwrap())
+            .collect();
+        assert!(fields.contains(&"title"));
+        assert!(fields.contains(&"ageRating"));
+        assert!(fields.contains(&"language"));
+        assert!(fields.contains(&"totalBookCount"));
+        assert!(fields.contains(&"links[0].label"));
+        assert!(fields.contains(&"links[0].url"));
+        assert!(fields.contains(&"alternateTitles[0].title"));
+
+        // 404
+        let response = app
+            .oneshot(authed_json(
+                "PATCH",
+                "/api/v1/series/nope/metadata",
+                ADMIN_KEY,
+                serde_json::json!({"title": "x"}),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    // endregion
+
+    // region thumbnail write
+
+    fn tiny_png() -> Vec<u8> {
+        let img = image::RgbImage::from_pixel(12, 8, image::Rgb([10, 30, 200]));
+        let mut out = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(img)
+            .write_to(&mut out, image::ImageFormat::Png)
+            .unwrap();
+        out.into_inner()
+    }
+
+    fn multipart_body(bytes: &[u8], selected: Option<&str>) -> (String, Vec<u8>) {
+        let boundary = "----komgatestboundary";
+        let mut body = Vec::new();
+        body.extend_from_slice(
+            format!("--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"cover.png\"\r\nContent-Type: image/png\r\n\r\n")
+                .as_bytes(),
+        );
+        body.extend_from_slice(bytes);
+        body.extend_from_slice(b"\r\n");
+        if let Some(selected) = selected {
+            body.extend_from_slice(
+                format!("--{boundary}\r\nContent-Disposition: form-data; name=\"selected\"\r\n\r\n{selected}\r\n")
+                    .as_bytes(),
+            );
+        }
+        body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+        (format!("multipart/form-data; boundary={boundary}"), body)
+    }
+
+    fn multipart_request(
+        method: &str,
+        path: &str,
+        key: &str,
+        content_type: &str,
+        body: Vec<u8>,
+    ) -> Request<Body> {
+        Request::builder()
+            .method(method)
+            .uri(path)
+            .header("X-API-Key", key)
+            .header("Content-Type", content_type)
+            .body(Body::from(body))
+            .unwrap()
+    }
+
+    fn authed_method(method: &str, path: &str, key: &str) -> Request<Body> {
+        Request::builder()
+            .method(method)
+            .uri(path)
+            .header("X-API-Key", key)
+            .body(Body::empty())
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn series_thumbnail_upload_select_and_delete() {
+        let state = test_state();
+        admin(&state);
+        seed_library(&state, "lib1", "Library One");
+        seed_series(&state, "s1", "lib1", "Berserk");
+        let mut events = state.events.subscribe();
+        let app = test_app(&state);
+
+        // upload (default selected=true)
+        let (content_type, body) = multipart_body(&tiny_png(), None);
+        let response = app
+            .clone()
+            .oneshot(multipart_request(
+                "POST",
+                "/api/v1/series/s1/thumbnails",
+                ADMIN_KEY,
+                &content_type,
+                body,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let dto = body_json(response).await;
+        assert_eq!(dto["type"], "USER_UPLOADED");
+        assert_eq!(dto["selected"], true);
+        assert_eq!(dto["mediaType"], "image/png");
+        assert_eq!(dto["width"], 12);
+        assert_eq!(dto["height"], 8);
+        let thumbnail_id = dto["id"].as_str().unwrap().to_string();
+
+        let dao = ThumbnailSeriesDao::new(state.db.clone());
+        let row = dao.find_by_id(&thumbnail_id).unwrap().unwrap();
+        assert_eq!(row.file_size, dto["fileSize"].as_i64().unwrap());
+        assert!(matches!(
+            events.try_recv().unwrap(),
+            crate::events::DomainEvent::ThumbnailSeriesAdded(_)
+        ));
+
+        // upload again with selected=false: first one stays selected
+        let (content_type, body) = multipart_body(&tiny_png(), Some("false"));
+        let response = app
+            .clone()
+            .oneshot(multipart_request(
+                "POST",
+                "/api/v1/series/s1/thumbnails",
+                ADMIN_KEY,
+                &content_type,
+                body,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let dto2 = body_json(response).await;
+        assert_eq!(dto2["selected"], false);
+        let second_id = dto2["id"].as_str().unwrap().to_string();
+        // the second upload also fired ThumbnailSeriesAdded (selected=false)
+        assert!(matches!(
+            events.try_recv().unwrap(),
+            crate::events::DomainEvent::ThumbnailSeriesAdded(ref t) if !t.selected
+        ));
+
+        // mark the second one selected: event carries selected=true
+        let response = app
+            .clone()
+            .oneshot(authed_method(
+                "PUT",
+                &format!("/api/v1/series/s1/thumbnails/{second_id}/selected"),
+                ADMIN_KEY,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        let row = dao.find_by_id(&second_id).unwrap().unwrap();
+        assert!(row.selected);
+        let first = dao.find_by_id(&thumbnail_id).unwrap().unwrap();
+        assert!(!first.selected);
+        assert!(matches!(
+            events.try_recv().unwrap(),
+            crate::events::DomainEvent::ThumbnailSeriesAdded(ref t) if t.selected
+        ));
+
+        // delete the second one
+        let response = app
+            .clone()
+            .oneshot(authed_method(
+                "DELETE",
+                &format!("/api/v1/series/s1/thumbnails/{second_id}"),
+                ADMIN_KEY,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        assert!(dao.find_by_id(&second_id).unwrap().is_none());
+        assert!(matches!(
+            events.try_recv().unwrap(),
+            crate::events::DomainEvent::ThumbnailSeriesDeleted(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn series_thumbnail_write_rejections() {
+        let state = test_state();
+        admin(&state);
+        seed_library(&state, "lib1", "Library One");
+        seed_series(&state, "s1", "lib1", "Berserk");
+        state
+            .db
+            .rw()
+            .execute("UPDATE SERIES SET ONESHOT = 1 WHERE ID = 's1'", [])
+            .unwrap();
+        seed_series_thumbnail(&state, "t1", "s1", true, b"img");
+        let app = test_app(&state);
+
+        // oneshot series cannot get uploaded posters
+        let (content_type, body) = multipart_body(&tiny_png(), None);
+        let response = app
+            .clone()
+            .oneshot(multipart_request(
+                "POST",
+                "/api/v1/series/s1/thumbnails",
+                ADMIN_KEY,
+                &content_type,
+                body,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        // non-image upload: 415
+        let (content_type, body) = multipart_body(b"not an image", None);
+        let response = app
+            .clone()
+            .oneshot(multipart_request(
+                "POST",
+                "/api/v1/series/s2/thumbnails",
+                ADMIN_KEY,
+                &content_type,
+                body,
+            ))
+            .await
+            .unwrap();
+        // s2 does not exist: 404 takes precedence (Kotlin looks up the series first)
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        // delete a GENERATED thumbnail: 400 with the lifecycle message
+        let response = app
+            .clone()
+            .oneshot(authed_method(
+                "DELETE",
+                "/api/v1/series/s1/thumbnails/t1",
+                ADMIN_KEY,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = body_json(response).await;
+        assert_eq!(
+            body["message"],
+            "400 BAD_REQUEST \"Only uploaded thumbnails can be deleted\""
+        );
+
+        // thumbnail of another series: 400
+        seed_series(&state, "s2", "lib1", "Other");
+        seed_series_thumbnail(&state, "t2", "s2", true, b"img");
+        let response = app
+            .oneshot(authed_method(
+                "PUT",
+                "/api/v1/series/s1/thumbnails/t2/selected",
+                ADMIN_KEY,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    // endregion
 }
