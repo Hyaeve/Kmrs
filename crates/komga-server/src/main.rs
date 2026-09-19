@@ -102,6 +102,7 @@ pub fn build_router(state: AppState) -> axum::Router {
         .merge(api::tasks::router())
         .merge(api::opds_v1::router())
         .merge(api::opds_v2::router())
+        .merge(api::openapi::router())
         .merge(api::kobo::router())
         .merge(api::koreader::router())
         .merge(api::syncpoints::router())

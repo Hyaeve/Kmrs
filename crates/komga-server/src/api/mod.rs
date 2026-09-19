@@ -28,6 +28,8 @@ pub mod opds_v1;
 #[allow(dead_code)]
 pub mod opds_v2;
 #[allow(dead_code)]
+pub mod openapi;
+#[allow(dead_code)]
 pub mod page_hashes;
 pub mod readlists;
 pub mod referential;
