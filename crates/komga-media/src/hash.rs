@@ -39,7 +39,7 @@ pub fn compute_koreader_hash(path: &Path) -> std::io::Result<String> {
         file.seek(SeekFrom::Start(offset))?;
         let n = file.read(&mut buffer)?;
         if n > 0 {
-            context.consume(&buffer);
+            context.consume(buffer);
         }
     }
     let digest = context.compute();
