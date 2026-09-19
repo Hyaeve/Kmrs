@@ -8,10 +8,62 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+      CARGO_INCREMENTAL: "0"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          # registry downloads only; compile caching is sccache's job.
+          # target/ is never restored, so stale build-script outputs
+          # (e.g. pkg-config probe results from another runner image)
+          # cannot leak across runs
+          cache-targets: "false"
+      - uses: mozilla-actions/sccache-action@v0.0.11
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+
+  docker:
+    # build glibc (2.39) must not exceed the debian:trixie-slim runtime's (2.41)
+    runs-on: ubuntu-24.04
+    env:
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: "false"
+      - uses: mozilla-actions/sccache-action@v0.0.11
+      - run: cargo build -p komga-server
+        env:
+          # hermetic liblzma regardless of runner image contents
+          LZMA_API_STATIC: "1"
+      - run: mkdir -p dist/amd64 && cp target/debug/kmrs dist/amd64/
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: kmrs:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke test
+        run: |
+          docker run -d --name kmrs --user 1000:1000 -p 25600:25600 kmrs:test
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:25600/actuator/health > /dev/null; then
+              echo "server is up"
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs kmrs
+          exit 1

@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 concurrency:
   group: release
@@ -23,9 +24,10 @@ jobs:
     outputs:
       tag: ${{ steps.v.outputs.tag }}
       version: ${{ steps.v.outputs.version }}
+      major: ${{ steps.v.outputs.major }}
       skip: ${{ steps.v.outputs.skip }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: v
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -33,6 +35,7 @@ jobs:
           version=$(awk -F'"' '/^\[workspace\.package\]/{s=1} s && /^version = /{print $2; exit}' Cargo.toml)
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "major=$(echo "$version" | cut -d. -f1)" >> "$GITHUB_OUTPUT"
           if gh release view "v$version" > /dev/null 2>&1; then
             echo "::notice::release v$version already exists, skipping"
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -47,32 +50,53 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # linux legs build inside cross's pinned containers: the runner
+          # image is irrelevant and the artifact's glibc is deterministic
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+            builder: cross
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            cross: true
+            builder: cross
           - os: macos-14
             target: aarch64-apple-darwin
+            builder: cargo
           - os: macos-14
             target: x86_64-apple-darwin
+            builder: cargo
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+            builder: cargo
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
-      - name: Install aarch64 cross compiler
-        if: matrix.cross == true
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-      - run: cargo build --release --target ${{ matrix.target }} -p komga-server
+        with:
+          # registry downloads only; compile caching is sccache's job
+          cache-targets: "false"
+      - uses: taiki-e/install-action@v2
+        if: matrix.builder == 'cross'
+        with:
+          tool: cross
+      - uses: mozilla-actions/sccache-action@v0.0.11
+        if: matrix.builder == 'cargo'
+      - name: Build (cross)
+        if: matrix.builder == 'cross'
+        run: cross build --release --target ${{ matrix.target }} -p komga-server
         env:
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          # hermetic liblzma regardless of image contents
+          LZMA_API_STATIC: "1"
+      - name: Build (cargo)
+        if: matrix.builder == 'cargo'
+        run: cargo build --release --target ${{ matrix.target }} -p komga-server
+        env:
+          LZMA_API_STATIC: "1"
+          RUSTC_WRAPPER: sccache
+          SCCACHE_GHA_ENABLED: "true"
+          CARGO_INCREMENTAL: "0"
       - name: Package (unix)
         if: runner.os != 'Windows'
         shell: bash
@@ -91,18 +115,75 @@ jobs:
           Copy-Item "target\${{ matrix.target }}\release\kmrs.exe" $stage
           Copy-Item LICENSE, README.md $stage
           Compress-Archive -Path $stage -DestinationPath "dist\${stage}.zip"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.target }}
           path: dist/*
 
-  release:
+  docker:
     needs: [version, build]
     if: needs.version.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: "*-unknown-linux-gnu"
+          path: artifacts
+      - name: Stage binaries
+        run: |
+          mkdir -p dist/amd64 dist/arm64
+          tar -xzf artifacts/x86_64-unknown-linux-gnu/*.tar.gz -C dist/amd64 --strip-components=1 '*/kmrs'
+          tar -xzf artifacts/aarch64-unknown-linux-gnu/*.tar.gz -C dist/arm64 --strip-components=1 '*/kmrs'
+          ls -l dist/amd64 dist/arm64
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v6
+        id: meta
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest
+            type=raw,value=${{ needs.version.outputs.version }}
+            type=raw,value=${{ needs.version.outputs.major }}.x
+      - name: Smoke test (amd64)
+        # the shipped artifact gets no other runtime validation; a glibc or
+        # packaging regression must fail here, before anything is pushed
+        run: |
+          docker buildx build --platform linux/amd64 --load -t kmrs:smoke .
+          docker run -d --name kmrs --user 1000:1000 -p 25600:25600 kmrs:smoke
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:25600/actuator/health > /dev/null; then
+              echo "server is up"
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs kmrs
+          exit 1
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  release:
+    # after docker: if the image smoke test fails, no release is created, so
+    # the skip-guard does not block a fixed re-run
+    needs: [version, build, docker]
+    if: needs.version.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           merge-multiple: true
           path: artifacts

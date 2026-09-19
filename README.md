@@ -6,6 +6,8 @@ A Rust rewrite of the [Komga](https://komga.org) server. The goal is **full comp
 - Endpoints, DTOs, pagination, error shapes, and authentication behavior for REST `/api/**`, OPDS v1.2/v2, SSE, Kobo, and KOReader match the Java version
 - No UI
 
+The compatibility target is **komga 1.27.0**: the Flyway migrations, the OpenAPI document, and the behavior fixtures are taken from that release, and API behavior is ported from it. Known deviations are cataloged in [docs/gaps.md](docs/gaps.md).
+
 ## Structure
 
 - `crates/komga-core`: domain model, TSID, time encoding/decoding, natural-sort comparator, error codes
@@ -25,13 +27,30 @@ cargo xtask dump-schema         # print the final migrated schema
 cargo xtask dump-checksums      # print Flyway CRC32 for all migrations
 ```
 
-`sync-migrations` looks for a `komga` source checkout next to this repo by default; `KOMGA_REPO_DIR` can be used to point elsewhere.
+`sync-migrations` looks for a `komga` source checkout next to this repo by default; `KOMGA_REPO_DIR` can be used to point elsewhere. The checkout should be at the compatibility target (`v1.27.0`).
 
 Run: `cargo run -p komga-server` produces the `kmrs` binary (default port 25600, data directory `~/.komga`, overridable with `KOMGA_CONFIG_DIR`).
 
 ## Configuration
 
 `kmrs --help` lists the CLI flags (`--config-dir`, `--port`). The configuration file is always `<config-dir>/config.toml`; on first start it is generated from the built-in defaults, carrying over values from the Java komga's `application.yml`/`application.yaml` found in the same directory. See [examples/config.toml](examples/config.toml) for the full key list with defaults. Precedence: defaults < TOML file < env vars (Spring relaxed binding, e.g. `KOMGA_DATABASE_FILE`) < CLI flags.
+
+## Docker
+
+Every release publishes an image to `ghcr.io/everpcpc/kmrs` (tags: `latest`, `MAJOR.x`, `x.y.z`; platforms: `linux/amd64`, `linux/arm64`). It is a drop-in replacement for `gotson/komga` — same port, same `/config` and `/data` mounts, same `KOMGA_*` environment variables, so the [official Komga Docker instructions](https://komga.org/docs/installation/docker) apply verbatim, just with the image name swapped:
+
+```sh
+docker run -d \
+  --name=komga \
+  --user 1000:1000 \
+  -p 25600:25600 \
+  --mount type=bind,source=/path/to/config,target=/config \
+  --mount type=bind,source=/path/to/data,target=/data \
+  --restart unless-stopped \
+  ghcr.io/everpcpc/kmrs
+```
+
+An existing komga `/config` directory (with `database.sqlite` / `tasks.sqlite`) is picked up and upgraded in place. Note that kmrs serves the API/OPDS only — there is no web UI.
 
 ## Compatibility testing
 

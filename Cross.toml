@@ -1,0 +1,11 @@
+[build.env]
+# keep liblzma vendored inside cross's containers too
+passthrough = ["LZMA_API_STATIC"]
+
+# cross 0.2.5's default images date from 2023 (Ubuntu 16.04, GCC 5) and cannot
+# compile unrar's C++14; the main tags track cross's current Ubuntu 24.04 base
+[target.x86_64-unknown-linux-gnu]
+image = "ghcr.io/cross-rs/x86_64-unknown-linux-gnu:main"
+
+[target.aarch64-unknown-linux-gnu]
+image = "ghcr.io/cross-rs/aarch64-unknown-linux-gnu:main"
