@@ -1146,6 +1146,7 @@ mod tests {
             sessions: auth::SessionStore::new(config.session_timeout),
             settings: Arc::new(SettingsProvider::load(db.clone())),
             tsid: Arc::new(komga_core::tsid::TsidFactory::new_random_node()),
+            events: crate::events::event_bus(),
             db,
             tasks_db,
             config: Arc::new(config),

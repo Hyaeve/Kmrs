@@ -632,6 +632,7 @@ pub(crate) mod tests {
             settings: Arc::new(SettingsProvider::load(db.clone())),
             sessions: SessionStore::new(Duration::from_secs(3600)),
             tsid: Arc::new(komga_core::tsid::TsidFactory::new_random_node()),
+            events: crate::events::event_bus(),
             db,
             tasks_db,
         }

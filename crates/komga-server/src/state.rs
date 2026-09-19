@@ -15,6 +15,7 @@ pub struct AppState {
     pub sessions: SessionStore,
     pub settings: Arc<SettingsProvider>,
     pub tsid: Arc<TsidFactory>,
+    pub events: crate::events::EventBus,
 }
 
 impl AppState {

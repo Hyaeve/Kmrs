@@ -99,6 +99,7 @@ pub(crate) mod test_support {
                 sessions: auth::SessionStore::new(std::time::Duration::from_secs(3600)),
                 settings: Arc::new(SettingsProvider::load(db)),
                 tsid: Arc::new(komga_core::tsid::TsidFactory::new_random_node()),
+                events: crate::events::event_bus(),
             };
             let app = routes
                 .layer(axum::middleware::from_fn_with_state(

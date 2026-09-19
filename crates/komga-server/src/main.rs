@@ -3,6 +3,7 @@ mod auth;
 mod config;
 mod dto;
 mod error;
+mod events;
 mod http;
 mod settings;
 mod state;
@@ -46,6 +47,7 @@ async fn main() -> anyhow::Result<()> {
         sessions: auth::SessionStore::new(config.session_timeout),
         settings: Arc::new(settings::SettingsProvider::load(db.clone())),
         tsid: Arc::new(komga_core::tsid::TsidFactory::new_random_node()),
+        events: events::event_bus(),
         db,
         tasks_db,
         config: Arc::new(config.clone()),

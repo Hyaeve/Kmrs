@@ -22,6 +22,7 @@ pub mod series;
 pub mod settings;
 pub mod sidecar;
 pub mod sync_point;
+pub mod tasks;
 pub mod thumbnail;
 pub mod user;
 
