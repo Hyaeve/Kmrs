@@ -458,6 +458,16 @@ impl UserDao {
         Ok(())
     }
 
+    /// `AuthenticationActivityRepository.deleteOlderThan`
+    pub fn delete_activity_older_than(&self, cutoff: time::OffsetDateTime) -> Result<i64> {
+        let conn = self.db.rw();
+        let n = conn.execute(
+            "DELETE FROM AUTHENTICATION_ACTIVITY WHERE DATE_TIME < ?",
+            [time_codec::format_datetime(cutoff)],
+        )?;
+        Ok(n as i64)
+    }
+
     /// `findAllByUser`: `USER_ID = ? OR EMAIL = ?`, ordered by DATE_TIME DESC,
     /// returns (items, total).
     pub fn find_activities_by_user(

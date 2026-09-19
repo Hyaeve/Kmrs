@@ -71,6 +71,7 @@ async fn main() -> anyhow::Result<()> {
 
     service::processor::TaskProcessor::start(state.clone(), task_notify);
     service::scheduler::ScanScheduler::start(state.clone());
+    service::scheduler::ScanScheduler::start_auth_activity_cleanup(state.clone());
     search_index::check_on_startup(&state);
     search_index::consume_events(state.clone());
 

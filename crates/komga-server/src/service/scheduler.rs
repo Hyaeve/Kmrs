@@ -106,6 +106,28 @@ impl ScanScheduler {
         }
         tokio::spawn(async {})
     }
+
+    /// `AuthenticationActivityCleanupController`: every day, delete activity older than 1 month.
+    pub fn start_auth_activity_cleanup(state: AppState) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(86_400));
+            loop {
+                interval.tick().await;
+                let cutoff = komga_core::time_codec::now_utc() - time::Duration::days(30);
+                tracing::info!(
+                    "Remove authentication activity older than {}",
+                    komga_core::time_codec::format_datetime(cutoff)
+                );
+                match komga_db::dao::user::UserDao::new(state.db.clone())
+                    .delete_activity_older_than(cutoff)
+                {
+                    Ok(n) if n > 0 => tracing::info!("Removed {n} old authentication activities"),
+                    Err(e) => tracing::error!("Failed to cleanup authentication activity: {e}"),
+                    _ => {}
+                }
+            }
+        })
+    }
 }
 
 fn interval_duration(interval: ScanInterval) -> std::time::Duration {

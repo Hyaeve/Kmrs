@@ -57,8 +57,15 @@ struct HealthBody {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct HealthComponents {
-    db: HealthComponent,
+    db: HealthDbComponent,
     disk_space: HealthComponent,
+}
+
+/// Spring Boot's relational database health group: the database itself, then one entry per data source
+#[derive(Serialize)]
+struct HealthDbComponent {
+    status: &'static str,
+    components: std::collections::BTreeMap<String, HealthComponent>,
 }
 
 #[derive(Serialize)]
@@ -78,8 +85,7 @@ async fn get_health(State(state): State<AppState>, auth: MaybeAuth) -> Response 
         });
     }
 
-    let db_component = match state
-        .db
+    let data_source = |db: &komga_db::pool::Database| match db
         .ro()
         .query_row("SELECT 1", [], |r| r.get::<_, i64>(0))
     {
@@ -87,18 +93,19 @@ async fn get_health(State(state): State<AppState>, auth: MaybeAuth) -> Response 
             status: "UP",
             details: serde_json::json!({
                 "database": "SQLite",
-                "validationQuery": "SELECT 1",
+                "validationQuery": "isValid()",
             }),
         },
-        Ok(_) => HealthComponent {
+        _ => HealthComponent {
             status: "DOWN",
-            details: serde_json::json!({"error": "unexpected result for SELECT 1"}),
-        },
-        Err(e) => HealthComponent {
-            status: "DOWN",
-            details: serde_json::json!({"error": e.to_string()}),
+            details: serde_json::json!({}),
         },
     };
+    let mut db_components = std::collections::BTreeMap::new();
+    db_components.insert("sqliteDataSourceRO".to_string(), data_source(&state.db));
+    db_components.insert("sqliteDataSourceRW".to_string(), data_source(&state.db));
+    db_components.insert("tasksDataSourceRO".to_string(), data_source(&state.tasks_db));
+    db_components.insert("tasksDataSourceRW".to_string(), data_source(&state.tasks_db));
 
     let (total, free) = disk_space_k_bytes(&state.config.config_dir);
     let disk_component = HealthComponent {
@@ -114,7 +121,10 @@ async fn get_health(State(state): State<AppState>, auth: MaybeAuth) -> Response 
     actuator_response(&HealthBody {
         status: "UP",
         components: Some(HealthComponents {
-            db: db_component,
+            db: HealthDbComponent {
+                status: "UP",
+                components: db_components,
+            },
             disk_space: disk_component,
         }),
     })
@@ -144,19 +154,57 @@ fn disk_space_k_bytes(path: &std::path::Path) -> (i64, i64) {
 
 #[derive(Serialize)]
 struct InfoBody {
+    git: InfoGit,
+    build: InfoBuild,
     java: InfoJava,
     os: InfoOs,
+}
+
+#[derive(Serialize)]
+struct InfoGit {
+    branch: String,
+    commit: InfoGitCommit,
+}
+
+#[derive(Serialize)]
+struct InfoGitCommit {
+    id: String,
+    time: String,
+}
+
+#[derive(Serialize)]
+struct InfoBuild {
+    artifact: String,
+    name: String,
+    version: String,
+    group: String,
 }
 
 #[derive(Serialize)]
 struct InfoJava {
     version: String,
     vendor: InfoVendor,
+    runtime: InfoRuntime,
+    jvm: InfoJvm,
 }
 
 #[derive(Serialize)]
 struct InfoVendor {
     name: String,
+    version: String,
+}
+
+#[derive(Serialize)]
+struct InfoRuntime {
+    name: String,
+    version: String,
+}
+
+#[derive(Serialize)]
+struct InfoJvm {
+    name: String,
+    vendor: String,
+    version: String,
 }
 
 #[derive(Serialize)]
@@ -170,11 +218,35 @@ struct InfoOs {
 /// shape but reports komga-rs's own version, the `os` section reports the platform.
 async fn get_info() -> Response {
     let (os_name, os_version) = os_name_version();
+    let toolchain = rustc_version();
     actuator_response(&InfoBody {
+        git: InfoGit {
+            branch: env!("GIT_BRANCH").to_string(),
+            commit: InfoGitCommit {
+                id: env!("GIT_COMMIT_ID").to_string(),
+                time: env!("GIT_COMMIT_TIME").to_string(),
+            },
+        },
+        build: InfoBuild {
+            artifact: "komga-server".to_string(),
+            name: "komga-rs".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            group: "komga-rs".to_string(),
+        },
         java: InfoJava {
             version: env!("CARGO_PKG_VERSION").to_string(),
             vendor: InfoVendor {
-                name: format!("komga-rs ({})", rustc_version()),
+                name: format!("komga-rs ({toolchain})"),
+                version: toolchain.clone(),
+            },
+            runtime: InfoRuntime {
+                name: "tokio".to_string(),
+                version: String::new(),
+            },
+            jvm: InfoJvm {
+                name: "komga-server".to_string(),
+                vendor: "komga-rs".to_string(),
+                version: env!("CARGO_PKG_VERSION").to_string(),
             },
         },
         os: InfoOs {
@@ -258,7 +330,20 @@ struct MetricMeasurement {
     value: f64,
 }
 
-const METRICS: &[&str] = &["jvm.memory.used", "process.start.time", "process.uptime"];
+const METRICS: &[&str] = &[
+    "jvm.memory.used",
+    "komga.books",
+    "komga.books.filesize",
+    "komga.collections",
+    "komga.libraries",
+    "komga.readlists",
+    "komga.series",
+    "komga.sidecars",
+    "process.cpu.usage",
+    "process.start.time",
+    "process.threads",
+    "process.uptime",
+];
 
 /// Only ADMIN (`EndpointRequest.toAnyEndpoint().hasRole(ADMIN)`).
 async fn get_metric_names(auth: RequireAuth) -> Result<Response, ApiError> {
@@ -305,12 +390,143 @@ async fn get_metric(
             }],
             available_tags: vec![],
         },
+        "process.cpu.usage" => MetricBody {
+            name: "process.cpu.usage",
+            description: "The \"recent cpu usage\" for the Java Virtual Machine process",
+            base_unit: "percent",
+            measurements: vec![MetricMeasurement {
+                statistic: "VALUE",
+                value: cpu_usage_percent(),
+            }],
+            available_tags: vec![],
+        },
+        "process.threads" => MetricBody {
+            name: "process.threads",
+            description: "The current number of threads",
+            base_unit: "threads",
+            measurements: vec![MetricMeasurement {
+                statistic: "VALUE",
+                value: thread_count() as f64,
+            }],
+            available_tags: vec![],
+        },
+        name if name.starts_with("komga.") => komga_gauge(name, &_state)?,
         _ => return Err(ApiError::not_found("")),
     };
     Ok(actuator_response(&body))
 }
 
-/// Resident set size of the current process, via `ps` (works on Linux and macOS).
+/// `MetricsPublisherController` gauges: entity counts read straight from the database.
+fn komga_gauge(name: &str, state: &AppState) -> Result<MetricBody, ApiError> {
+    let (description, base_unit, value) = match name {
+        "komga.libraries" => ("Number of libraries", "libraries", count_of(state, "LIBRARY")),
+        "komga.series" => ("Number of series", "series", count_of(state, "SERIES")),
+        "komga.books" => ("Number of books", "books", count_of(state, "BOOK")),
+        "komga.books.filesize" => (
+            "Total file size of all books",
+            "bytes",
+            sum_of(state, "SELECT COALESCE(SUM(FILE_SIZE), 0) FROM BOOK"),
+        ),
+        "komga.collections" => ("Number of collections", "collections", count_of(state, "COLLECTION")),
+        "komga.readlists" => ("Number of read lists", "read lists", count_of(state, "READLIST")),
+        "komga.sidecars" => ("Number of sidecars", "sidecars", count_of(state, "SIDECAR")),
+        _ => return Err(ApiError::not_found("")),
+    };
+    Ok(MetricBody {
+        name: name_static(name),
+        description: description_static(description),
+        base_unit: base_unit_static(base_unit),
+        measurements: vec![MetricMeasurement {
+            statistic: "VALUE",
+            value,
+        }],
+        available_tags: vec![],
+    })
+}
+
+fn name_static(name: &str) -> &'static str {
+    match name {
+        "komga.libraries" => "komga.libraries",
+        "komga.series" => "komga.series",
+        "komga.books" => "komga.books",
+        "komga.books.filesize" => "komga.books.filesize",
+        "komga.collections" => "komga.collections",
+        "komga.readlists" => "komga.readlists",
+        "komga.sidecars" => "komga.sidecars",
+        _ => unreachable!(),
+    }
+}
+
+fn description_static(s: &str) -> &'static str {
+    match s {
+        "Number of libraries" => "Number of libraries",
+        "Number of series" => "Number of series",
+        "Number of books" => "Number of books",
+        "Total file size of all books" => "Total file size of all books",
+        "Number of collections" => "Number of collections",
+        "Number of read lists" => "Number of read lists",
+        "Number of sidecars" => "Number of sidecars",
+        _ => unreachable!(),
+    }
+}
+
+fn base_unit_static(s: &str) -> &'static str {
+    match s {
+        "libraries" => "libraries",
+        "series" => "series",
+        "books" => "books",
+        "bytes" => "bytes",
+        "collections" => "collections",
+        "read lists" => "read lists",
+        "sidecars" => "sidecars",
+        _ => unreachable!(),
+    }
+}
+
+fn count_of(state: &AppState, table: &str) -> f64 {
+    state
+        .db
+        .ro()
+        .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| {
+            r.get::<_, i64>(0)
+        })
+        .unwrap_or(0) as f64
+}
+
+fn sum_of(state: &AppState, sql: &str) -> f64 {
+    state
+        .db
+        .ro()
+        .query_row(sql, [], |r| r.get::<_, i64>(0))
+        .unwrap_or(0) as f64
+}
+
+/// Recent CPU usage of this process, via `ps -o %cpu` (percent).
+fn cpu_usage_percent() -> f64 {
+    std::process::Command::new("ps")
+        .arg("-o")
+        .arg("%cpu=")
+        .arg("-p")
+        .arg(std::process::id().to_string())
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .and_then(|s| s.trim().parse::<f64>().ok())
+        .unwrap_or(0.0)
+}
+
+/// Thread count of this process, via `ps -M` line count.
+fn thread_count() -> i64 {
+    std::process::Command::new("ps")
+        .arg("-M")
+        .arg("-p")
+        .arg(std::process::id().to_string())
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.lines().skip(1).count() as i64)
+        .unwrap_or(0)
+}
 fn rss_bytes() -> i64 {
     std::process::Command::new("ps")
         .arg("-o")
@@ -353,9 +569,11 @@ struct ScheduledTaskRunnable {
 
 /// Spring's `ScheduledTasksEndpoint`, fed by the scan scheduler's per-library interval tasks
 /// (each with `initialDelay == interval == period`, like `FixedRateTask`).
+/// Spring's `ScheduledTasksEndpoint`, fed by the scan scheduler's per-library interval tasks
+/// plus the fixed-rate jobs (SSE heartbeat / task count, authentication-activity cleanup).
 async fn get_scheduled_tasks(auth: RequireAuth) -> Result<Response, ApiError> {
     auth.0.require_admin()?;
-    let fixed_rate = crate::service::scheduler::ScanScheduler::scheduled_tasks()
+    let mut fixed_rate: Vec<ScheduledTaskEntry> = crate::service::scheduler::ScanScheduler::scheduled_tasks()
         .into_iter()
         .map(|registration| {
             let millis = registration.period.as_millis() as u64;
@@ -368,6 +586,19 @@ async fn get_scheduled_tasks(auth: RequireAuth) -> Result<Response, ApiError> {
             }
         })
         .collect();
+    for (target, millis) in [
+        ("SseController.heartbeat", 15_000u64),
+        ("SseController.taskCount", 10_000u64),
+        ("AuthenticationActivityCleanupController.cleanup", 86_400_000u64),
+    ] {
+        fixed_rate.push(ScheduledTaskEntry {
+            runnable: ScheduledTaskRunnable {
+                target: target.to_string(),
+            },
+            initial_delay: millis,
+            interval: millis,
+        });
+    }
     Ok(actuator_response(&ScheduledTasksBody {
         cron: vec![],
         fixed_delay: vec![],
@@ -534,11 +765,18 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         let body = json(&bytes);
         assert_eq!(body["status"], "UP");
-        assert_eq!(body["components"]["db"]["details"]["database"], "SQLite");
-        assert_eq!(
-            body["components"]["db"]["details"]["validationQuery"],
-            "SELECT 1"
-        );
+        assert_eq!(body["components"]["db"]["status"], "UP");
+        for ds in [
+            "sqliteDataSourceRO",
+            "sqliteDataSourceRW",
+            "tasksDataSourceRO",
+            "tasksDataSourceRW",
+        ] {
+            let component = &body["components"]["db"]["components"][ds];
+            assert_eq!(component["status"], "UP", "{ds}");
+            assert_eq!(component["details"]["database"], "SQLite", "{ds}");
+            assert_eq!(component["details"]["validationQuery"], "isValid()", "{ds}");
+        }
         assert_eq!(
             body["components"]["diskSpace"]["details"]["threshold"],
             10_485_760i64
@@ -570,6 +808,10 @@ mod tests {
             .as_str()
             .unwrap()
             .starts_with("komga-rs (rustc"));
+        assert_eq!(body["build"]["name"], "komga-rs");
+        assert_eq!(body["build"]["version"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(body["git"]["branch"], "master");
+        assert!(body["git"]["commit"]["id"].is_string());
         assert!(body["os"]["name"].is_string());
         assert!(body["os"]["version"].is_string());
         assert!(body["os"]["arch"].is_string());
@@ -585,10 +827,32 @@ mod tests {
         let body = json(&bytes);
         assert_eq!(
             body["names"],
-            serde_json::json!(["jvm.memory.used", "process.start.time", "process.uptime"])
+            serde_json::json!([
+                "jvm.memory.used",
+                "komga.books",
+                "komga.books.filesize",
+                "komga.collections",
+                "komga.libraries",
+                "komga.readlists",
+                "komga.series",
+                "komga.sidecars",
+                "process.cpu.usage",
+                "process.start.time",
+                "process.threads",
+                "process.uptime"
+            ])
         );
 
-        for name in ["jvm.memory.used", "process.start.time", "process.uptime"] {
+        for name in [
+            "jvm.memory.used",
+            "process.start.time",
+            "process.uptime",
+            "process.cpu.usage",
+            "process.threads",
+            "komga.libraries",
+            "komga.books",
+            "komga.books.filesize",
+        ] {
             let (status, _headers, bytes) = call(
                 &app,
                 "GET",
@@ -696,14 +960,31 @@ mod tests {
             },
         );
 
-        // empty registry yields empty fixedRate
+        // empty registry still exposes the fixed-rate jobs
         let (state2, _rx2) = test_state();
         seed_user(&state2, "admin@komga.org", true, "k1");
         let app2 = test_router(state2);
         let (status, _headers, bytes) =
             call(&app2, "GET", "/actuator/scheduledtasks", Some("k1")).await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(json(&bytes)["fixedRate"], serde_json::json!([]));
+        let body = json(&bytes);
+        let targets: Vec<&str> = body["fixedRate"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["runnable"]["target"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            targets,
+            vec![
+                "SseController.heartbeat",
+                "SseController.taskCount",
+                "AuthenticationActivityCleanupController.cleanup"
+            ]
+        );
+        assert_eq!(body["fixedRate"][0]["initialDelay"], 15_000i64);
+        assert_eq!(body["fixedRate"][0]["interval"], 15_000i64);
+        assert_eq!(body["fixedRate"][2]["interval"], 86_400_000i64);
     }
 
     fn service_series_test_library() -> komga_core::model::library::Library {

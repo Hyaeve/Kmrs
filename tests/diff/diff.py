@@ -129,9 +129,9 @@ def http(method, url, headers=None, body=None, raw=False):
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
             content = r.read()
-            return r.status, dict(r.headers), content
+            return r.status, {k.lower(): v for k, v in r.headers.items()}, content
     except urllib.error.HTTPError as e:
-        return e.code, dict(e.headers), e.read()
+        return e.code, {k.lower(): v for k, v in e.headers.items()}, e.read()
 
 
 def basic(email, password):
@@ -266,7 +266,7 @@ def endpoints():
     get("fonts families", "/api/v1/fonts/families")
     get("page-hashes", "/api/v1/page-hashes")
     get("page-hashes unknown", "/api/v1/page-hashes/unknown")
-    post("filesystem", "/api/v1/filesystem", {"path": "/tmp", "showFiles": false})
+    post("filesystem", "/api/v1/filesystem", {"path": "/tmp", "showFiles": False})
     get("actuator health", "/actuator/health")
     get("actuator info", "/actuator/info")
     get("actuator metrics", "/actuator/metrics")
@@ -284,6 +284,7 @@ def endpoints():
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--java-jar")
+    ap.add_argument("--java-home", default=os.environ.get("JAVA_HOME", ""))
     ap.add_argument("--rust-bin", default=os.path.expanduser("~/src/komga-rs/target/debug/komga-server"))
     ap.add_argument("--workdir", default="/tmp/komga-diff")
     ap.add_argument("--port-java", type=int, default=25611)
@@ -306,9 +307,10 @@ def main():
     procs = []
     try:
         if not args.skip_start:
+            java_bin = os.path.join(args.java_home, "bin", "java") if args.java_home else "java"
             print("[start] java komga ...")
             p = subprocess.Popen(
-                ["java", "-jar", args.java_jar,
+                [java_bin, "-jar", args.java_jar,
                  f"--server.port={args.port_java}",
                  f"--komga.config-dir={java_dir}",
                  "--spring.profiles.active=localdb,nogc"],
@@ -406,7 +408,7 @@ def main():
                     if not (jb.startswith(b"\xff\xd8\xff") and rb.startswith(b"\xff\xd8\xff")):
                         problems.append("not both jpeg")
                 # compare == "none": body not compared
-                for header in ("Content-Type", "Cache-Control", "WWW-Authenticate", "Link", "Content-Disposition"):
+                for header in ("content-type", "cache-control", "www-authenticate", "link", "content-disposition"):
                     jv, rv = jh.get(header), rh.get(header)
                     if (jv is None) != (rv is None):
                         problems.append(f"header {header} presence differs ({jv!r} vs {rv!r})")
