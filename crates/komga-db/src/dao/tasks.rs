@@ -216,8 +216,13 @@ mod tests {
             .unwrap();
         dao.save(&Task::scan_library("lib2", false, HIGHEST_PRIORITY))
             .unwrap();
-        dao.save(&Task::book(BookTaskKind::HashBook, "b1", DEFAULT_PRIORITY, None))
-            .unwrap();
+        dao.save(&Task::book(
+            BookTaskKind::HashBook,
+            "b1",
+            DEFAULT_PRIORITY,
+            None,
+        ))
+        .unwrap();
 
         let first = dao.take_first("worker-1").unwrap().unwrap();
         assert_eq!(first.unique_id(), "SCAN_LIBRARY_lib2_DEEP_false");
@@ -268,10 +273,20 @@ mod tests {
         let dao = dao();
         dao.save(&Task::scan_library("lib1", false, DEFAULT_PRIORITY))
             .unwrap();
-        dao.save(&Task::book(BookTaskKind::HashBook, "b1", DEFAULT_PRIORITY, None))
-            .unwrap();
-        dao.save(&Task::book(BookTaskKind::HashBook, "b2", DEFAULT_PRIORITY, None))
-            .unwrap();
+        dao.save(&Task::book(
+            BookTaskKind::HashBook,
+            "b1",
+            DEFAULT_PRIORITY,
+            None,
+        ))
+        .unwrap();
+        dao.save(&Task::book(
+            BookTaskKind::HashBook,
+            "b2",
+            DEFAULT_PRIORITY,
+            None,
+        ))
+        .unwrap();
         dao.take_first("worker-1").unwrap();
 
         let counts = dao.count_by_simple_type().unwrap();

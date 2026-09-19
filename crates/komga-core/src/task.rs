@@ -117,7 +117,10 @@ fn default_priority() -> i32 {
     DEFAULT_PRIORITY
 }
 
-task_struct!(ScanLibrary { library_id: String, scan_deep: bool });
+task_struct!(ScanLibrary {
+    library_id: String,
+    scan_deep: bool
+});
 task_struct!(LibraryTask { library_id: String });
 task_struct!(AnalyzeBook { book_id: String });
 task_struct!(BookTask { book_id: String });
@@ -141,7 +144,9 @@ task_struct!(RebuildIndex {
     entities: Option<BTreeSet<LuceneEntity>>,
 });
 task_struct!(EmptyTask {});
-task_struct!(FindBookThumbnailsToRegenerate { for_bigger_result_only: bool });
+task_struct!(FindBookThumbnailsToRegenerate {
+    for_bigger_result_only: bool
+});
 
 /// A background task. The variant order matches `Task.kt`.
 #[derive(Debug, Clone, PartialEq)]
@@ -198,7 +203,12 @@ impl Task {
         }
     }
 
-    pub fn book(kind: BookTaskKind, book_id: &str, priority: i32, group_id: Option<String>) -> Task {
+    pub fn book(
+        kind: BookTaskKind,
+        book_id: &str,
+        priority: i32,
+        group_id: Option<String>,
+    ) -> Task {
         let t = BookTask {
             book_id: book_id.to_string(),
             priority,
@@ -277,7 +287,9 @@ impl Task {
             Task::HashBookPages(t) => format!("HASH_BOOK_PAGES_{}", t.book_id),
             Task::HashBookKoreader(t) => format!("HASH_BOOK_KOREADER_{}", t.book_id),
             Task::RefreshSeriesMetadata(t) => format!("REFRESH_SERIES_METADATA_{}", t.series_id),
-            Task::AggregateSeriesMetadata(t) => format!("AGGREGATE_SERIES_METADATA_{}", t.series_id),
+            Task::AggregateSeriesMetadata(t) => {
+                format!("AGGREGATE_SERIES_METADATA_{}", t.series_id)
+            }
             Task::RefreshBookLocalArtwork(t) => {
                 format!("REFRESH_BOOK_LOCAL_ARTWORK_{}", t.book_id)
             }
@@ -516,7 +528,12 @@ mod tests {
             "ANALYZE_BOOK_b1"
         );
         assert_eq!(
-            Task::series(SeriesTaskKind::AggregateSeriesMetadata, "s1", DEFAULT_PRIORITY).unique_id(),
+            Task::series(
+                SeriesTaskKind::AggregateSeriesMetadata,
+                "s1",
+                DEFAULT_PRIORITY
+            )
+            .unique_id(),
             "AGGREGATE_SERIES_METADATA_s1"
         );
     }
@@ -528,7 +545,12 @@ mod tests {
             Some("s1".to_string())
         );
         assert_eq!(
-            Task::series(SeriesTaskKind::RefreshSeriesMetadata, "s1", DEFAULT_PRIORITY).group_id(),
+            Task::series(
+                SeriesTaskKind::RefreshSeriesMetadata,
+                "s1",
+                DEFAULT_PRIORITY
+            )
+            .group_id(),
             Some("s1".to_string())
         );
         assert_eq!(
@@ -553,10 +575,7 @@ mod tests {
         );
 
         let class = task.class_name();
-        assert_eq!(
-            class,
-            "org.gotson.komga.application.tasks.Task$ScanLibrary"
-        );
+        assert_eq!(class, "org.gotson.komga.application.tasks.Task$ScanLibrary");
         let parsed = Task::from_payload(&class, &payload.to_string()).unwrap();
         assert_eq!(parsed.unique_id(), task.unique_id());
         assert_eq!(parsed.priority(), 4);
@@ -582,7 +601,19 @@ mod tests {
         let payload = task.to_payload();
         assert_eq!(
             payload["capabilities"],
-            serde_json::json!(["TITLE","SUMMARY","NUMBER","NUMBER_SORT","RELEASE_DATE","AUTHORS","TAGS","ISBN","READ_LISTS","THUMBNAILS","LINKS"])
+            serde_json::json!([
+                "TITLE",
+                "SUMMARY",
+                "NUMBER",
+                "NUMBER_SORT",
+                "RELEASE_DATE",
+                "AUTHORS",
+                "TAGS",
+                "ISBN",
+                "READ_LISTS",
+                "THUMBNAILS",
+                "LINKS"
+            ])
         );
         let parsed = Task::from_payload(&task.class_name(), &payload.to_string()).unwrap();
         assert_eq!(parsed.unique_id(), "REFRESH_BOOK_METADATA_b1");
@@ -591,10 +622,6 @@ mod tests {
     #[test]
     fn unknown_class_yields_none() {
         assert!(Task::from_payload("com.example.Other", "{}").is_none());
-        assert!(Task::from_payload(
-            "org.gotson.komga.application.tasks.Task$Nope",
-            "{}"
-        )
-        .is_none());
+        assert!(Task::from_payload("org.gotson.komga.application.tasks.Task$Nope", "{}").is_none());
     }
 }

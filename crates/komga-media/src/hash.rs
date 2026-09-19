@@ -53,10 +53,7 @@ mod tests {
     #[test]
     fn xxh3_vectors() {
         // XXH3-128("") = 99aa06d3014798d86001c324468d497f
-        assert_eq!(
-            compute_hash_bytes(b""),
-            "99aa06d3014798d86001c324468d497f"
-        );
+        assert_eq!(compute_hash_bytes(b""), "99aa06d3014798d86001c324468d497f");
         let dir = std::env::temp_dir().join("komga-rs-hasher-test");
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("empty.bin");
