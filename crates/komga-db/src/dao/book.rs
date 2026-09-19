@@ -142,7 +142,13 @@ impl BookDao {
                 ))
             })
             .collect::<Vec<_>>();
-        let mut sql = format!("SELECT {BOOK_COLUMNS} FROM BOOK{join_sql}");
+        // columns are qualified: the dynamic joins (MEDIA, BOOK_METADATA, ...) share column names
+        let columns = BOOK_COLUMNS
+            .split(',')
+            .map(|c| format!("BOOK.{}", c.trim()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mut sql = format!("SELECT {columns} FROM BOOK{join_sql}");
         if !w.sql.is_empty() {
             sql.push_str(&format!(" WHERE {}", w.sql));
         }

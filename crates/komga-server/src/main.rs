@@ -47,6 +47,7 @@ async fn main() -> anyhow::Result<()> {
             .context("tasks db migration")?;
     }
 
+    let task_notify: service::TaskNotify = std::sync::Arc::new(tokio::sync::Notify::new());
     let state = AppState {
         sessions: auth::SessionStore::new(config.session_timeout),
         settings: Arc::new(settings::SettingsProvider::load(db.clone())),
@@ -55,12 +56,15 @@ async fn main() -> anyhow::Result<()> {
         task_emitter: Arc::new(service::TaskEmitter::new(
             db.clone(),
             tasks_db.clone(),
-            std::sync::Arc::new(tokio::sync::Notify::new()),
+            task_notify.clone(),
         )),
         db,
         tasks_db,
         config: Arc::new(config.clone()),
     };
+
+    service::processor::TaskProcessor::start(state.clone(), task_notify);
+    service::scheduler::ScanScheduler::start(state.clone());
 
     let app = build_router(state.clone());
 
@@ -87,6 +91,7 @@ pub fn build_router(state: AppState) -> axum::Router {
         .merge(api::books::router())
         .merge(api::collections::router())
         .merge(api::readlists::router())
+        .merge(api::tasks::router())
         .merge(sse::router());
 
     routes

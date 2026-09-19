@@ -21,20 +21,18 @@ use komga_core::dto::series::SeriesDto;
 use komga_core::dto::tachiyomi::{TachiyomiReadProgressUpdateV2Dto, TachiyomiReadProgressV2Dto};
 use komga_core::dto::thumbnail::ThumbnailSeriesDto;
 use komga_core::dto::url_to_file_path;
-use komga_core::model::library::SeriesCover;
 use komga_core::model::media::MediaStatus;
 use komga_core::model::read_progress::ReadProgress;
 use komga_core::model::series::SeriesStatus;
-use komga_core::model::thumbnail::{ThumbnailBook, ThumbnailSeries, ThumbnailType};
 use komga_core::model::user::{KomgaUser, UserRole};
 use komga_core::search::*;
+use komga_core::task::{BookMetadataPatchCapability, HIGHEST_PRIORITY, HIGH_PRIORITY};
 use komga_core::time_codec::now_utc;
 use komga_db::dao::book::BookDao;
-use komga_db::dao::library::LibraryDao;
 use komga_db::dao::media::MediaDao;
 use komga_db::dao::read_progress::ReadProgressDao;
-use komga_db::dao::series::{SeriesDao, SeriesMetadataDao};
-use komga_db::dao::thumbnail::{ThumbnailBookDao, ThumbnailSeriesDao};
+use komga_db::dao::series::SeriesMetadataDao;
+use komga_db::dao::thumbnail::ThumbnailSeriesDao;
 use komga_db::dto_dao::book::BookDtoDao;
 use komga_db::dto_dao::collection::CollectionDtoDao;
 use komga_db::dto_dao::read_progress::ReadProgressDtoDao;
@@ -90,7 +88,15 @@ pub fn router() -> Router<AppState> {
         )
         .route(
             "/api/v1/series/{seriesId}/file",
-            routing::get(download_series_as_zip),
+            routing::get(download_series_as_zip).delete(delete_series_file),
+        )
+        .route(
+            "/api/v1/series/{seriesId}/analyze",
+            routing::post(series_analyze),
+        )
+        .route(
+            "/api/v1/series/{seriesId}/metadata/refresh",
+            routing::post(series_refresh_metadata),
         )
 }
 
@@ -499,7 +505,7 @@ async fn get_series_thumbnail(
     Path(series_id): Path<String>,
 ) -> Result<Response, ApiError> {
     restriction::check_series_by_id(&state, &auth.0.user, &series_id)?;
-    let bytes = get_thumbnail_bytes(&state, &series_id, &auth.0.user.id)?
+    let bytes = crate::service::series::get_thumbnail_bytes(&state, &series_id, &auth.0.user.id)?
         .ok_or_else(|| ApiError::not_found(""))?;
     Ok(([(axum::http::header::CONTENT_TYPE, "image/jpeg")], bytes).into_response())
 }
@@ -523,11 +529,9 @@ async fn get_series_thumbnail_by_id(
 ) -> Result<Response, ApiError> {
     restriction::check_series_by_id(&state, &auth.0.user, &series_id)?;
     restriction::check_series_thumbnail(&state, &auth.0.user, &thumbnail_id)?;
-    let Some(thumbnail) = ThumbnailSeriesDao::new(state.db.clone()).find_by_id(&thumbnail_id)?
+    let Some(bytes) =
+        crate::service::series::get_thumbnail_bytes_by_thumbnail_id(&state, &thumbnail_id)?
     else {
-        return Err(ApiError::not_found(""));
-    };
-    let Some(bytes) = bytes_from_thumbnail(&thumbnail)? else {
         return Err(ApiError::not_found(""));
     };
     Ok(([(axum::http::header::CONTENT_TYPE, "image/jpeg")], bytes).into_response())
@@ -653,8 +657,7 @@ async fn mark_series_as_read(
     Path(series_id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     restriction::check_series_by_id(&state, &auth.0.user, &series_id)?;
-    mark_read_progress_completed_series(&state, &series_id, &auth.0.user)?;
-    // TODO(M4): publish the read-progress events (SSE)
+    crate::service::series::mark_read_progress_completed(&state, &series_id, &auth.0.user)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -664,8 +667,7 @@ async fn mark_series_as_unread(
     Path(series_id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     restriction::check_series_by_id(&state, &auth.0.user, &series_id)?;
-    delete_read_progress_series(&state, &series_id, &auth.0.user)?;
-    // TODO(M4): publish the read-progress events (SSE)
+    crate::service::series::delete_read_progress(&state, &series_id, &auth.0.user)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -754,6 +756,52 @@ async fn download_series_as_zip(
         .into_response())
 }
 
+async fn series_analyze(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(series_id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    auth.0.require_admin()?;
+    let books = BookDao::new(state.db.clone()).find_by_series_id(&series_id)?;
+    state.task_emitter.analyze_books(&books, HIGH_PRIORITY)?;
+    Ok(StatusCode::ACCEPTED)
+}
+
+async fn series_refresh_metadata(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(series_id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    auth.0.require_admin()?;
+    let books = BookDao::new(state.db.clone()).find_by_series_id(&series_id)?;
+    for book in &books {
+        state.task_emitter.refresh_book_metadata(
+            book,
+            BookMetadataPatchCapability::all(),
+            HIGH_PRIORITY,
+        )?;
+    }
+    state
+        .task_emitter
+        .refresh_books_local_artwork(&books, HIGH_PRIORITY)?;
+    state
+        .task_emitter
+        .refresh_series_local_artwork(&series_id, HIGH_PRIORITY)?;
+    Ok(StatusCode::ACCEPTED)
+}
+
+async fn delete_series_file(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(series_id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    auth.0.require_admin()?;
+    state
+        .task_emitter
+        .delete_series(&series_id, HIGHEST_PRIORITY)?;
+    Ok(StatusCode::ACCEPTED)
+}
+
 /// Stored (uncompressed) zip of every book file of the series; missing files are skipped.
 /// Buffered in memory like the Kotlin streaming version buffers per entry.
 fn build_series_zip(db: &Database, series_id: &str) -> Result<Vec<u8>, ApiError> {
@@ -790,223 +838,7 @@ fn build_series_zip(db: &Database, series_id: &str) -> Result<Vec<u8>, ApiError>
 
 // endregion
 
-// region thumbnail lifecycle (`SeriesLifecycle.getThumbnailBytes` + `BookLifecycle.getThumbnail`)
-
-fn thumbnail_exists_series(t: &ThumbnailSeries) -> bool {
-    match &t.url {
-        Some(url) => std::path::Path::new(&url_to_file_path(url)).exists(),
-        None => t.thumbnail.is_some(),
-    }
-}
-
-fn thumbnail_exists_book(t: &ThumbnailBook) -> bool {
-    match &t.url {
-        Some(url) => std::path::Path::new(&url_to_file_path(url)).exists(),
-        None => t.thumbnail.is_some(),
-    }
-}
-
-/// Kotlin reads sidecar files lazily; a read failure there surfaces as a 500.
-fn bytes_from_thumbnail(t: &ThumbnailSeries) -> Result<Option<Vec<u8>>, ApiError> {
-    if let Some(bytes) = &t.thumbnail {
-        return Ok(Some(bytes.clone()));
-    }
-    let Some(url) = &t.url else {
-        return Ok(None);
-    };
-    let bytes =
-        std::fs::read(url_to_file_path(url)).map_err(|e| ApiError::Internal(e.to_string()))?;
-    Ok(Some(bytes))
-}
-
-fn bytes_from_book_thumbnail(t: &ThumbnailBook) -> Result<Option<Vec<u8>>, ApiError> {
-    if let Some(bytes) = &t.thumbnail {
-        return Ok(Some(bytes.clone()));
-    }
-    let Some(url) = &t.url else {
-        return Ok(None);
-    };
-    let bytes =
-        std::fs::read(url_to_file_path(url)).map_err(|e| ApiError::Internal(e.to_string()))?;
-    Ok(Some(bytes))
-}
-
-fn thumbnails_house_keeping_series(db: &Database, series_id: &str) -> Result<(), ApiError> {
-    let dao = ThumbnailSeriesDao::new(db.clone());
-    let mut all = Vec::new();
-    for t in dao.find_all_by_series_id(series_id)? {
-        if thumbnail_exists_series(&t) {
-            all.push(t);
-        } else {
-            tracing::warn!("Thumbnail doesn't exist, removing entry");
-            dao.delete(&t.id)?;
-        }
-    }
-    let selected: Vec<&ThumbnailSeries> = all.iter().filter(|t| t.selected).collect();
-    if selected.len() > 1 {
-        dao.mark_selected(selected[0])?;
-    } else if selected.is_empty() {
-        if let Some(first) = all.first() {
-            dao.mark_selected(first)?;
-        }
-    }
-    Ok(())
-}
-
-fn thumbnails_house_keeping_book(db: &Database, book_id: &str) -> Result<(), ApiError> {
-    let dao = ThumbnailBookDao::new(db.clone());
-    let mut all = Vec::new();
-    for t in dao.find_all_by_book_id(book_id)? {
-        if thumbnail_exists_book(&t) {
-            all.push(t);
-        } else {
-            tracing::warn!("Thumbnail doesn't exist, removing entry");
-            dao.delete(&t.id)?;
-        }
-    }
-    let selected: Vec<&ThumbnailBook> = all.iter().filter(|t| t.selected).collect();
-    if selected.len() > 1 {
-        dao.mark_selected(selected[0])?;
-    } else if selected.is_empty() {
-        if let Some(first) = all.first() {
-            dao.mark_selected(first)?;
-        }
-    }
-    Ok(())
-}
-
-fn get_selected_thumbnail_series(
-    db: &Database,
-    series_id: &str,
-) -> Result<Option<ThumbnailSeries>, ApiError> {
-    let dao = ThumbnailSeriesDao::new(db.clone());
-    let selected = dao.find_selected_by_series_id(series_id)?;
-    let stale = match &selected {
-        None => true,
-        // only sidecar thumbnails can disappear from disk
-        Some(t) => t.type_ == ThumbnailType::Sidecar && !thumbnail_exists_series(t),
-    };
-    if stale {
-        thumbnails_house_keeping_series(db, series_id)?;
-        return Ok(dao.find_selected_by_series_id(series_id)?);
-    }
-    Ok(selected)
-}
-
-fn get_thumbnail_series_for_book(
-    db: &Database,
-    book_id: &str,
-) -> Result<Option<ThumbnailBook>, ApiError> {
-    let dao = ThumbnailBookDao::new(db.clone());
-    let selected = dao.find_selected_by_book_id(book_id)?;
-    let stale = match &selected {
-        None => true,
-        Some(t) => !thumbnail_exists_book(t),
-    };
-    if stale {
-        thumbnails_house_keeping_book(db, book_id)?;
-        return Ok(dao.find_selected_by_book_id(book_id)?);
-    }
-    Ok(selected)
-}
-
-/// `SeriesLifecycle.getThumbnailBytes`: selected thumbnail, else the series-cover strategy.
-fn get_thumbnail_bytes(
-    state: &AppState,
-    series_id: &str,
-    user_id: &str,
-) -> Result<Option<Vec<u8>>, ApiError> {
-    if let Some(t) = get_selected_thumbnail_series(&state.db, series_id)? {
-        return bytes_from_thumbnail(&t);
-    }
-
-    let Some(series) = SeriesDao::new(state.db.clone()).find_by_id(series_id)? else {
-        return Ok(None);
-    };
-    let library = LibraryDao::new(state.db.clone())
-        .find_by_id(&series.library_id)?
-        .ok_or_else(|| ApiError::Internal(format!("no library {}", series.library_id)))?;
-    let book_id = match library.series_cover {
-        SeriesCover::First => first_id_in_series(&state.db, series_id)?,
-        SeriesCover::FirstUnreadOrFirst => {
-            first_unread_id_in_series(&state.db, series_id, user_id)?
-                .or(first_id_in_series(&state.db, series_id)?)
-        }
-        SeriesCover::FirstUnreadOrLast => first_unread_id_in_series(&state.db, series_id, user_id)?
-            .or(last_id_in_series(&state.db, series_id)?),
-        SeriesCover::Last => last_id_in_series(&state.db, series_id)?,
-    };
-    match book_id {
-        Some(book_id) => book_thumbnail_bytes(&state.db, &book_id),
-        None => Ok(None),
-    }
-}
-
-/// `BookLifecycle.getThumbnailBytes(bookId)` without resizing: selected book thumbnail bytes.
-fn book_thumbnail_bytes(db: &Database, book_id: &str) -> Result<Option<Vec<u8>>, ApiError> {
-    match get_thumbnail_series_for_book(db, book_id)? {
-        Some(t) => bytes_from_book_thumbnail(&t),
-        None => Ok(None),
-    }
-}
-
-// endregion
-
-// region series-cover book queries (`BookDao.findFirst/Last/FirstUnreadIdInSeriesOrNull`)
-
-fn first_id_in_series(db: &Database, series_id: &str) -> komga_db::Result<Option<String>> {
-    let conn = db.ro();
-    let mut stmt = conn.prepare(
-        "SELECT BOOK.ID FROM BOOK \
-         LEFT JOIN BOOK_METADATA ON BOOK.ID = BOOK_METADATA.BOOK_ID \
-         WHERE BOOK.SERIES_ID = ? ORDER BY BOOK_METADATA.NUMBER_SORT LIMIT 1",
-    )?;
-    let id = stmt
-        .query_map([series_id], |r| r.get(0))?
-        .next()
-        .transpose()?;
-    Ok(id)
-}
-
-fn last_id_in_series(db: &Database, series_id: &str) -> komga_db::Result<Option<String>> {
-    let conn = db.ro();
-    let mut stmt = conn.prepare(
-        "SELECT BOOK.ID FROM BOOK \
-         LEFT JOIN BOOK_METADATA ON BOOK.ID = BOOK_METADATA.BOOK_ID \
-         WHERE BOOK.SERIES_ID = ? ORDER BY BOOK_METADATA.NUMBER_SORT DESC LIMIT 1",
-    )?;
-    let id = stmt
-        .query_map([series_id], |r| r.get(0))?
-        .next()
-        .transpose()?;
-    Ok(id)
-}
-
-fn first_unread_id_in_series(
-    db: &Database,
-    series_id: &str,
-    user_id: &str,
-) -> komga_db::Result<Option<String>> {
-    let conn = db.ro();
-    let mut stmt = conn.prepare(
-        "SELECT BOOK.ID FROM BOOK \
-         LEFT JOIN BOOK_METADATA ON BOOK.ID = BOOK_METADATA.BOOK_ID \
-         LEFT JOIN READ_PROGRESS ON (BOOK.ID = READ_PROGRESS.BOOK_ID \
-           AND (READ_PROGRESS.USER_ID = ? OR READ_PROGRESS.USER_ID IS NULL)) \
-         WHERE BOOK.SERIES_ID = ? \
-           AND (READ_PROGRESS.COMPLETED IS NULL OR READ_PROGRESS.COMPLETED = 0) \
-         ORDER BY BOOK_METADATA.NUMBER_SORT LIMIT 1",
-    )?;
-    let id = stmt
-        .query_map((user_id, series_id), |r| r.get(0))?
-        .next()
-        .transpose()?;
-    Ok(id)
-}
-
-// endregion
-
-// region read progress lifecycle (`SeriesLifecycle` + `BookLifecycle.markReadProgressCompleted`)
+// region read progress lifecycle (`BookLifecycle.markReadProgressCompleted`)
 
 /// `BookLifecycle.markReadProgressCompleted`: single-book completed progress upsert.
 fn mark_read_progress_completed_book(
@@ -1030,63 +862,6 @@ fn mark_read_progress_completed_book(
         created_date: now_utc(),
         last_modified_date: now_utc(),
     })?;
-    Ok(())
-}
-
-/// `SeriesLifecycle.markReadProgressCompleted`: complete every unfinished book of the series.
-fn mark_read_progress_completed_series(
-    state: &AppState,
-    series_id: &str,
-    user: &KomgaUser,
-) -> Result<(), ApiError> {
-    let book_ids: Vec<String> = BookDao::new(state.db.clone())
-        .find_by_series_id(series_id)?
-        .into_iter()
-        .map(|b| b.id)
-        .collect();
-    let progress_dao = ReadProgressDao::new(state.db.clone());
-    let media_dao = MediaDao::new(state.db.clone());
-    let mut progresses = Vec::new();
-    for book_id in &book_ids {
-        if progress_dao
-            .find_by_book_and_user(book_id, &user.id)?
-            .is_some_and(|rp| rp.completed)
-        {
-            continue;
-        }
-        // books without a media row are skipped (getPagesSizes only covers rows present in MEDIA)
-        let Some(media) = media_dao.find_by_id(book_id)? else {
-            continue;
-        };
-        progresses.push(ReadProgress {
-            book_id: book_id.clone(),
-            user_id: user.id.clone(),
-            page: media.page_count,
-            completed: true,
-            read_date: now_utc(),
-            device_id: String::new(),
-            device_name: String::new(),
-            locator: None,
-            created_date: now_utc(),
-            last_modified_date: now_utc(),
-        });
-    }
-    progress_dao.save_many(&progresses)?;
-    Ok(())
-}
-
-/// `SeriesLifecycle.deleteReadProgress`: drop all progress of the series for the user.
-fn delete_read_progress_series(
-    state: &AppState,
-    series_id: &str,
-    user: &KomgaUser,
-) -> Result<(), ApiError> {
-    let book_ids: Vec<String> = BookDao::new(state.db.clone())
-        .find_by_series_id(series_id)?
-        .into_iter()
-        .map(|b| b.id)
-        .collect();
-    ReadProgressDao::new(state.db.clone()).delete_by_books_and_user(&book_ids, &user.id)?;
     Ok(())
 }
 
@@ -2039,5 +1814,101 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn series_analyze_submits_tasks() {
+        let state = test_state();
+        admin(&state);
+        seed_library(&state, "lib1", "Library One");
+        seed_series(&state, "s1", "lib1", "Berserk");
+        seed_book(&state, "b1", "s1", "lib1", "Berserk v01", 1.0, 10);
+        seed_book(&state, "b2", "s1", "lib1", "Berserk v02", 2.0, 10);
+        let app = test_app(&state);
+
+        let request = Request::post("/api/v1/series/s1/analyze")
+            .header("X-API-Key", ADMIN_KEY)
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+        let tasks = komga_db::dao::tasks::TasksDao::new(state.tasks_db.clone())
+            .find_all()
+            .unwrap();
+        assert_eq!(tasks.len(), 2);
+        let mut ids: Vec<String> = tasks.iter().map(|t| t.unique_id()).collect();
+        ids.sort();
+        assert_eq!(ids, ["ANALYZE_BOOK_b1", "ANALYZE_BOOK_b2"]);
+        assert!(tasks.iter().all(|t| t.priority() == 6));
+        assert!(tasks.iter().all(|t| t.group_id() == Some("s1".to_string())));
+    }
+
+    #[tokio::test]
+    async fn series_metadata_refresh_submits_tasks() {
+        let state = test_state();
+        admin(&state);
+        seed_library(&state, "lib1", "Library One");
+        seed_series(&state, "s1", "lib1", "Berserk");
+        seed_book(&state, "b1", "s1", "lib1", "Berserk v01", 1.0, 10);
+        let app = test_app(&state);
+
+        let request = Request::post("/api/v1/series/s1/metadata/refresh")
+            .header("X-API-Key", ADMIN_KEY)
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+        let ids: Vec<String> = komga_db::dao::tasks::TasksDao::new(state.tasks_db.clone())
+            .find_all()
+            .unwrap()
+            .iter()
+            .map(|t| t.unique_id())
+            .collect();
+        assert!(
+            ids.contains(&"REFRESH_BOOK_METADATA_b1".to_string()),
+            "{ids:?}"
+        );
+        assert!(
+            ids.contains(&"REFRESH_BOOK_LOCAL_ARTWORK_b1".to_string()),
+            "{ids:?}"
+        );
+        assert!(
+            ids.contains(&"REFRESH_SERIES_LOCAL_ARTWORK_s1".to_string()),
+            "{ids:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn series_delete_file_submits_task() {
+        let state = test_state();
+        admin(&state);
+        seed_library(&state, "lib1", "Library One");
+        seed_series(&state, "s1", "lib1", "Berserk");
+        let app = test_app(&state);
+
+        let request = Request::delete("/api/v1/series/s1/file")
+            .header("X-API-Key", ADMIN_KEY)
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+        let tasks = komga_db::dao::tasks::TasksDao::new(state.tasks_db.clone())
+            .find_all()
+            .unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].unique_id(), "DELETE_SERIES_s1");
+        assert_eq!(tasks[0].priority(), 8);
+
+        // non-admin: 403
+        seed_user(&state, "user@komga.org", &[], "user-key");
+        let request = Request::delete("/api/v1/series/s1/file")
+            .header("X-API-Key", "user-key")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 }

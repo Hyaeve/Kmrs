@@ -223,7 +223,13 @@ impl SeriesDao {
                 _ => {}
             }
         }
-        let mut sql = format!("SELECT DISTINCT {SERIES_COLUMNS} FROM SERIES{join_sql}");
+        // columns are qualified: the dynamic joins (SERIES_METADATA, ...) share column names
+        let columns = SERIES_COLUMNS
+            .split(',')
+            .map(|c| format!("SERIES.{}", c.trim()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mut sql = format!("SELECT DISTINCT {columns} FROM SERIES{join_sql}");
         if !w.sql.is_empty() {
             sql.push_str(&format!(" WHERE {}", w.sql));
         }

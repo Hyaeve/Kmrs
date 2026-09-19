@@ -26,6 +26,9 @@ use komga_core::model::user::{KomgaUser, UserRole};
 use komga_core::search::{
     BookSearch, DateOp, Equality, MediaProfile, ReadStatus, SearchConditionBook, SearchContext,
 };
+use komga_core::task::{
+    BookMetadataPatchCapability, CopyMode, HIGHEST_PRIORITY, HIGH_PRIORITY, LOWEST_PRIORITY,
+};
 use komga_core::time_codec;
 use komga_db::dao::book::BookDao;
 use komga_db::dao::media::MediaDao;
@@ -116,6 +119,23 @@ pub fn router() -> Router<AppState> {
         .route(
             "/api/v1/books/{bookId}/read-progress",
             routing::patch(mark_book_read_progress).delete(delete_book_read_progress),
+        )
+        .route(
+            "/api/v1/books/{bookId}/analyze",
+            routing::post(book_analyze),
+        )
+        .route(
+            "/api/v1/books/{bookId}/metadata/refresh",
+            routing::post(book_refresh_metadata),
+        )
+        .route(
+            "/api/v1/books/{bookId}/file",
+            routing::delete(delete_book_file),
+        )
+        .route("/api/v1/books/import", routing::post(import_books))
+        .route(
+            "/api/v1/books/thumbnails",
+            routing::put(books_regenerate_thumbnails),
         )
 }
 
@@ -1561,6 +1581,103 @@ async fn delete_book_read_progress(
     Ok(StatusCode::NO_CONTENT)
 }
 
+async fn book_analyze(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(book_id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    auth.0.require_admin()?;
+    let Some(book) = book_dao(&state).find_by_id(&book_id)? else {
+        return Err(ApiError::not_found(""));
+    };
+    state.task_emitter.analyze_book(&book, HIGH_PRIORITY)?;
+    Ok(StatusCode::ACCEPTED)
+}
+
+async fn book_refresh_metadata(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(book_id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    auth.0.require_admin()?;
+    let Some(book) = book_dao(&state).find_by_id(&book_id)? else {
+        return Err(ApiError::not_found(""));
+    };
+    state.task_emitter.refresh_book_metadata(
+        &book,
+        BookMetadataPatchCapability::all(),
+        HIGH_PRIORITY,
+    )?;
+    state
+        .task_emitter
+        .refresh_book_local_artwork(&book, HIGH_PRIORITY)?;
+    Ok(StatusCode::ACCEPTED)
+}
+
+async fn delete_book_file(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(book_id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    auth.0.require_admin()?;
+    state.task_emitter.delete_book(&book_id, HIGHEST_PRIORITY)?;
+    Ok(StatusCode::ACCEPTED)
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BookImportBatchDto {
+    #[serde(default)]
+    books: Vec<BookImportDto>,
+    copy_mode: CopyMode,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BookImportDto {
+    source_file: String,
+    series_id: String,
+    upgrade_book_id: Option<String>,
+    destination_name: Option<String>,
+}
+
+async fn import_books(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Json(body): Json<BookImportBatchDto>,
+) -> Result<StatusCode, ApiError> {
+    auth.0.require_admin()?;
+    for book in &body.books {
+        if let Err(e) = state.task_emitter.import_book(
+            &book.source_file,
+            &book.series_id,
+            body.copy_mode,
+            book.destination_name.as_deref(),
+            book.upgrade_book_id.as_deref(),
+            HIGHEST_PRIORITY,
+        ) {
+            tracing::error!("Error while creating import task for: {book:?}: {e}");
+        }
+    }
+    Ok(StatusCode::ACCEPTED)
+}
+
+async fn books_regenerate_thumbnails(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    query: QueryPageable,
+) -> Result<StatusCode, ApiError> {
+    auth.0.require_admin()?;
+    let for_bigger_result_only = query
+        .params
+        .first_bool("for_bigger_result_only")
+        .unwrap_or(false);
+    state
+        .task_emitter
+        .find_book_thumbnails_to_regenerate(for_bigger_result_only, LOWEST_PRIORITY)?;
+    Ok(StatusCode::ACCEPTED)
+}
+
 // endregion
 
 #[cfg(test)]
@@ -1620,6 +1737,10 @@ mod tests {
             .migrate(&db.rw())
             .unwrap();
         let tasks_db = Database::open_in_memory(false).unwrap();
+        let tasks_migrations = komga_db::tasks_migrations();
+        Migrator::new(&tasks_migrations, Placeholders::default())
+            .migrate(&tasks_db.rw())
+            .unwrap();
         let config = crate::config::ServerConfig::from_env();
         AppState {
             config: Arc::new(config.clone()),
@@ -1974,7 +2095,7 @@ mod tests {
         seed_book(&db, "b3", "s2", "l2", "file:/data/b3.cbz");
         seed_user(&db, "admin@example.org", "pw", true);
         seed_user(&db, "user@example.org", "pw", false);
-        let app = test_router(state);
+        let app = test_router(state.clone());
 
         // unpaged list: all 3 books
         let (status, _, body) = call(
@@ -2046,7 +2167,7 @@ mod tests {
     async fn book_detail_not_found_empty_body() {
         let state = test_state_with_settings();
         seed_user(&state.db, "admin@example.org", "pw", true);
-        let app = test_router(state);
+        let app = test_router(state.clone());
         let (status, _, body) = call(
             &app,
             "GET",
@@ -2068,7 +2189,7 @@ mod tests {
         seed_book_with(&db, "b1", "s1", "l1", "file:/data/b1.cbz", 1.0);
         seed_book_with(&db, "b2", "s1", "l1", "file:/data/b2.cbz", 2.0);
         seed_user(&db, "admin@example.org", "pw", true);
-        let app = test_router(state);
+        let app = test_router(state.clone());
 
         let (status, _, body) = call(
             &app,
@@ -2119,7 +2240,7 @@ mod tests {
             )
             .unwrap();
         seed_user(&db, "admin@example.org", "pw", true);
-        let app = test_router(state);
+        let app = test_router(state.clone());
 
         let (status, _, body) = call(
             &app,
@@ -2174,7 +2295,7 @@ mod tests {
                 last_modified_date: time_codec::now_utc(),
             })
             .unwrap();
-        let app = test_router(state);
+        let app = test_router(state.clone());
 
         let (status, _, body) = call(
             &app,
@@ -2203,7 +2324,7 @@ mod tests {
         seed_book(&db, "b1", "s1", "l1", "file:/data/b1.cbz");
         seed_readlist(&db, "r1", &["b1"]);
         seed_user(&db, "admin@example.org", "pw", true);
-        let app = test_router(state);
+        let app = test_router(state.clone());
 
         let (status, _, body) = call(
             &app,
@@ -2233,7 +2354,7 @@ mod tests {
         seed_book(&db, "b2", "s1", "l1", "file:/data/b2.cbz");
         seed_thumbnail(&db, "t1", "b1", true);
         seed_user(&db, "admin@example.org", "pw", true);
-        let app = test_router(state);
+        let app = test_router(state.clone());
 
         let (status, headers, body) = call(
             &app,
@@ -2322,7 +2443,7 @@ mod tests {
             vec![],
         );
         seed_user(&db, "admin@example.org", "pw", true);
-        let app = test_router(state);
+        let app = test_router(state.clone());
 
         let (status, _, body) = call(
             &app,
@@ -2369,7 +2490,7 @@ mod tests {
             zip_pages(),
         );
         seed_user(&db, "admin@example.org", "pw", true);
-        let app = test_router(state);
+        let app = test_router(state.clone());
 
         let (status, headers, body) = call(
             &app,
@@ -2470,7 +2591,7 @@ mod tests {
             zip_pages(),
         );
         seed_user(&db, "user@example.org", "pw", false);
-        let app = test_router(state);
+        let app = test_router(state.clone());
 
         let (status, _, _) = call(
             &app,
@@ -2498,7 +2619,7 @@ mod tests {
             zip_pages(),
         );
         seed_user(&db, "admin@example.org", "pw", true);
-        let app = test_router(state);
+        let app = test_router(state.clone());
 
         let (status, headers, body) = call(
             &app,
@@ -2528,7 +2649,7 @@ mod tests {
             zip_pages(),
         );
         seed_user(&db, "admin@example.org", "pw", true);
-        let app = test_router(state);
+        let app = test_router(state.clone());
 
         let (status, _, body) = call(
             &app,
@@ -2578,7 +2699,7 @@ mod tests {
         };
         UserDao::new(db.clone()).insert(&user).unwrap();
         seed_user(&db, "user@example.org", "pw", false);
-        let app = test_router(state);
+        let app = test_router(state.clone());
 
         let size = std::fs::metadata(FIXTURE_ZIP).unwrap().len();
         let (status, headers, body) = call(
@@ -2658,7 +2779,7 @@ mod tests {
             pages,
         );
         seed_user(&db, "admin@example.org", "pw", true);
-        let app = test_router(state);
+        let app = test_router(state.clone());
 
         // no progress yet: 204
         let (status, _, _) = call(
@@ -2774,7 +2895,7 @@ mod tests {
             pages,
         );
         seed_user(&db, "admin@example.org", "pw", true);
-        let app = test_router(state);
+        let app = test_router(state.clone());
         let user_id = user_id_of(&db, "admin@example.org");
 
         // in-progress mark
@@ -2864,6 +2985,168 @@ mod tests {
             .find_by_book_and_user("b1", &user_id)
             .unwrap()
             .is_none());
+    }
+
+    // endregion
+
+    // region M4 write endpoints
+
+    #[tokio::test]
+    async fn book_analyze_and_refresh_and_delete_file() {
+        let state = test_state_with_settings();
+        let db = state.db.clone();
+        seed_library(&db, "l1");
+        seed_series(&db, "s1", "l1");
+        seed_book(&db, "b1", "s1", "l1", "file:/data/b1.cbz");
+        seed_user(&db, "admin@example.org", "pw", true);
+        seed_user(&db, "user@example.org", "pw", false);
+        let app = test_router(state.clone());
+        let auth = basic("admin@example.org", "pw");
+
+        // analyze: 202 + task
+        let (status, _, _) =
+            call(&app, "POST", "/api/v1/books/b1/analyze", Some(&auth), None).await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        let tasks = komga_db::dao::tasks::TasksDao::new(state.tasks_db.clone())
+            .find_all()
+            .unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].unique_id(), "ANALYZE_BOOK_b1");
+        assert_eq!(tasks[0].priority(), 6);
+        assert_eq!(tasks[0].group_id(), Some("s1".to_string()));
+
+        // metadata/refresh: 202 + 2 tasks
+        let (status, _, _) = call(
+            &app,
+            "POST",
+            "/api/v1/books/b1/metadata/refresh",
+            Some(&auth),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        let ids: Vec<String> = komga_db::dao::tasks::TasksDao::new(state.tasks_db.clone())
+            .find_all()
+            .unwrap()
+            .iter()
+            .map(|t| t.unique_id())
+            .collect();
+        assert!(
+            ids.contains(&"REFRESH_BOOK_METADATA_b1".to_string()),
+            "{ids:?}"
+        );
+        assert!(
+            ids.contains(&"REFRESH_BOOK_LOCAL_ARTWORK_b1".to_string()),
+            "{ids:?}"
+        );
+
+        // delete file: 202 + task
+        let (status, _, _) = call(&app, "DELETE", "/api/v1/books/b1/file", Some(&auth), None).await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        let ids: Vec<String> = komga_db::dao::tasks::TasksDao::new(state.tasks_db.clone())
+            .find_all()
+            .unwrap()
+            .iter()
+            .map(|t| t.unique_id())
+            .collect();
+        assert!(ids.contains(&"DELETE_BOOK_b1".to_string()), "{ids:?}");
+
+        // 404s
+        let (status, _, _) = call(
+            &app,
+            "POST",
+            "/api/v1/books/nope/analyze",
+            Some(&auth),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (status, _, _) = call(
+            &app,
+            "POST",
+            "/api/v1/books/nope/metadata/refresh",
+            Some(&auth),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        // non-admin: 403
+        let (status, _, _) = call(
+            &app,
+            "POST",
+            "/api/v1/books/b1/analyze",
+            Some(&basic("user@example.org", "pw")),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn books_import_submits_tasks_per_book() {
+        let state = test_state_with_settings();
+        let db = state.db.clone();
+        seed_library(&db, "l1");
+        seed_series(&db, "s1", "l1");
+        seed_user(&db, "admin@example.org", "pw", true);
+        let app = test_router(state.clone());
+
+        let payload = serde_json::json!({
+            "copyMode": "MOVE",
+            "books": [
+                {"sourceFile": "/tmp/incoming/a.cbz", "seriesId": "s1"},
+                {"sourceFile": "/tmp/incoming/b.cbz", "seriesId": "s1", "destinationName": "renamed", "upgradeBookId": "b9"},
+            ],
+        });
+        let (status, _, _) = call(
+            &app,
+            "POST",
+            "/api/v1/books/import",
+            Some(&basic("admin@example.org", "pw")),
+            Some(payload.to_string()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+
+        let mut tasks = komga_db::dao::tasks::TasksDao::new(state.tasks_db.clone())
+            .find_all()
+            .unwrap();
+        assert_eq!(tasks.len(), 2);
+        tasks.sort_by_key(|t| t.unique_id());
+        assert_eq!(tasks[0].unique_id(), "IMPORT_BOOK_s1_/tmp/incoming/a.cbz");
+        assert_eq!(tasks[1].unique_id(), "IMPORT_BOOK_s1_/tmp/incoming/b.cbz");
+        assert!(tasks.iter().all(|t| t.priority() == 8));
+        assert!(tasks.iter().all(|t| t.group_id() == Some("s1".to_string())));
+        let payload1 = tasks[1].to_payload();
+        assert_eq!(payload1["destinationName"], "renamed");
+        assert_eq!(payload1["upgradeBookId"], "b9");
+        assert_eq!(payload1["copyMode"], "MOVE");
+    }
+
+    #[tokio::test]
+    async fn books_regenerate_thumbnails_submits_task() {
+        let state = test_state_with_settings();
+        seed_user(&state.db, "admin@example.org", "pw", true);
+        let app = test_router(state.clone());
+
+        let (status, _, _) = call(
+            &app,
+            "PUT",
+            "/api/v1/books/thumbnails?for_bigger_result_only=true",
+            Some(&basic("admin@example.org", "pw")),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+
+        let tasks = komga_db::dao::tasks::TasksDao::new(state.tasks_db.clone())
+            .find_all()
+            .unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].unique_id(), "FIND_BOOK_THUMBNAILS_TO_REGENERATE");
+        assert_eq!(tasks[0].priority(), 0);
+        assert_eq!(tasks[0].to_payload()["forBiggerResultOnly"], true);
     }
 
     // endregion
