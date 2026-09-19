@@ -114,14 +114,16 @@ async fn get_readlists(
         }]
     };
     let page_request = to_page_request(&qp.pageable, sort.clone());
-    let result = ReadListDtoDao::new(state.db.clone()).find_all(
-        user.get_authorized_library_ids(library_id_param(&qp).as_ref())
-            .as_ref(),
-        user.get_authorized_library_ids(None).as_ref(),
-        search,
-        &page_request,
-        &user.restrictions,
-    )?;
+    let result = ReadListDtoDao::new(state.db.clone())
+        .with_searcher(Some(crate::search_index::searcher(&state)))
+        .find_all(
+            user.get_authorized_library_ids(library_id_param(&qp).as_ref())
+                .as_ref(),
+            user.get_authorized_library_ids(None).as_ref(),
+            search,
+            &page_request,
+            &user.restrictions,
+        )?;
     Ok(Json(page_of(result, &qp.pageable, sort)))
 }
 
@@ -193,11 +195,9 @@ async fn get_books_by_readlist_id(
         full_text_search: None,
     };
     let page_request = to_page_request(&qp.pageable, sort.clone());
-    let result = BookDtoDao::new(state.db.clone()).find_all(
-        &search,
-        &SearchContext::of_user(user),
-        &page_request,
-    )?;
+    let result = BookDtoDao::new(state.db.clone())
+        .with_searcher(Some(crate::search_index::searcher(&state)))
+        .find_all(&search, &SearchContext::of_user(user), &page_request)?;
     let items = result
         .items
         .into_iter()
@@ -239,7 +239,8 @@ async fn get_book_sibling_in_readlist(
 ) -> Result<Json<BookDto>, ApiError> {
     let user = &auth.0.user;
     let readlist = find_visible_readlist(state, user, id)?;
-    let dao = BookDtoDao::new(state.db.clone());
+    let dao =
+        BookDtoDao::new(state.db.clone()).with_searcher(Some(crate::search_index::searcher(state)));
     let authorized = user.get_authorized_library_ids(None);
     let book = if next {
         dao.find_next_in_readlist(
@@ -305,11 +306,9 @@ async fn update_mihon_read_progress(
             descending: false,
         }],
     };
-    let books = BookDtoDao::new(state.db.clone()).find_all(
-        &search,
-        &SearchContext::of_user(user),
-        &page_request,
-    )?;
+    let books = BookDtoDao::new(state.db.clone())
+        .with_searcher(Some(crate::search_index::searcher(&state)))
+        .find_all(&search, &SearchContext::of_user(user), &page_request)?;
     // Kotlin's filterIndexed { index < lastBookRead }
     for book in books.items.iter().take(body.last_book_read as usize) {
         if book.read_progress.as_ref().map(|p| p.completed) != Some(true) {
@@ -603,6 +602,7 @@ fn find_visible_readlist(
     id: &str,
 ) -> Result<ReadList, ApiError> {
     ReadListDtoDao::new(state.db.clone())
+        .with_searcher(Some(crate::search_index::searcher(state)))
         .find_by_id(
             id,
             user.get_authorized_library_ids(None).as_ref(),

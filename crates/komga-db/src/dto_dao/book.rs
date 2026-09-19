@@ -4,7 +4,7 @@
 //! READ_PROGRESS (10) + SERIES_METADATA.TITLE (1); column offsets below are tied to
 //! `SELECT_CLAUSE` and must stay in sync with it.
 
-use super::{lucene_ids_stub, DtoPage, PageRequest};
+use super::{search_entity_ids, DtoPage, EntitySearcher, PageRequest};
 use crate::dao::{get_date, get_datetime, get_datetime_opt};
 use crate::error::Result;
 use crate::pool::Database;
@@ -18,9 +18,11 @@ use komga_core::dto::url_to_file_path;
 use komga_core::model::readlist::ReadList;
 use komga_core::model::user::ContentRestrictions;
 use komga_core::search::{BookSearch, SearchContext};
+use komga_core::task::LuceneEntity;
 use rusqlite::types::Value;
 use rusqlite::{params_from_iter, Connection, OptionalExtension, Row};
 use std::collections::{BTreeSet, HashMap};
+use std::sync::Arc;
 
 const SELECT_CLAUSE: &str = "SELECT \
  BOOK.ID, BOOK.NAME, BOOK.URL, BOOK.FILE_LAST_MODIFIED, BOOK.SERIES_ID, BOOK.LIBRARY_ID, \
@@ -88,11 +90,17 @@ const SD_TITLE: usize = 53;
 
 pub struct BookDtoDao {
     db: Database,
+    searcher: Option<Arc<dyn EntitySearcher>>,
 }
 
 impl BookDtoDao {
     pub fn new(db: Database) -> Self {
-        Self { db }
+        Self { db, searcher: None }
+    }
+
+    pub fn with_searcher(mut self, searcher: Option<Arc<dyn EntitySearcher>>) -> Self {
+        self.searcher = searcher;
+        self
     }
 
     pub fn find_all(
@@ -106,7 +114,11 @@ impl BookDtoDao {
             .user_id
             .as_deref()
             .expect("Missing userId in search context");
-        let ids = lucene_ids_stub(search.full_text_search.as_deref());
+        let ids = search_entity_ids(
+            &self.searcher,
+            search.full_text_search.as_deref(),
+            LuceneEntity::Book,
+        );
         let conditions = book_condition(search.condition.as_ref(), ctx)
             .and(id_in_or_no_condition("BOOK.ID", ids.as_deref()));
         let conn = self.db.ro();
@@ -1530,6 +1542,59 @@ mod tests {
         let page = dao(&db).find_all(&s, &ctx_user(), &unpaged()).unwrap();
         assert_eq!(page.total, 0);
         assert!(page.items.is_empty());
+    }
+
+    struct StubSearcher(Option<Vec<String>>);
+
+    impl EntitySearcher for StubSearcher {
+        fn search_entity_ids(
+            &self,
+            _term: Option<&str>,
+            entity: LuceneEntity,
+        ) -> Option<Vec<String>> {
+            match entity {
+                LuceneEntity::Book => self.0.clone(),
+                _ => None,
+            }
+        }
+    }
+
+    #[test]
+    fn find_all_full_text_filters_by_searcher_ids() {
+        let db = base_db();
+        let dao_with =
+            |ids: Vec<String>| dao(&db).with_searcher(Some(Arc::new(StubSearcher(Some(ids)))));
+        let mut s = search(None);
+        s.full_text_search = Some("anything".to_string());
+        let page = dao_with(vec!["b3".to_string(), "b1".to_string()])
+            .find_all(&s, &ctx_user(), &unpaged())
+            .unwrap();
+        assert_eq!(page.total, 2);
+        assert_eq!(id_set(&page), set(&["b1", "b3"]));
+
+        // searcher returning nothing yields an empty page
+        let page = dao_with(vec![])
+            .find_all(&s, &ctx_user(), &unpaged())
+            .unwrap();
+        assert_eq!(page.total, 0);
+
+        // relevance order follows the searcher's id order
+        let page = dao_with(vec!["b3".to_string(), "b1".to_string()])
+            .find_all(
+                &s,
+                &ctx_user(),
+                &PageRequest {
+                    page: 0,
+                    size: 20,
+                    unpaged: false,
+                    sort: vec![crate::dto_dao::SortOrder {
+                        property: "relevance".to_string(),
+                        descending: false,
+                    }],
+                },
+            )
+            .unwrap();
+        assert_eq!(ids(&page), vec!["b3".to_string(), "b1".to_string()]);
     }
 
     #[test]

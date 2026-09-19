@@ -3,6 +3,8 @@
 
 use crate::events::DomainEvent;
 pub use crate::service::book::MarkSelectedPreference;
+#[cfg(test)]
+use crate::state::test_search_index;
 use crate::state::AppState;
 use komga_core::model::book::{Book, BookMetadata};
 use komga_core::model::history::{HistoricalEvent, HistoricalEventType};
@@ -674,6 +676,7 @@ pub(crate) mod tests {
             db,
             tasks_db,
             config: Arc::new(config),
+            search_index: test_search_index(),
         }
     }
 

@@ -328,8 +328,12 @@ pub(crate) fn dispatch_task(state: &AppState, task: &Task) -> anyhow::Result<()>
             tracing::warn!("ImportBook is not implemented until M8 (BookImporter)");
             Ok(())
         }
-        Task::RebuildIndex(_) | Task::UpgradeIndex(_) => {
-            tracing::warn!("Index tasks are not implemented until M6 (tantivy)");
+        Task::RebuildIndex(t) => {
+            crate::search_index::rebuild_index(state, t.entities.clone());
+            Ok(())
+        }
+        Task::UpgradeIndex(_) => {
+            crate::search_index::upgrade_index(state);
             Ok(())
         }
         Task::DeleteBook(t) => {

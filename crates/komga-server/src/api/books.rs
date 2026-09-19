@@ -11,6 +11,8 @@ use crate::http::pagination::{QueryExt, QueryPageable};
 use crate::service::book::{
     add_thumbnail_for_book, delete_thumbnail_for_book, MarkSelectedPreference,
 };
+#[cfg(test)]
+use crate::state::test_search_index;
 use crate::state::AppState;
 use axum::body::Body;
 use axum::extract::{Multipart, Path, State};
@@ -169,7 +171,7 @@ fn media_dao(state: &AppState) -> MediaDao {
 }
 
 fn book_dto_dao(state: &AppState) -> BookDtoDao {
-    BookDtoDao::new(state.db.clone())
+    BookDtoDao::new(state.db.clone()).with_searcher(Some(crate::search_index::searcher(state)))
 }
 
 fn thumbnail_dao(state: &AppState) -> ThumbnailBookDao {
@@ -514,11 +516,13 @@ async fn get_readlists_by_book_id(
     Path(book_id): Path<String>,
 ) -> Result<Json<Vec<ReadListDto>>, ApiError> {
     restriction::check_book_by_id(&state, &auth.0.user, &book_id)?;
-    let readlists = ReadListDtoDao::new(state.db.clone()).find_all_containing_book_id(
-        &book_id,
-        auth.0.user.get_authorized_library_ids(None).as_ref(),
-        &auth.0.user.restrictions,
-    )?;
+    let readlists = ReadListDtoDao::new(state.db.clone())
+        .with_searcher(Some(crate::search_index::searcher(&state)))
+        .find_all_containing_book_id(
+            &book_id,
+            auth.0.user.get_authorized_library_ids(None).as_ref(),
+            &auth.0.user.restrictions,
+        )?;
     Ok(Json(readlists.iter().map(ReadListDto::from).collect()))
 }
 
@@ -2030,6 +2034,7 @@ mod tests {
             sessions: SessionStore::new(config.session_timeout),
             tsid: Arc::new(TsidFactory::new_random_node()),
             events: crate::events::event_bus(),
+            search_index: test_search_index(),
         }
     }
 

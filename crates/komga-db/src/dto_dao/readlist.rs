@@ -1,6 +1,6 @@
 //! The DTO-returning queries of `ReadListDao.kt`.
 
-use super::{lucene_ids_stub, DtoPage, PageRequest, SortOrder};
+use super::{search_entity_ids, DtoPage, EntitySearcher, PageRequest, SortOrder};
 use crate::dao::get_datetime;
 use crate::error::Result;
 use crate::pool::Database;
@@ -10,19 +10,27 @@ use crate::search_sql::{
 use komga_core::dto::readlist::ReadListDto;
 use komga_core::model::readlist::ReadList;
 use komga_core::model::user::ContentRestrictions;
+use komga_core::task::LuceneEntity;
 use rusqlite::types::Value;
 use rusqlite::Row;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 const COLUMNS: &str = "READLIST.ID, READLIST.NAME, READLIST.SUMMARY, READLIST.ORDERED, READLIST.BOOK_COUNT, READLIST.CREATED_DATE, READLIST.LAST_MODIFIED_DATE";
 
 pub struct ReadListDtoDao {
     db: Database,
+    searcher: Option<Arc<dyn EntitySearcher>>,
 }
 
 impl ReadListDtoDao {
     pub fn new(db: Database) -> Self {
-        Self { db }
+        Self { db, searcher: None }
+    }
+
+    pub fn with_searcher(mut self, searcher: Option<Arc<dyn EntitySearcher>>) -> Self {
+        self.searcher = searcher;
+        self
     }
 
     /// `findAll(belongsToLibraryIds, filterOnLibraryIds, search, pageable, restrictions)`:
@@ -36,7 +44,7 @@ impl ReadListDtoDao {
         page: &PageRequest,
         restrictions: &ContentRestrictions,
     ) -> Result<DtoPage<ReadListDto>> {
-        let ids = lucene_ids_stub(search);
+        let ids = search_entity_ids(&self.searcher, search, LuceneEntity::ReadList);
         let make_conditions = || {
             id_in_or_no_condition("READLIST.ID", ids.as_deref())
                 .and(set_condition("BOOK.LIBRARY_ID", belongs_to_library_ids))

@@ -4,6 +4,8 @@ use crate::auth::RequireAuth;
 use crate::dto::common::{Page, Pageable, SortOrder};
 use crate::error::ApiError;
 use crate::http::pagination::{QueryExt, QueryPageable};
+#[cfg(test)]
+use crate::state::test_search_index;
 use crate::state::AppState;
 use axum::body::Body;
 use axum::extract::{Path, State};
@@ -81,14 +83,16 @@ async fn get_collections(
         }]
     };
     let page_request = to_page_request(&qp.pageable, sort.clone());
-    let result = CollectionDtoDao::new(state.db.clone()).find_all(
-        user.get_authorized_library_ids(library_id_param(&qp).as_ref())
-            .as_ref(),
-        user.get_authorized_library_ids(None).as_ref(),
-        search,
-        &page_request,
-        &user.restrictions,
-    )?;
+    let result = CollectionDtoDao::new(state.db.clone())
+        .with_searcher(Some(crate::search_index::searcher(&state)))
+        .find_all(
+            user.get_authorized_library_ids(library_id_param(&qp).as_ref())
+                .as_ref(),
+            user.get_authorized_library_ids(None).as_ref(),
+            search,
+            &page_request,
+            &user.restrictions,
+        )?;
     Ok(Json(page_of(result, &qp.pageable, sort)))
 }
 
@@ -165,12 +169,9 @@ async fn get_series_by_collection_id(
         full_text_search: None,
     };
     let page_request = to_page_request(&qp.pageable, sort.clone());
-    let result = SeriesDtoDao::new(state.db.clone()).find_all(
-        &search,
-        None,
-        &SearchContext::of_user(user),
-        &page_request,
-    )?;
+    let result = SeriesDtoDao::new(state.db.clone())
+        .with_searcher(Some(crate::search_index::searcher(&state)))
+        .find_all(&search, None, &SearchContext::of_user(user), &page_request)?;
     let items = result
         .items
         .into_iter()
@@ -382,6 +383,7 @@ fn find_visible_collection(
     id: &str,
 ) -> Result<SeriesCollection, ApiError> {
     CollectionDtoDao::new(state.db.clone())
+        .with_searcher(Some(crate::search_index::searcher(state)))
         .find_by_id(
             id,
             user.get_authorized_library_ids(None).as_ref(),
@@ -668,6 +670,7 @@ pub(crate) mod tests {
             )),
             db,
             tasks_db,
+            search_index: test_search_index(),
         }
     }
 

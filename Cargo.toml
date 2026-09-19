@@ -58,6 +58,7 @@ roxmltree = "0.20"
 scraper = "0.23"
 compress-tools = { version = "0.16", default-features = false, features = ["static"] }
 pdfium-render = "0.9"
+tantivy = "0.26.2"
 
 [profile.release]
 lto = "thin"

@@ -5,10 +5,9 @@ mod dto;
 mod error;
 mod events;
 mod http;
+mod search_index;
 mod service;
 mod settings;
-// router is registered in main.rs by the coordinating agent
-#[allow(dead_code)]
 mod sse;
 mod state;
 
@@ -48,6 +47,8 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let task_notify: service::TaskNotify = std::sync::Arc::new(tokio::sync::Notify::new());
+    let search_index =
+        Arc::new(komga_search::SearchIndex::open(&config.lucene_dir).context("open search index")?);
     let state = AppState {
         sessions: auth::SessionStore::new(config.session_timeout),
         settings: Arc::new(settings::SettingsProvider::load(db.clone())),
@@ -58,6 +59,7 @@ async fn main() -> anyhow::Result<()> {
             tasks_db.clone(),
             task_notify.clone(),
         )),
+        search_index: search_index.clone(),
         db,
         tasks_db,
         config: Arc::new(config.clone()),
@@ -65,6 +67,8 @@ async fn main() -> anyhow::Result<()> {
 
     service::processor::TaskProcessor::start(state.clone(), task_notify);
     service::scheduler::ScanScheduler::start(state.clone());
+    search_index::check_on_startup(&state);
+    search_index::consume_events(state.clone());
 
     let app = build_router(state.clone());
 

@@ -12,6 +12,9 @@ pub mod readlist;
 pub mod referential;
 pub mod series;
 
+use komga_core::task::LuceneEntity;
+use std::sync::Arc;
+
 /// Spring `Sort.Order`: property + direction.
 #[derive(Debug, Clone)]
 pub struct SortOrder {
@@ -44,14 +47,29 @@ pub struct DtoPage<T> {
     pub sorted: bool,
 }
 
-/// Placeholder for `LuceneHelper.searchEntitiesIds` until the tantivy index lands (M6):
-/// a blank term means no filtering (None); a non-blank term can never match without an index.
-pub fn lucene_ids_stub(term: Option<&str>) -> Option<Vec<String>> {
+/// `LuceneHelper.searchEntitiesIds` as a seam: the DTO queries call this for full-text terms.
+pub trait EntitySearcher: Send + Sync {
+    /// None means no filtering (blank term); Some(ids) filters to those ids (possibly empty).
+    fn search_entity_ids(&self, term: Option<&str>, entity: LuceneEntity) -> Option<Vec<String>>;
+}
+
+/// `LuceneHelper.searchEntitiesIds`: blank terms pass through unfiltered; without a wired
+/// searcher, non-blank terms match nothing (same failure mode as komga without an index).
+pub fn search_entity_ids(
+    searcher: &Option<Arc<dyn EntitySearcher>>,
+    term: Option<&str>,
+    entity: LuceneEntity,
+) -> Option<Vec<String>> {
     match term {
-        Some(t) if !t.trim().is_empty() => {
-            tracing::warn!("full-text search is unavailable before M6; returning no results");
-            Some(vec![])
-        }
+        Some(t) if !t.trim().is_empty() => match searcher {
+            Some(searcher) => searcher.search_entity_ids(term, entity),
+            None => {
+                tracing::warn!(
+                    "full-text search is unavailable (no index wired); returning no results"
+                );
+                Some(vec![])
+            }
+        },
         _ => None,
     }
 }

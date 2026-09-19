@@ -1,6 +1,6 @@
 //! The DTO-returning queries of `SeriesCollectionDao.kt`.
 
-use super::{lucene_ids_stub, DtoPage, PageRequest, SortOrder};
+use super::{search_entity_ids, DtoPage, EntitySearcher, PageRequest, SortOrder};
 use crate::dao::get_datetime;
 use crate::error::Result;
 use crate::pool::Database;
@@ -10,19 +10,27 @@ use crate::search_sql::{
 use komga_core::dto::collection::CollectionDto;
 use komga_core::model::collection::SeriesCollection;
 use komga_core::model::user::ContentRestrictions;
+use komga_core::task::LuceneEntity;
 use rusqlite::types::Value;
 use rusqlite::Row;
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 const COLUMNS: &str = "COLLECTION.ID, COLLECTION.NAME, COLLECTION.ORDERED, COLLECTION.SERIES_COUNT, COLLECTION.CREATED_DATE, COLLECTION.LAST_MODIFIED_DATE";
 
 pub struct CollectionDtoDao {
     db: Database,
+    searcher: Option<Arc<dyn EntitySearcher>>,
 }
 
 impl CollectionDtoDao {
     pub fn new(db: Database) -> Self {
-        Self { db }
+        Self { db, searcher: None }
+    }
+
+    pub fn with_searcher(mut self, searcher: Option<Arc<dyn EntitySearcher>>) -> Self {
+        self.searcher = searcher;
+        self
     }
 
     /// `findAll(belongsToLibraryIds, filterOnLibraryIds, search, pageable, restrictions)`:
@@ -36,7 +44,7 @@ impl CollectionDtoDao {
         page: &PageRequest,
         restrictions: &ContentRestrictions,
     ) -> Result<DtoPage<CollectionDto>> {
-        let ids = lucene_ids_stub(search);
+        let ids = search_entity_ids(&self.searcher, search, LuceneEntity::Collection);
         let make_conditions = || {
             id_in_or_no_condition("COLLECTION.ID", ids.as_deref())
                 .and(set_condition("SERIES.LIBRARY_ID", belongs_to_library_ids))

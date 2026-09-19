@@ -4,6 +4,8 @@ pub mod dto;
 
 use crate::auth::RequireAuth;
 use crate::events::DomainEvent;
+#[cfg(test)]
+use crate::state::test_search_index;
 use crate::state::AppState;
 use axum::body::Body;
 use axum::extract::State;
@@ -445,6 +447,7 @@ mod tests {
                 tasks_db,
                 Arc::new(tokio::sync::Notify::new()),
             )),
+            search_index: test_search_index(),
         }
     }
 

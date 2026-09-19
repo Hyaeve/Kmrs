@@ -372,6 +372,8 @@ pub(crate) mod test_support {
 
     use crate::auth;
     use crate::settings::SettingsProvider;
+    #[cfg(test)]
+    use crate::state::test_search_index;
     use crate::state::AppState;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
@@ -414,6 +416,7 @@ pub(crate) mod test_support {
                     tasks_db,
                     std::sync::Arc::new(tokio::sync::Notify::new()),
                 )),
+                search_index: test_search_index(),
             };
             let app = routes
                 .layer(axum::middleware::from_fn_with_state(

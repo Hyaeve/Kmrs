@@ -1,6 +1,6 @@
 //! `SeriesDtoDao.kt`: series DTO queries with read-progress aggregation.
 
-use super::{lucene_ids_stub, DtoPage, PageRequest, SortOrder};
+use super::{search_entity_ids, DtoPage, EntitySearcher, PageRequest, SortOrder};
 use crate::dao::{get_date, get_datetime, get_datetime_opt};
 use crate::error::Result;
 use crate::pool::Database;
@@ -12,9 +12,11 @@ use komga_core::dto::common::{AlternateTitleDto, AuthorDto, GroupCountDto, WebLi
 use komga_core::dto::series::{BookMetadataAggregationDto, SeriesDto, SeriesMetadataDto};
 use komga_core::dto::url_to_file_path;
 use komga_core::search::{SearchContext, SearchField, SeriesSearch};
+use komga_core::task::LuceneEntity;
 use rusqlite::types::Value;
 use rusqlite::{params_from_iter, Row};
 use std::collections::{BTreeSet, HashMap};
+use std::sync::Arc;
 use time::{Date, OffsetDateTime};
 
 // Selected column lists, qualified: SERIES, SERIES_METADATA, BOOK_METADATA_AGGREGATION, and
@@ -48,6 +50,18 @@ const FROM_BASE: &str = "FROM SERIES \
 
 pub struct SeriesDtoDao {
     db: Database,
+    searcher: Option<Arc<dyn EntitySearcher>>,
+}
+
+impl SeriesDtoDao {
+    pub fn new(db: Database) -> Self {
+        Self { db, searcher: None }
+    }
+
+    pub fn with_searcher(mut self, searcher: Option<Arc<dyn EntitySearcher>>) -> Self {
+        self.searcher = searcher;
+        self
+    }
 }
 
 /// Scalar fields of one joined row; child-table values are fetched separately.
@@ -108,10 +122,6 @@ struct ChildrenMaps {
 }
 
 impl SeriesDtoDao {
-    pub fn new(db: Database) -> Self {
-        Self { db }
-    }
-
     pub fn find_all(
         &self,
         search: &SeriesSearch,
@@ -123,7 +133,11 @@ impl SeriesDtoDao {
             .user_id
             .as_deref()
             .expect("Missing userId in search context");
-        let lucene_ids = lucene_ids_stub(search.full_text_search.as_deref());
+        let lucene_ids = search_entity_ids(
+            &self.searcher,
+            search.full_text_search.as_deref(),
+            LuceneEntity::Series,
+        );
         let mut w = series_condition(search.condition.as_ref(), ctx);
         if let Some((regex, field)) = regex_search {
             w = w.and(series_regex_condition(regex, field));
@@ -144,7 +158,11 @@ impl SeriesDtoDao {
             .user_id
             .as_deref()
             .expect("Missing userId in search context");
-        let lucene_ids = lucene_ids_stub(search.full_text_search.as_deref());
+        let lucene_ids = search_entity_ids(
+            &self.searcher,
+            search.full_text_search.as_deref(),
+            LuceneEntity::Series,
+        );
         let mut w = series_condition(search.condition.as_ref(), ctx).and(SqlWhere {
             sql: "SERIES.CREATED_DATE <> SERIES.LAST_MODIFIED_DATE".to_string(),
             params: vec![],
@@ -166,7 +184,11 @@ impl SeriesDtoDao {
             .user_id
             .as_deref()
             .expect("Missing userId in search context");
-        let lucene_ids = lucene_ids_stub(search.full_text_search.as_deref());
+        let lucene_ids = search_entity_ids(
+            &self.searcher,
+            search.full_text_search.as_deref(),
+            LuceneEntity::Series,
+        );
         let mut w = series_condition(search.condition.as_ref(), ctx);
         if let Some((regex, field)) = regex_search {
             w = w.and(series_regex_condition(regex, field));

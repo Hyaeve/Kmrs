@@ -11,6 +11,8 @@ use crate::error::ApiError;
 use crate::http::headers::{content_disposition, parse_authors, parse_delimited_pair};
 use crate::http::pagination::{QueryExt, QueryPageable};
 use crate::service::book::MarkSelectedPreference;
+#[cfg(test)]
+use crate::state::test_search_index;
 use crate::state::AppState;
 use axum::extract::{Multipart, Path, State};
 use axum::http::StatusCode;
@@ -388,12 +390,14 @@ async fn get_series_deprecated(
         full_text_search: search_term.clone(),
     };
     let sort = effective_sort(&query.pageable, search_term.as_deref());
-    let page = SeriesDtoDao::new(state.db.clone()).find_all(
-        &search,
-        regex.as_ref().map(|(r, f)| (r.as_str(), *f)),
-        &SearchContext::of_user(&auth.0.user),
-        &page_request(&query.pageable, sort),
-    )?;
+    let page = SeriesDtoDao::new(state.db.clone())
+        .with_searcher(Some(crate::search_index::searcher(&state)))
+        .find_all(
+            &search,
+            regex.as_ref().map(|(r, f)| (r.as_str(), *f)),
+            &SearchContext::of_user(&auth.0.user),
+            &page_request(&query.pageable, sort),
+        )?;
     let restrict = !auth.0.user.is_admin();
     let page = map_items(page, |dto: SeriesDto| dto.restrict_url(restrict));
     Ok(Json(to_page(page, &query.pageable)))
@@ -406,12 +410,14 @@ async fn get_series(
     Json(search): Json<SeriesSearch>,
 ) -> Result<Json<Page<SeriesDto>>, ApiError> {
     let sort = effective_sort(&query.pageable, search.full_text_search.as_deref());
-    let page = SeriesDtoDao::new(state.db.clone()).find_all(
-        &search,
-        None,
-        &SearchContext::of_user(&auth.0.user),
-        &page_request(&query.pageable, sort),
-    )?;
+    let page = SeriesDtoDao::new(state.db.clone())
+        .with_searcher(Some(crate::search_index::searcher(&state)))
+        .find_all(
+            &search,
+            None,
+            &SearchContext::of_user(&auth.0.user),
+            &page_request(&query.pageable, sort),
+        )?;
     let restrict = !auth.0.user.is_admin();
     let page = map_items(page, |dto: SeriesDto| dto.restrict_url(restrict));
     Ok(Json(to_page(page, &query.pageable)))
@@ -427,11 +433,13 @@ async fn get_series_alphabetical_groups_deprecated(
         condition: condition_from_params(&query.params),
         full_text_search: query.params.first("search").map(str::to_string),
     };
-    let groups = SeriesDtoDao::new(state.db.clone()).count_by_first_character(
-        &search,
-        regex.as_ref().map(|(r, f)| (r.as_str(), *f)),
-        &SearchContext::of_user(&auth.0.user),
-    )?;
+    let groups = SeriesDtoDao::new(state.db.clone())
+        .with_searcher(Some(crate::search_index::searcher(&state)))
+        .count_by_first_character(
+            &search,
+            regex.as_ref().map(|(r, f)| (r.as_str(), *f)),
+            &SearchContext::of_user(&auth.0.user),
+        )?;
     Ok(Json(groups))
 }
 
@@ -440,11 +448,9 @@ async fn get_series_alphabetical_groups(
     auth: RequireAuth,
     Json(search): Json<SeriesSearch>,
 ) -> Result<Json<Vec<GroupCountDto>>, ApiError> {
-    let groups = SeriesDtoDao::new(state.db.clone()).count_by_first_character(
-        &search,
-        None,
-        &SearchContext::of_user(&auth.0.user),
-    )?;
+    let groups = SeriesDtoDao::new(state.db.clone())
+        .with_searcher(Some(crate::search_index::searcher(&state)))
+        .count_by_first_character(&search, None, &SearchContext::of_user(&auth.0.user))?;
     Ok(Json(groups))
 }
 
@@ -460,7 +466,8 @@ async fn latest_new_updated(
         full_text_search: None,
     };
     let ctx = SearchContext::of_user(user);
-    let dao = SeriesDtoDao::new(state.db.clone());
+    let dao = SeriesDtoDao::new(state.db.clone())
+        .with_searcher(Some(crate::search_index::searcher(state)));
     let request = page_request(&query.pageable, sort);
     let page = if recently_updated {
         dao.find_all_recently_updated(&search, &ctx, &request)?
@@ -506,6 +513,7 @@ async fn get_series_by_id(
     Path(series_id): Path<String>,
 ) -> Result<Json<SeriesDto>, ApiError> {
     let dto = SeriesDtoDao::new(state.db.clone())
+        .with_searcher(Some(crate::search_index::searcher(&state)))
         .find_by_id(&series_id, &auth.0.user.id)?
         .ok_or(ApiError::NotFoundEmpty)?;
     restriction::check_series_dto(&auth.0.user, &dto)?;
@@ -769,11 +777,13 @@ async fn get_books_by_series_id(
         condition: Some(SearchConditionBook::AllOf { conditions }),
         full_text_search: None,
     };
-    let page = BookDtoDao::new(state.db.clone()).find_all(
-        &search,
-        &SearchContext::of_user(&auth.0.user),
-        &page_request(&query.pageable, sort),
-    )?;
+    let page = BookDtoDao::new(state.db.clone())
+        .with_searcher(Some(crate::search_index::searcher(&state)))
+        .find_all(
+            &search,
+            &SearchContext::of_user(&auth.0.user),
+            &page_request(&query.pageable, sort),
+        )?;
     let restrict = !auth.0.user.is_admin();
     let page = map_items(page, |dto: BookDto| dto.restrict_url(restrict));
     Ok(Json(to_page(page, &query.pageable)))
@@ -785,11 +795,13 @@ async fn get_collections_by_series_id(
     Path(series_id): Path<String>,
 ) -> Result<Json<Vec<CollectionDto>>, ApiError> {
     restriction::check_series_by_id(&state, &auth.0.user, &series_id)?;
-    let collections = CollectionDtoDao::new(state.db.clone()).find_all_containing_series_id(
-        &series_id,
-        auth.0.user.get_authorized_library_ids(None).as_ref(),
-        &auth.0.user.restrictions,
-    )?;
+    let collections = CollectionDtoDao::new(state.db.clone())
+        .with_searcher(Some(crate::search_index::searcher(&state)))
+        .find_all_containing_series_id(
+            &series_id,
+            auth.0.user.get_authorized_library_ids(None).as_ref(),
+            &auth.0.user.restrictions,
+        )?;
     Ok(Json(collections.iter().map(CollectionDto::from).collect()))
 }
 
@@ -841,19 +853,21 @@ async fn update_mihon_read_progress(
         }),
         full_text_search: None,
     };
-    let page = BookDtoDao::new(state.db.clone()).find_all(
-        &search,
-        &SearchContext::of_user(&auth.0.user),
-        &PageRequest {
-            page: 0,
-            size: 20,
-            unpaged: true,
-            sort: vec![DbSortOrder {
-                property: "metadata.numberSort".into(),
-                descending: false,
-            }],
-        },
-    )?;
+    let page = BookDtoDao::new(state.db.clone())
+        .with_searcher(Some(crate::search_index::searcher(&state)))
+        .find_all(
+            &search,
+            &SearchContext::of_user(&auth.0.user),
+            &PageRequest {
+                page: 0,
+                size: 20,
+                unpaged: true,
+                sort: vec![DbSortOrder {
+                    property: "metadata.numberSort".into(),
+                    descending: false,
+                }],
+            },
+        )?;
     for book in page
         .items
         .iter()
@@ -1080,6 +1094,7 @@ mod tests {
             db,
             tasks_db,
             config: Arc::new(config),
+            search_index: test_search_index(),
         }
     }
 

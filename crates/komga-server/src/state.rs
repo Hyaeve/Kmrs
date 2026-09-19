@@ -17,6 +17,16 @@ pub struct AppState {
     pub tsid: Arc<TsidFactory>,
     pub events: crate::events::EventBus,
     pub task_emitter: Arc<crate::service::TaskEmitter>,
+    pub search_index: Arc<komga_search::SearchIndex>,
+}
+
+/// A throwaway tantivy index for tests (one fresh directory per call).
+#[cfg(test)]
+pub(crate) fn test_search_index() -> Arc<komga_search::SearchIndex> {
+    Arc::new(
+        komga_search::SearchIndex::open(&tempfile::tempdir().unwrap().keep())
+            .expect("test search index"),
+    )
 }
 
 impl AppState {

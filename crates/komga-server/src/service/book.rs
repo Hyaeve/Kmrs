@@ -5,6 +5,8 @@
 #![allow(dead_code)] // consumers land with the task processor (M4)
 
 use crate::events::DomainEvent;
+#[cfg(test)]
+use crate::state::test_search_index;
 use crate::state::AppState;
 use komga_core::dto::url_to_file_path;
 use komga_core::model::book::Book;
@@ -647,6 +649,7 @@ mod tests {
             )),
             db,
             tasks_db,
+            search_index: test_search_index(),
         }
     }
 
