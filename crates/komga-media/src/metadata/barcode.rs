@@ -113,7 +113,7 @@ fn decode_ean13(bytes: &[u8]) -> Option<String> {
     let rgb = image::load_from_memory(bytes).ok()?.to_rgb8();
     let (width, height) = (rgb.width() as usize, rgb.height() as usize);
     // as_chunks is unavailable on the project's oldest supported toolchain
-    #[allow(clippy::chunks_exact_to_as_chunks)]
+    #[allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
     let pixels: Vec<u32> = rgb
         .chunks_exact(3)
         .map(|c| ((c[0] as u32) << 16) | ((c[1] as u32) << 8) | c[2] as u32)
