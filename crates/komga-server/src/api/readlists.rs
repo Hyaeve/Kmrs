@@ -490,7 +490,7 @@ fn mark_read_progress_completed(
     let media = MediaDao::new(state.db.clone())
         .find_by_id(book_id)?
         .ok_or_else(|| ApiError::Internal(format!("no media for book {book_id}")))?;
-    ReadProgressDao::new(state.db.clone()).insert_or_update(&ReadProgress {
+    let progress = ReadProgress {
         book_id: book_id.into(),
         user_id: user.id.clone(),
         page: media.page_count,
@@ -501,7 +501,11 @@ fn mark_read_progress_completed(
         locator: None,
         created_date: now_utc(),
         last_modified_date: now_utc(),
-    })?;
+    };
+    ReadProgressDao::new(state.db.clone()).insert_or_update(&progress)?;
+    let _ = state
+        .events
+        .send(crate::events::DomainEvent::ReadProgressChanged(progress));
     Ok(())
 }
 

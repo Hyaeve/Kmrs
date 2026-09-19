@@ -714,7 +714,7 @@ async fn update_mihon_read_progress(
         .filter(|b| b.metadata.number_sort <= body.last_book_number_sort_read)
     {
         if book.read_progress.as_ref().map(|rp| rp.completed) != Some(true) {
-            mark_read_progress_completed_book(&state.db, &book.id, &auth.0.user.id)?;
+            mark_read_progress_completed_book(&state, &book.id, &auth.0.user.id)?;
         }
     }
     // TODO(M4): publish the read-progress events (SSE)
@@ -842,15 +842,15 @@ fn build_series_zip(db: &Database, series_id: &str) -> Result<Vec<u8>, ApiError>
 
 /// `BookLifecycle.markReadProgressCompleted`: single-book completed progress upsert.
 fn mark_read_progress_completed_book(
-    db: &Database,
+    state: &AppState,
     book_id: &str,
     user_id: &str,
 ) -> Result<(), ApiError> {
     // a missing media row throws on the Java side (`mediaRepository.findById`); surfaced as 500
-    let media = MediaDao::new(db.clone())
+    let media = MediaDao::new(state.db.clone())
         .find_by_id(book_id)?
         .ok_or_else(|| ApiError::Internal(format!("no media for book {book_id}")))?;
-    ReadProgressDao::new(db.clone()).insert_or_update(&ReadProgress {
+    let progress = ReadProgress {
         book_id: book_id.to_string(),
         user_id: user_id.to_string(),
         page: media.page_count,
@@ -861,7 +861,11 @@ fn mark_read_progress_completed_book(
         locator: None,
         created_date: now_utc(),
         last_modified_date: now_utc(),
-    })?;
+    };
+    ReadProgressDao::new(state.db.clone()).insert_or_update(&progress)?;
+    let _ = state
+        .events
+        .send(crate::events::DomainEvent::ReadProgressChanged(progress));
     Ok(())
 }
 

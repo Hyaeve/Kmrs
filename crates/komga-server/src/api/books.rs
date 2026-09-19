@@ -14,7 +14,7 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::{routing, Json, Router};
 use komga_core::dto::book::{BookDto, PageDto};
-use komga_core::dto::progression::{R2Locator, R2Progression, ReadProgressUpdateDto};
+use komga_core::dto::progression::{R2Locator, R2Positions, R2Progression, ReadProgressUpdateDto};
 use komga_core::dto::readlist::ReadListDto;
 use komga_core::dto::thumbnail::ThumbnailBookDto;
 use komga_core::dto::url_to_file_path;
@@ -46,6 +46,7 @@ use std::io::Read;
 use std::path::PathBuf;
 
 const MEDIATYPE_PROGRESSION_JSON: &str = "application/vnd.readium.progression+json";
+const MEDIATYPE_POSITION_LIST_JSON: &str = "application/vnd.readium.position-list+json";
 
 /// `CommonBookController.FONT_EXTENSIONS`
 const FONT_EXTENSIONS: [&str; 6] = ["otf", "woff", "woff2", "eot", "ttf", "svg"];
@@ -111,6 +112,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/api/v1/books/{bookId}/file/{*rest}",
             routing::get(download_book_file_wildcard),
+        )
+        .route(
+            "/api/v1/books/{bookId}/positions",
+            routing::get(get_book_positions),
         )
         .route(
             "/api/v1/books/{bookId}/progression",
@@ -1186,6 +1191,38 @@ async fn download_book_file_internal(
 
 // region progression
 
+/// `BookController.getBookPositions`: the Positions API (Readium), with Last-Modified/304.
+async fn get_book_positions(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(book_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    let Some(book) = book_dao(&state).find_by_id(&book_id)? else {
+        return Err(ApiError::not_found(""));
+    };
+    let media = media_dao(&state)
+        .find_by_id(&book_id)?
+        .ok_or_else(|| ApiError::Internal(format!("no media for book {book_id}")))?;
+    if check_not_modified(last_modified_millis(&media), &headers) {
+        return Ok(not_modified_response(&media));
+    }
+    restriction::check_book(&state, &auth.0.user, &book)?;
+    let extension = decode_epub_extension(&media).map_err(|_| ApiError::not_found(""))?;
+    let total = extension.positions.len() as i32;
+    let mut response = Json(R2Positions {
+        total,
+        positions: extension.positions,
+    })
+    .into_response();
+    response.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        HeaderValue::from_static(MEDIATYPE_POSITION_LIST_JSON),
+    );
+    set_last_modified(&mut response, &media);
+    Ok(response)
+}
+
 async fn get_book_progression(
     State(state): State<AppState>,
     auth: RequireAuth,
@@ -1456,6 +1493,9 @@ fn mark_progression(
     };
 
     dao.insert_or_update(&progress)?;
+    let _ = state
+        .events
+        .send(crate::events::DomainEvent::ReadProgressChanged(progress));
     Ok(())
 }
 
@@ -1506,6 +1546,9 @@ fn mark_read_progress(
         last_modified_date: time_codec::now_utc(),
     };
     read_progress_dao(state).insert_or_update(&progress)?;
+    let _ = state
+        .events
+        .send(crate::events::DomainEvent::ReadProgressChanged(progress));
     Ok(())
 }
 
@@ -1529,6 +1572,9 @@ fn mark_read_progress_completed(
         last_modified_date: time_codec::now_utc(),
     };
     read_progress_dao(state).insert_or_update(&progress)?;
+    let _ = state
+        .events
+        .send(crate::events::DomainEvent::ReadProgressChanged(progress));
     Ok(())
 }
 
@@ -1572,11 +1618,11 @@ async fn delete_book_read_progress(
     };
     restriction::check_book(&state, &auth.0.user, &book)?;
     let dao = read_progress_dao(&state);
-    if dao
-        .find_by_book_and_user(&book.id, &auth.0.user.id)?
-        .is_some()
-    {
+    if let Some(progress) = dao.find_by_book_and_user(&book.id, &auth.0.user.id)? {
         dao.delete(&book.id, &auth.0.user.id)?;
+        let _ = state
+            .events
+            .send(crate::events::DomainEvent::ReadProgressDeleted(progress));
     }
     Ok(StatusCode::NO_CONTENT)
 }
