@@ -614,7 +614,7 @@ mod tests {
         );
         assert_eq!(body[0]["name"], "alpha");
         assert_eq!(body[1]["name"], "Zeta");
-        assert_eq!(body[0]["root"], "/data/alpha/");
+        assert_eq!(body[0]["root"], "/data/alpha");
 
         let user = insert_user(&app.state.db, "user@x.c", false, true, &[]);
         insert_api_key(&app.state.db, &user, "k-user");
@@ -686,7 +686,7 @@ mod tests {
             .await;
         assert_eq!(status, StatusCode::OK, "{body}");
         assert_eq!(body["name"], "Manga");
-        assert_eq!(body["root"], format!("{}/", root.to_str().unwrap()));
+        assert_eq!(body["root"], root.to_str().unwrap());
         assert_eq!(body["importComicInfoBook"], true);
         assert_eq!(body["scanInterval"], "EVERY_6H");
 

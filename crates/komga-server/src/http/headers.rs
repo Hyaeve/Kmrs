@@ -5,9 +5,20 @@ use axum::http::HeaderMap;
 use komga_core::model::common::Author;
 
 /// Spring `ContentDisposition` with a UTF-8 filename, as built by
-/// `ContentDisposition.builder(kind).filename(name, UTF_8)`: always the `filename*=UTF-8''` form,
-/// with RFC 5987 attr-char pass-through and uppercase percent-encoding for the rest.
+/// `ContentDisposition.builder(kind).filename(name, UTF_8)`: both the RFC 2047 Q-encoded
+/// `filename="=?UTF-8?Q?…?="` fallback and the `filename*=UTF-8''…` form are emitted.
 pub fn content_disposition(kind: &str, filename: &str) -> String {
+    // RFC 2047 Q-encoding: space -> '_'; printable ASCII (33-126) except " = ? _ passes;
+    // everything else as =XX uppercase hex
+    let mut qp = String::with_capacity(filename.len() * 2);
+    for &b in filename.as_bytes() {
+        match b {
+            32 => qp.push('_'),
+            33..=126 if !matches!(b, b'"' | b'=' | b'?' | b'_') => qp.push(b as char),
+            _ => qp.push_str(&format!("={b:02X}")),
+        }
+    }
+    // RFC 5987: attr-chars pass through, the rest is percent-encoded
     let mut encoded = String::with_capacity(filename.len() * 2);
     for &b in filename.as_bytes() {
         let c = b as char;
@@ -22,7 +33,7 @@ pub fn content_disposition(kind: &str, filename: &str) -> String {
             encoded.push_str(&format!("%{b:02X}"));
         }
     }
-    format!("{kind}; filename*=UTF-8''{encoded}")
+    format!("{kind}; filename=\"=?UTF-8?Q?{qp}?=\"; filename*=UTF-8''{encoded}")
 }
 
 /// `EEE, dd MMM yyyy HH:mm:ss 'GMT'` (RFC 1123), the format of `Last-Modified` and
@@ -142,11 +153,11 @@ mod tests {
     fn content_disposition_encodes_like_spring() {
         assert_eq!(
             content_disposition("attachment", "Berserk v01.cbz"),
-            "attachment; filename*=UTF-8''Berserk%20v01.cbz"
+            "attachment; filename=\"=?UTF-8?Q?Berserk_v01.cbz?=\"; filename*=UTF-8''Berserk%20v01.cbz"
         );
         assert_eq!(
             content_disposition("inline", "ページ-1.jpeg"),
-            "inline; filename*=UTF-8''%E3%83%9A%E3%83%BC%E3%82%B8-1.jpeg"
+            "inline; filename=\"=?UTF-8?Q?=E3=83=9A=E3=83=BC=E3=82=B8-1.jpeg?=\"; filename*=UTF-8''%E3%83%9A%E3%83%BC%E3%82%B8-1.jpeg"
         );
     }
 

@@ -129,7 +129,8 @@ fn format_decimal(value: f64) -> String {
 }
 
 /// `URL.toURI().toPath().pathString` for komga's `file:/…` URLs: strips the scheme
-/// and percent-decodes (UTF-8).
+/// and percent-decodes (UTF-8). Java's Path normalizes away the trailing `/` of
+/// directory URLs (`Paths.get("/a/")` renders as `/a`).
 pub fn url_to_file_path(url: &str) -> String {
     let path = url.strip_prefix("file:").unwrap_or(url);
     // `file:///path` and `file:/path` both denote a local path with an empty authority
@@ -140,7 +141,12 @@ pub fn url_to_file_path(url: &str) -> String {
             None => "/",
         }
     });
-    percent_decode(path)
+    let decoded = percent_decode(path);
+    if decoded.len() > 1 {
+        decoded.trim_end_matches('/').to_string()
+    } else {
+        decoded
+    }
 }
 
 fn percent_decode(s: &str) -> String {
@@ -189,10 +195,12 @@ mod tests {
 
     #[test]
     fn url_to_path() {
-        assert_eq!(url_to_file_path("file:/data/berserk/"), "/data/berserk/");
-        assert_eq!(url_to_file_path("file:///data/berserk/"), "/data/berserk/");
-        assert_eq!(url_to_file_path("file:/data/my%20book/"), "/data/my book/");
-        assert_eq!(url_to_file_path("file:/data/%E3%81%82/"), "/data/あ/");
+        // Java's `toPath().pathString` drops the trailing slash of directory URLs
+        assert_eq!(url_to_file_path("file:/data/berserk/"), "/data/berserk");
+        assert_eq!(url_to_file_path("file:///data/berserk/"), "/data/berserk");
+        assert_eq!(url_to_file_path("file:/data/my%20book/"), "/data/my book");
+        assert_eq!(url_to_file_path("file:/data/%E3%81%82/"), "/data/あ");
+        assert_eq!(url_to_file_path("file:/"), "/");
     }
 
     #[test]

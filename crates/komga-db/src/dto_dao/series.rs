@@ -931,7 +931,7 @@ mod tests {
         let dao = SeriesDtoDao::new(db);
         let dto = dao.find_by_id("s1", "u1").unwrap().unwrap();
         assert_eq!(dto.library_id, "lib1");
-        assert_eq!(dto.url, "/lib1/Berserk/");
+        assert_eq!(dto.url, "/lib1/Berserk");
         assert_eq!(dto.books_count, 3);
         assert_eq!(dto.books_read_count, 3);
         assert_eq!(dto.books_in_progress_count, 0);

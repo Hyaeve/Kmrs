@@ -3074,7 +3074,7 @@ mod tests {
         assert_eq!(headers[header::CONTENT_TYPE].to_str().unwrap(), "image/png");
         assert_eq!(
             headers[header::CONTENT_DISPOSITION].to_str().unwrap(),
-            "inline; filename*=UTF-8''b9-1.png"
+            "inline; filename=\"=?UTF-8?Q?b9-1.png?=\"; filename*=UTF-8''b9-1.png"
         );
         assert!(headers.contains_key(header::LAST_MODIFIED));
         assert!(!body.is_empty());

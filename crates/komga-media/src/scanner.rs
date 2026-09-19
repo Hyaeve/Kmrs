@@ -957,10 +957,7 @@ mod tests {
         let series = &result.series[0].0;
         assert!(series.url.starts_with("file:/"));
         assert!(series.url.contains("my%20comics%20%E7%B3%BB%E5%88%97/"));
-        assert_eq!(
-            url_to_file_path(&series.url),
-            format!("{}/", dir.to_string_lossy())
-        );
+        assert_eq!(url_to_file_path(&series.url), dir.to_string_lossy());
     }
 
     #[test]

@@ -1186,7 +1186,7 @@ mod tests {
         assert_eq!(headers[header::CONTENT_TYPE], "application/zip");
         assert_eq!(
             headers[header::CONTENT_DISPOSITION],
-            "attachment; filename*=UTF-8''Zip%20Me.zip"
+            "attachment; filename=\"=?UTF-8?Q?Zip_Me.zip?=\"; filename*=UTF-8''Zip%20Me.zip"
         );
 
         let cursor = std::io::Cursor::new(&body);

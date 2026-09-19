@@ -217,7 +217,7 @@ mod tests {
     fn dto_shape_and_root_restriction() {
         let library = sample_library();
         let admin_dto = LibraryDto::of(&library, true);
-        assert_eq!(admin_dto.root, "/data/manga/");
+        assert_eq!(admin_dto.root, "/data/manga");
         assert_eq!(admin_dto.scan_interval, ScanIntervalDto::Daily);
         assert!(!admin_dto.unavailable);
 

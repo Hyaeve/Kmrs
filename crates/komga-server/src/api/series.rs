@@ -1952,7 +1952,10 @@ mod tests {
             .to_str()
             .unwrap()
             .to_string();
-        assert_eq!(disposition, "attachment; filename*=UTF-8''Berserk.zip");
+        assert_eq!(
+            disposition,
+            "attachment; filename=\"=?UTF-8?Q?Berserk.zip?=\"; filename*=UTF-8''Berserk.zip"
+        );
         let bytes = body_bytes(response).await;
         let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
         assert_eq!(archive.len(), 2);

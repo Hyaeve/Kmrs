@@ -1082,19 +1082,22 @@ fn image_page_response(
     media: &Media,
     page_number: i32,
     page_content: container::PageContent,
+    with_disposition: bool,
 ) -> Response {
     // Kotlin quirk: the fallback is "jpeg" without a leading dot
     let extension = detect::media_type_to_extension(&page_content.media_type).unwrap_or("jpeg");
     let mut response = Response::new(Body::from(page_content.bytes));
     let headers = response.headers_mut();
-    headers.insert(
-        axum::http::header::CONTENT_DISPOSITION,
-        HeaderValue::from_str(&content_disposition(
-            "inline",
-            &format!("{}-{page_number}{extension}", book.name),
-        ))
-        .unwrap(),
-    );
+    if with_disposition {
+        headers.insert(
+            axum::http::header::CONTENT_DISPOSITION,
+            HeaderValue::from_str(&content_disposition(
+                "inline",
+                &format!("{}-{page_number}{extension}", book.name),
+            ))
+            .unwrap(),
+        );
+    }
     headers.insert(
         axum::http::header::CONTENT_TYPE,
         content_type_header(Some(&page_content.media_type)),
@@ -1108,6 +1111,8 @@ pub(crate) struct PageOptions<'a> {
     pub(crate) convert: Option<&'a str>,
     pub(crate) resize_to: Option<u32>,
     pub(crate) accept: Option<String>,
+    /// the page thumbnail endpoint is the only one without a Content-Disposition header
+    pub(crate) with_disposition: bool,
 }
 
 /// `CommonBookController.getBookPageInternal`
@@ -1123,6 +1128,7 @@ pub(crate) async fn get_page_internal(
         convert,
         resize_to,
         accept,
+        with_disposition,
     } = options;
     let Some(book) = book_dao(state).find_by_id(book_id)? else {
         return Err(ApiError::not_found(""));
@@ -1158,6 +1164,7 @@ pub(crate) async fn get_page_internal(
         &media,
         page_number,
         page_content,
+        with_disposition,
     ))
 }
 
@@ -1226,6 +1233,7 @@ async fn get_book_page_by_number(
             convert: params.convert.as_deref(),
             resize_to: None,
             accept,
+            with_disposition: true,
         },
     )
     .await
@@ -1247,6 +1255,7 @@ async fn get_book_page_thumbnail_by_number(
             convert: None,
             resize_to: Some(300),
             accept: None,
+            with_disposition: false,
         },
     )
     .await
@@ -2966,7 +2975,7 @@ mod tests {
         assert_eq!(&body[0..4], b"\x89PNG");
         let disposition = headers["content-disposition"].to_str().unwrap().to_string();
         assert!(
-            disposition.starts_with("inline; filename*=UTF-8''"),
+            disposition.starts_with("inline; filename=\"=?UTF-8?Q?"),
             "{disposition}"
         );
         assert!(headers.contains_key("last-modified"));
@@ -3436,7 +3445,9 @@ mod tests {
         assert_eq!(headers["content-length"], size.to_string());
         let disposition = headers["content-disposition"].to_str().unwrap().to_string();
         assert!(
-            disposition.starts_with("attachment; filename*=UTF-8''zip.zip"),
+            disposition.starts_with(
+                "attachment; filename=\"=?UTF-8?Q?zip.zip?=\"; filename*=UTF-8''zip.zip"
+            ),
             "{disposition}"
         );
         assert_eq!(body.len() as u64, size);
