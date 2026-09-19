@@ -6,6 +6,7 @@ pub mod detect;
 pub mod error;
 pub mod hash;
 pub mod image;
+pub mod metadata;
 pub mod pdf;
 pub mod rar;
 pub mod scanner;

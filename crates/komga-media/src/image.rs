@@ -5,7 +5,8 @@
 
 use crate::detect;
 use crate::error::{MediaError, Result};
-use image::{DynamicImage, ImageFormat, ImageReader, Rgb, RgbImage};
+pub use image::DynamicImage;
+use image::{ImageFormat, ImageReader, Rgb, RgbImage};
 use std::io::Cursor;
 
 /// `ImageType.kt`
