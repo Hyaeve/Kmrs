@@ -39,6 +39,7 @@ use komga_core::time_codec;
 use komga_db::dao::book::{BookDao, BookMetadataDao};
 use komga_db::dao::media::MediaDao;
 use komga_db::dao::read_progress::ReadProgressDao;
+use komga_db::dao::series::SeriesMetadataDao;
 use komga_db::dao::thumbnail::ThumbnailBookDao;
 use komga_db::dto_dao::book::BookDtoDao;
 use komga_db::dto_dao::readlist::ReadListDtoDao;
@@ -130,6 +131,22 @@ pub fn router() -> Router<AppState> {
         .route(
             "/api/v1/books/{bookId}/file/{*rest}",
             routing::get(download_book_file_wildcard),
+        )
+        .route(
+            "/api/v1/books/{bookId}/manifest",
+            routing::get(get_book_webpub_manifest),
+        )
+        .route(
+            "/api/v1/books/{bookId}/manifest/epub",
+            routing::get(get_book_webpub_manifest_epub),
+        )
+        .route(
+            "/api/v1/books/{bookId}/manifest/pdf",
+            routing::get(get_book_webpub_manifest_pdf),
+        )
+        .route(
+            "/api/v1/books/{bookId}/manifest/divina",
+            routing::get(get_book_webpub_manifest_divina),
         )
         .route(
             "/api/v1/books/{bookId}/positions",
@@ -1091,14 +1108,14 @@ fn image_page_response(
 }
 
 /// Page extraction parameters, bundled for `get_page_internal`
-struct PageOptions<'a> {
-    convert: Option<&'a str>,
-    resize_to: Option<u32>,
-    accept: Option<String>,
+pub(crate) struct PageOptions<'a> {
+    pub(crate) convert: Option<&'a str>,
+    pub(crate) resize_to: Option<u32>,
+    pub(crate) accept: Option<String>,
 }
 
 /// `CommonBookController.getBookPageInternal`
-async fn get_page_internal(
+pub(crate) async fn get_page_internal(
     state: &AppState,
     user: &KomgaUser,
     headers: &HeaderMap,
@@ -1417,6 +1434,173 @@ async fn download_book_file_internal(
             HeaderValue::from_str(&length.to_string()).unwrap(),
         );
     }
+    Ok(response)
+}
+
+// endregion
+
+// region webpub manifests (`CommonBookController` manifest endpoints)
+
+/// `CommonBookController.getWebPubManifest`: dispatch on the media profile.
+async fn get_book_webpub_manifest(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(book_id): Path<String>,
+    request: axum::extract::Request,
+) -> Result<Response, ApiError> {
+    let media = media_dao(&state)
+        .find_by_id(&book_id)?
+        .ok_or_else(|| ApiError::not_found(""))?;
+    let (parts, _) = request.into_parts();
+    match container::media_profile(media.media_type.as_deref()) {
+        Some(MediaProfile::Divina) => manifest_divina_internal(&state, &auth, &book_id, &parts),
+        Some(MediaProfile::Pdf) => manifest_pdf_internal(&state, &auth, &book_id, &parts),
+        Some(MediaProfile::Epub) => manifest_epub_internal(&state, &auth, &book_id, &parts),
+        None => Err(ApiError::not_found("Book analysis failed")),
+    }
+}
+
+async fn get_book_webpub_manifest_epub(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(book_id): Path<String>,
+    request: axum::extract::Request,
+) -> Result<Response, ApiError> {
+    let (parts, _) = request.into_parts();
+    manifest_epub_internal(&state, &auth, &book_id, &parts)
+}
+
+async fn get_book_webpub_manifest_pdf(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(book_id): Path<String>,
+    request: axum::extract::Request,
+) -> Result<Response, ApiError> {
+    let (parts, _) = request.into_parts();
+    manifest_pdf_internal(&state, &auth, &book_id, &parts)
+}
+
+async fn get_book_webpub_manifest_divina(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(book_id): Path<String>,
+    request: axum::extract::Request,
+) -> Result<Response, ApiError> {
+    let (parts, _) = request.into_parts();
+    manifest_divina_internal(&state, &auth, &book_id, &parts)
+}
+
+/// `getWebPubManifestEpubInternal`
+fn manifest_epub_internal(
+    state: &AppState,
+    auth: &RequireAuth,
+    book_id: &str,
+    parts: &axum::http::request::Parts,
+) -> Result<Response, ApiError> {
+    let book_dto = book_dto_dao(state)
+        .find_by_id(book_id, &auth.0.user.id)?
+        .ok_or_else(|| ApiError::not_found(""))?;
+    if container::media_profile(Some(book_dto.media.media_type.as_str()))
+        != Some(MediaProfile::Epub)
+    {
+        return Err(ApiError::bad_request(format!(
+            "Book media type '{}' not compatible with requested profile",
+            book_dto.media.media_type
+        )));
+    }
+    restriction::check_book_dto(state, &auth.0.user, &book_dto)?;
+    let media = require_media(state, book_id)?;
+    let series_metadata = series_metadata(state, &book_dto.series_id)?;
+    let extension = crate::webpub::decode_epub_extension_view(media.extension_value.as_deref());
+    let base = crate::http::base_url::base_url(parts, &state.settings);
+    let publication = crate::webpub::to_manifest_epub(
+        &book_dto,
+        &media,
+        extension.as_ref(),
+        &series_metadata,
+        &base,
+        &["api", "v1"],
+        detect::IMAGE_JPEG,
+    );
+    json_typed_response(&publication, crate::webpub::MEDIATYPE_WEBPUB_JSON)
+}
+
+/// `getWebPubManifestPdfInternal`
+fn manifest_pdf_internal(
+    state: &AppState,
+    auth: &RequireAuth,
+    book_id: &str,
+    parts: &axum::http::request::Parts,
+) -> Result<Response, ApiError> {
+    let book_dto = book_dto_dao(state)
+        .find_by_id(book_id, &auth.0.user.id)?
+        .ok_or_else(|| ApiError::not_found(""))?;
+    if container::media_profile(Some(book_dto.media.media_type.as_str())) != Some(MediaProfile::Pdf)
+    {
+        return Err(ApiError::bad_request(format!(
+            "Book media type '{}' not compatible with requested profile",
+            book_dto.media.media_type
+        )));
+    }
+    restriction::check_book_dto(state, &auth.0.user, &book_dto)?;
+    let media = require_media(state, book_id)?;
+    let series_metadata = series_metadata(state, &book_dto.series_id)?;
+    let base = crate::http::base_url::base_url(parts, &state.settings);
+    let publication = crate::webpub::to_manifest_pdf(
+        &book_dto,
+        &media,
+        &series_metadata,
+        &base,
+        &["api", "v1"],
+        detect::IMAGE_JPEG,
+    );
+    json_typed_response(&publication, crate::webpub::MEDIATYPE_WEBPUB_JSON)
+}
+
+/// `getWebPubManifestDivinaInternal`
+fn manifest_divina_internal(
+    state: &AppState,
+    auth: &RequireAuth,
+    book_id: &str,
+    parts: &axum::http::request::Parts,
+) -> Result<Response, ApiError> {
+    let book_dto = book_dto_dao(state)
+        .find_by_id(book_id, &auth.0.user.id)?
+        .ok_or_else(|| ApiError::not_found(""))?;
+    restriction::check_book_dto(state, &auth.0.user, &book_dto)?;
+    let media = require_media(state, book_id)?;
+    let series_metadata = series_metadata(state, &book_dto.series_id)?;
+    let base = crate::http::base_url::base_url(parts, &state.settings);
+    let publication = crate::webpub::to_manifest_divina(
+        &book_dto,
+        &media,
+        &series_metadata,
+        &base,
+        &["api", "v1"],
+        detect::IMAGE_JPEG,
+    );
+    json_typed_response(&publication, crate::webpub::MEDIATYPE_DIVINA_JSON)
+}
+
+/// Kotlin `seriesMetadataRepository.findById` throws when absent (data invariant) → 500
+fn series_metadata(
+    state: &AppState,
+    series_id: &str,
+) -> Result<komga_core::model::series::SeriesMetadata, ApiError> {
+    SeriesMetadataDao::new(state.db.clone())
+        .find_by_id(series_id)?
+        .ok_or_else(|| ApiError::Internal(format!("no metadata for series {series_id}")))
+}
+
+fn json_typed_response<T: serde::Serialize>(
+    value: &T,
+    content_type: &'static str,
+) -> Result<Response, ApiError> {
+    let mut response = Json(value).into_response();
+    response.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        HeaderValue::from_static(content_type),
+    );
     Ok(response)
 }
 
@@ -1967,7 +2151,7 @@ mod tests {
     use axum::middleware;
     use komga_core::model::book::BookMetadata;
     use komga_core::model::library::Library;
-    use komga_core::model::media::BookPage;
+    use komga_core::model::media::{BookPage, MediaFile, MediaFileSubType};
     use komga_core::model::series::{Series, SeriesMetadata, SeriesStatus};
     use komga_core::model::thumbnail::{Dimension, ThumbnailType};
     use komga_core::model::user::{ContentRestrictions, KomgaUser};
@@ -2944,6 +3128,266 @@ mod tests {
             json(&body)["message"],
             "400 BAD_REQUEST \"Extractor does not support raw extraction of pages\""
         );
+    }
+
+    // endregion
+
+    // region webpub manifests
+
+    fn epub_book(db: &Database) {
+        seed_book(db, "b1", "s1", "l1", "file:/data/b1.epub");
+        let media = Media {
+            book_id: "b1".into(),
+            status: MediaStatus::Ready,
+            media_type: Some(detect::APPLICATION_EPUB.to_string()),
+            comment: None,
+            page_count: 2,
+            pages: zip_pages(),
+            files: vec![
+                MediaFile {
+                    file_name: "text/ch1.xhtml".into(),
+                    media_type: Some("application/xhtml+xml".to_string()),
+                    sub_type: Some(MediaFileSubType::EpubPage),
+                    file_size: None,
+                },
+                MediaFile {
+                    file_name: "images/cover.jpg".into(),
+                    media_type: Some(detect::IMAGE_JPEG.to_string()),
+                    sub_type: Some(MediaFileSubType::EpubAsset),
+                    file_size: None,
+                },
+            ],
+            extension_class: Some("org.gotson.komga.domain.model.MediaExtensionEpub".to_string()),
+            extension_value: Some(epub_extension_blob()),
+            epub_divina_compatible: false,
+            epub_is_kepub: false,
+            created_date: time_codec::now_utc(),
+            last_modified_date: time_codec::now_utc(),
+        };
+        MediaDao::new(db.clone()).update(&media).unwrap();
+    }
+
+    fn epub_extension_blob() -> Vec<u8> {
+        use std::io::Write;
+        let json = serde_json::json!({
+            "toc": [{"title": "Chapter 1", "href": "text/ch1.xhtml#start", "children": []}],
+            "landmarks": [],
+            "pageList": [],
+            "isFixedLayout": true,
+            "positions": [],
+        });
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder.write_all(json.to_string().as_bytes()).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    #[tokio::test]
+    async fn manifest_divina_zip() {
+        let state = test_state_with_settings();
+        let db = state.db.clone();
+        seed_library(&db, "l1");
+        seed_series(&db, "s1", "l1");
+        seed_book(&db, "b1", "s1", "l1", "file:/data/b1.cbz");
+        seed_media(
+            &db,
+            "b1",
+            MediaStatus::Ready,
+            detect::APPLICATION_ZIP,
+            zip_pages(),
+        );
+        seed_user(&db, "admin@example.org", "pw", true);
+        let app = test_router(state.clone());
+
+        let (status, headers, body) = call(
+            &app,
+            "GET",
+            "/api/v1/books/b1/manifest",
+            Some(&basic("admin@example.org", "pw")),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            headers[axum::http::header::CONTENT_TYPE],
+            "application/divina+json"
+        );
+        let json = json(&body);
+        assert_eq!(
+            json["@context"],
+            "https://readium.org/webpub-manifest/context.jsonld"
+        );
+        assert_eq!(
+            json["metadata"]["conformsTo"],
+            "https://readium.org/webpub-manifest/profiles/divina"
+        );
+        assert_eq!(json["metadata"]["title"], "Book b1");
+        assert_eq!(
+            json["metadata"]["belongsTo"]["series"][0]["name"],
+            "Series s1"
+        );
+        let order = json["readingOrder"].as_array().unwrap();
+        assert_eq!(order.len(), 1);
+        assert!(order[0]["href"]
+            .as_str()
+            .unwrap()
+            .contains("/api/v1/books/b1/pages/1?contentNegotiation=false"));
+        assert_eq!(json["resources"].as_array().unwrap().len(), 1);
+
+        // /manifest/divina on a zip book works too
+        let (status, _, _) = call(
+            &app,
+            "GET",
+            "/api/v1/books/b1/manifest/divina",
+            Some(&basic("admin@example.org", "pw")),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        // /manifest on a missing book is 404
+        let (status, _, _) = call(
+            &app,
+            "GET",
+            "/api/v1/books/nope/manifest",
+            Some(&basic("admin@example.org", "pw")),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn manifest_epub_profile_and_content() {
+        let state = test_state_with_settings();
+        let db = state.db.clone();
+        seed_library(&db, "l1");
+        seed_series(&db, "s1", "l1");
+        epub_book(&db);
+        seed_user(&db, "admin@example.org", "pw", true);
+        let app = test_router(state.clone());
+
+        let (status, headers, body) = call(
+            &app,
+            "GET",
+            "/api/v1/books/b1/manifest/epub",
+            Some(&basic("admin@example.org", "pw")),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            headers[axum::http::header::CONTENT_TYPE],
+            "application/webpub+json"
+        );
+        let json = json(&body);
+        assert_eq!(
+            json["metadata"]["conformsTo"],
+            "https://readium.org/webpub-manifest/profiles/epub"
+        );
+        assert_eq!(json["metadata"]["rendition"]["layout"], "fixed");
+        let order = json["readingOrder"].as_array().unwrap();
+        assert_eq!(order.len(), 1);
+        assert!(order[0]["href"]
+            .as_str()
+            .unwrap()
+            .contains("/api/v1/books/b1/resource/text/ch1.xhtml"));
+        assert_eq!(json["toc"][0]["title"], "Chapter 1");
+        assert_eq!(
+            json["toc"][0]["href"].as_str().unwrap(),
+            "http://localhost/api/v1/books/b1/resource/text/ch1.xhtml#start"
+        );
+        let resources = json["resources"].as_array().unwrap();
+        assert_eq!(resources.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn manifest_profile_mismatch_400() {
+        let state = test_state_with_settings();
+        let db = state.db.clone();
+        seed_library(&db, "l1");
+        seed_series(&db, "s1", "l1");
+        seed_book(&db, "b1", "s1", "l1", "file:/data/b1.cbz");
+        seed_media(
+            &db,
+            "b1",
+            MediaStatus::Ready,
+            detect::APPLICATION_ZIP,
+            zip_pages(),
+        );
+        seed_user(&db, "admin@example.org", "pw", true);
+        let app = test_router(state.clone());
+
+        let (status, _, body) = call(
+            &app,
+            "GET",
+            "/api/v1/books/b1/manifest/epub",
+            Some(&basic("admin@example.org", "pw")),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            json(&body)["message"],
+            "400 BAD_REQUEST \"Book media type 'application/zip' not compatible with requested profile\""
+        );
+
+        let (status, _, body) = call(
+            &app,
+            "GET",
+            "/api/v1/books/b1/manifest/pdf",
+            Some(&basic("admin@example.org", "pw")),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            json(&body)["message"],
+            "400 BAD_REQUEST \"Book media type 'application/zip' not compatible with requested profile\""
+        );
+    }
+
+    #[tokio::test]
+    async fn manifest_pdf_book() {
+        let state = test_state_with_settings();
+        let db = state.db.clone();
+        seed_library(&db, "l1");
+        seed_series(&db, "s1", "l1");
+        seed_book(&db, "b1", "s1", "l1", "file:/data/b1.pdf");
+        seed_media(
+            &db,
+            "b1",
+            MediaStatus::Ready,
+            detect::APPLICATION_PDF,
+            zip_pages(),
+        );
+        seed_user(&db, "admin@example.org", "pw", true);
+        let app = test_router(state.clone());
+
+        let (status, headers, body) = call(
+            &app,
+            "GET",
+            "/api/v1/books/b1/manifest",
+            Some(&basic("admin@example.org", "pw")),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            headers[axum::http::header::CONTENT_TYPE],
+            "application/webpub+json"
+        );
+        let json = json(&body);
+        assert_eq!(
+            json["metadata"]["conformsTo"],
+            "https://readium.org/webpub-manifest/profiles/pdf"
+        );
+        let order = json["readingOrder"].as_array().unwrap();
+        assert_eq!(order.len(), 1);
+        assert!(order[0]["href"]
+            .as_str()
+            .unwrap()
+            .ends_with("/api/v1/books/b1/pages/1/raw"));
+        assert_eq!(order[0]["type"], "application/pdf");
     }
 
     // endregion

@@ -106,6 +106,71 @@ pub fn format_dto_datetime(dt: OffsetDateTime) -> String {
     )
 }
 
+/// The system zone offset, read once from the platform `date` command. The `time` crate's
+/// `local-offset` feature is intentionally not enabled (it is unsound in multi-threaded programs).
+pub fn system_offset() -> time::UtcOffset {
+    static OFFSET: std::sync::OnceLock<time::UtcOffset> = std::sync::OnceLock::new();
+    *OFFSET.get_or_init(|| {
+        std::process::Command::new("date")
+            .arg("+%z")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .and_then(|s| {
+                let s = s.trim();
+                let (sign, rest) = s.split_at_checked(1)?;
+                let hours: i32 = rest.get(..2)?.parse().ok()?;
+                let minutes: i32 = rest.get(2..4)?.parse().ok()?;
+                let seconds = (hours * 3600 + minutes * 60) * if sign == "-" { -1 } else { 1 };
+                time::UtcOffset::from_hms(
+                    seconds.div_euclid(3600) as i8,
+                    (seconds.rem_euclid(3600) / 60) as i8,
+                    0,
+                )
+                .ok()
+            })
+            .unwrap_or(time::UtcOffset::UTC)
+    })
+}
+
+/// Jackson `ISO_OFFSET_DATE_TIME`: `yyyy-MM-dd'T'HH:mm:ss[.SSS]±HH:MM`, fraction in groups of 3.
+/// `Z` when the offset is zero (Jackson renders +00:00 as Z).
+pub fn format_offset_date_time(dt: OffsetDateTime) -> String {
+    let nanos = dt.nanosecond();
+    let fraction = if nanos == 0 {
+        String::new()
+    } else {
+        let digits = format!("{nanos:09}");
+        let trimmed = digits.trim_end_matches('0');
+        let len = trimmed.len().div_ceil(3) * 3;
+        format!(".{}", &digits[..len])
+    };
+    let offset = dt.offset();
+    let offset_str = if offset.is_utc() {
+        "Z".to_string()
+    } else {
+        let total = offset.whole_seconds();
+        let sign = if total < 0 { '-' } else { '+' };
+        let abs = total.unsigned_abs();
+        format!("{sign}{:02}:{:02}", abs / 3600, (abs % 3600) / 60)
+    };
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}{fraction}{offset_str}",
+        dt.year(),
+        dt.month() as u8,
+        dt.day(),
+        dt.hour(),
+        dt.minute(),
+        dt.second(),
+    )
+}
+
+/// `LocalDateTime.toZonedDateTime()`: reinterpret a UTC timestamp in the system zone
+/// (`atZoneSameInstant(ZoneId.systemDefault())`).
+pub fn to_zoned_date_time(dt: OffsetDateTime) -> OffsetDateTime {
+    dt.to_offset(system_offset())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -147,6 +212,32 @@ mod tests {
     fn dto_format() {
         let dt = parse_datetime_utc("2020-01-02 03:04:05.999").unwrap();
         assert_eq!(format_dto_datetime(dt), "2020-01-02T03:04:05Z");
+    }
+
+    #[test]
+    fn offset_format() {
+        use time::UtcOffset;
+        let dt = parse_datetime_utc("2024-01-02 03:04:05.999").unwrap();
+        assert_eq!(
+            format_offset_date_time(dt.to_offset(UtcOffset::UTC)),
+            "2024-01-02T03:04:05.999Z"
+        );
+        let offset = UtcOffset::from_hms(8, 0, 0).unwrap();
+        assert_eq!(
+            format_offset_date_time(dt.to_offset(offset)),
+            "2024-01-02T11:04:05.999+08:00"
+        );
+        let offset = UtcOffset::from_hms(-5, -30, 0).unwrap();
+        assert_eq!(
+            format_offset_date_time(dt.to_offset(offset)),
+            "2024-01-01T21:34:05.999-05:30"
+        );
+        // fraction in groups of 3 (trailing zeros kept when the group is full)
+        let dt = parse_datetime_utc("2024-01-02 03:04:05.9999995").unwrap();
+        assert_eq!(
+            format_offset_date_time(dt.to_offset(UtcOffset::UTC)),
+            "2024-01-02T03:04:05.999999500Z"
+        );
     }
 
     #[test]

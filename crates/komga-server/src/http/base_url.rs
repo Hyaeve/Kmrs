@@ -8,12 +8,20 @@ use axum::http::request::Parts;
 
 /// `{proto}://{host}[/prefix]` without a trailing slash.
 pub fn base_url(parts: &Parts, settings: &SettingsProvider) -> String {
-    let proto = first_header(parts, "x-forwarded-proto")
+    base_url_from_headers(&parts.headers, settings)
+}
+
+/// Header-only variant for handlers that extract `HeaderMap` instead of the request parts.
+pub fn base_url_from_headers(
+    headers: &axum::http::HeaderMap,
+    settings: &SettingsProvider,
+) -> String {
+    let proto = first_header(headers, "x-forwarded-proto")
         .map(|v| v.split(',').next().unwrap().trim().to_string())
         .unwrap_or_else(|| "http".to_string());
-    let host = first_header(parts, "x-forwarded-host")
+    let host = first_header(headers, "x-forwarded-host")
         .map(|v| v.split(',').next().unwrap().trim().to_string())
-        .or_else(|| first_header(parts, axum::http::header::HOST.as_str()))
+        .or_else(|| first_header(headers, axum::http::header::HOST.as_str()))
         .unwrap_or_else(|| "localhost".to_string());
     let prefix = settings.get().server_context_path.unwrap_or_default();
     let prefix = prefix.trim_matches('/');
@@ -24,9 +32,8 @@ pub fn base_url(parts: &Parts, settings: &SettingsProvider) -> String {
     }
 }
 
-fn first_header(parts: &Parts, name: &str) -> Option<String> {
-    parts
-        .headers
+fn first_header(headers: &axum::http::HeaderMap, name: &str) -> Option<String> {
+    headers
         .get(name)
         .and_then(|v| v.to_str().ok())
         .map(str::to_string)

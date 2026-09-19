@@ -40,6 +40,20 @@ pub fn get_dimension(bytes: &[u8]) -> Option<(u32, u32)> {
     reader.into_dimensions().ok()
 }
 
+/// `ImageConverter.canConvertMediaType`: read support for `from`, write support for `to`.
+/// Write support is both formats here; read support matches the decodable set of `convert`.
+pub fn can_convert(from: &str, to: ImageType) -> bool {
+    const READABLE: &[&str] = &[
+        detect::IMAGE_JPEG,
+        detect::IMAGE_PNG,
+        detect::IMAGE_GIF,
+        detect::IMAGE_WEBP,
+        detect::IMAGE_TIFF,
+        detect::IMAGE_BMP,
+    ];
+    READABLE.contains(&from) && matches!(to, ImageType::Png | ImageType::Jpeg)
+}
+
 fn decode(bytes: &[u8]) -> Result<DynamicImage> {
     ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()

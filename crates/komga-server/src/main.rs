@@ -10,6 +10,8 @@ mod service;
 mod settings;
 mod sse;
 mod state;
+#[allow(dead_code)]
+mod webpub;
 
 use anyhow::Context;
 use komga_db::pool::Database;
@@ -96,6 +98,8 @@ pub fn build_router(state: AppState) -> axum::Router {
         .merge(api::collections::router())
         .merge(api::readlists::router())
         .merge(api::tasks::router())
+        .merge(api::opds_v1::router())
+        .merge(api::opds_v2::router())
         .merge(sse::router());
 
     routes
