@@ -106,14 +106,14 @@ pub mod zoned_date_time {
 
     pub fn serialize<S: Serializer>(dt: &OffsetDateTime, serializer: S) -> Result<S::Ok, S::Error> {
         let nanos = dt.nanosecond();
+        // Jackson (Spring Boot, WRITE_DATES_AS_TIMESTAMPS off) pads nanos to 9 digits,
+        // then strips trailing zeros; verified against Jackson 2.21
         let fraction = if nanos == 0 {
             String::new()
         } else {
             let digits = format!("{nanos:09}");
             let trimmed = digits.trim_end_matches('0');
-            // Jackson writes the fraction in groups of 3 digits
-            let len = trimmed.len().div_ceil(3) * 3;
-            format!(".{}", &digits[..len])
+            format!(".{trimmed}")
         };
         serializer.serialize_str(&format!(
             "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}{fraction}Z",
@@ -274,8 +274,8 @@ mod tests {
             },
         })
         .unwrap();
-        // ISO_OFFSET_DATE_TIME prints the fraction in groups of 3 digits
-        assert_eq!(json["modified"], "2024-01-02T03:04:05.120Z");
+        // Jackson strips trailing zeros from the 9-digit-padded fraction
+        assert_eq!(json["modified"], "2024-01-02T03:04:05.12Z");
     }
 
     #[test]

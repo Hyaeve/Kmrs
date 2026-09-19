@@ -113,7 +113,7 @@ async fn get_collection_thumbnail(
     let user = &auth.0.user;
     let collection = find_visible_collection(&state, user, &id)?;
     let bytes = collection_thumbnail_bytes(&state, user, &collection)?;
-    Ok(jpeg_response(bytes, Some("private, max-age=3600")))
+    Ok(jpeg_response(bytes, Some("max-age=3600, private")))
 }
 
 async fn get_collection_thumbnails(
@@ -1014,7 +1014,7 @@ pub(crate) mod tests {
         .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(headers[header::CONTENT_TYPE], "image/jpeg");
-        assert_eq!(headers[header::CACHE_CONTROL], "private, max-age=3600");
+        assert_eq!(headers[header::CACHE_CONTROL], "max-age=3600, private");
         assert_eq!(body, tiny_jpeg());
     }
 
@@ -1032,7 +1032,7 @@ pub(crate) mod tests {
         .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(headers[header::CONTENT_TYPE], "image/jpeg");
-        assert_eq!(headers[header::CACHE_CONTROL], "private, max-age=3600");
+        assert_eq!(headers[header::CACHE_CONTROL], "max-age=3600, private");
         let img = image::load_from_memory(&body).unwrap();
         let settings = state.settings.get();
         assert_eq!(img.height(), settings.thumbnail_size.max_edge());

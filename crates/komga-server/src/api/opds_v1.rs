@@ -1598,6 +1598,7 @@ mod tests {
             epub_divina_letter_count_threshold: 15,
             kobo_sync_item_limit: 100,
             kepubify_path: None,
+            server_context_path_env: None,
             oauth2: Default::default(),
         };
         AppState {

@@ -143,7 +143,7 @@ async fn get_readlist_thumbnail(
 ) -> Result<Response, ApiError> {
     let readlist = find_visible_readlist(&state, &auth.0.user, &id)?;
     let bytes = readlist_thumbnail_bytes(&state, &readlist)?;
-    Ok(jpeg_response(bytes, Some("private, max-age=3600")))
+    Ok(jpeg_response(bytes, Some("max-age=3600, private")))
 }
 
 async fn get_readlist_thumbnails(
@@ -919,7 +919,7 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(headers[header::CONTENT_TYPE], "image/jpeg");
-        assert_eq!(headers[header::CACHE_CONTROL], "private, max-age=3600");
+        assert_eq!(headers[header::CACHE_CONTROL], "max-age=3600, private");
         assert_eq!(body, tiny_jpeg());
 
         // mosaic when no selected thumbnail (b1 has a book thumbnail)
@@ -931,7 +931,7 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(headers[header::CACHE_CONTROL], "private, max-age=3600");
+        assert_eq!(headers[header::CACHE_CONTROL], "max-age=3600, private");
 
         let (status, _, body) = call(
             &state,

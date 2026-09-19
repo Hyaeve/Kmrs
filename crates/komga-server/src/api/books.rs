@@ -3214,7 +3214,7 @@ mod tests {
         );
         let json = json(&body);
         assert_eq!(
-            json["@context"],
+            json["context"],
             "https://readium.org/webpub-manifest/context.jsonld"
         );
         assert_eq!(

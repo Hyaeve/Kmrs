@@ -201,8 +201,7 @@ fn format_zoned(dt: &OffsetDateTime) -> String {
     } else {
         let digits = format!("{nanos:09}");
         let trimmed = digits.trim_end_matches('0');
-        let len = trimmed.len().div_ceil(3) * 3;
-        format!(".{}", &digits[..len])
+        format!(".{trimmed}")
     };
     let offset = dt.offset();
     let offset_str = if offset.is_utc() {
@@ -3332,7 +3331,7 @@ mod tests {
         let dt = time::OffsetDateTime::from_unix_timestamp(1577836800).unwrap();
         assert_eq!(format_zoned(&dt), "2020-01-01T00:00:00Z");
         let millis = dt + time::Duration::milliseconds(120);
-        assert_eq!(format_zoned(&millis), "2020-01-01T00:00:00.120Z");
+        assert_eq!(format_zoned(&millis), "2020-01-01T00:00:00.12Z");
         let offset_dt = dt.to_offset(time::UtcOffset::from_hms(8, 0, 0).unwrap());
         assert_eq!(format_zoned(&offset_dt), "2020-01-01T08:00:00+08:00");
         assert!(!offset_suffix().is_empty());

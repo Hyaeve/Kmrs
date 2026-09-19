@@ -22,6 +22,8 @@ pub struct ServerConfig {
     pub epub_divina_letter_count_threshold: usize,
     pub kobo_sync_item_limit: u32,
     pub kepubify_path: Option<PathBuf>,
+    /// `server.servlet.context-path` env override (configurationSource of the settings DTO)
+    pub server_context_path_env: Option<String>,
     pub oauth2: OAuth2Config,
 }
 
@@ -118,6 +120,9 @@ impl ServerConfig {
             kepubify_path: std::env::var("KOMGA_KOBO_KEPUBIFY_PATH")
                 .ok()
                 .map(PathBuf::from),
+            server_context_path_env: std::env::var("SERVER_SERVLET_CONTEXT_PATH")
+                .ok()
+                .filter(|v| !v.is_empty()),
             oauth2: oauth2_from_env(),
         }
     }

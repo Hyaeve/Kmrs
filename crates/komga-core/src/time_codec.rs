@@ -133,7 +133,8 @@ pub fn system_offset() -> time::UtcOffset {
     })
 }
 
-/// Jackson `ISO_OFFSET_DATE_TIME`: `yyyy-MM-dd'T'HH:mm:ss[.SSS]±HH:MM`, fraction in groups of 3.
+/// Jackson `ISO_OFFSET_DATE_TIME`: `yyyy-MM-dd'T'HH:mm:ss[.SSS]±HH:MM`; nanos padded to 9
+/// digits, then trailing zeros stripped (verified against Jackson 2.21).
 /// `Z` when the offset is zero (Jackson renders +00:00 as Z).
 pub fn format_offset_date_time(dt: OffsetDateTime) -> String {
     let nanos = dt.nanosecond();
@@ -142,8 +143,7 @@ pub fn format_offset_date_time(dt: OffsetDateTime) -> String {
     } else {
         let digits = format!("{nanos:09}");
         let trimmed = digits.trim_end_matches('0');
-        let len = trimmed.len().div_ceil(3) * 3;
-        format!(".{}", &digits[..len])
+        format!(".{trimmed}")
     };
     let offset = dt.offset();
     let offset_str = if offset.is_utc() {
@@ -232,11 +232,16 @@ mod tests {
             format_offset_date_time(dt.to_offset(offset)),
             "2024-01-01T21:34:05.999-05:30"
         );
-        // fraction in groups of 3 (trailing zeros kept when the group is full)
+        // nanos padded to 9 digits, then trailing zeros stripped (Jackson rule)
         let dt = parse_datetime_utc("2024-01-02 03:04:05.9999995").unwrap();
         assert_eq!(
             format_offset_date_time(dt.to_offset(UtcOffset::UTC)),
-            "2024-01-02T03:04:05.999999500Z"
+            "2024-01-02T03:04:05.9999995Z"
+        );
+        let dt = parse_datetime_utc("2024-01-02 03:04:05.120").unwrap();
+        assert_eq!(
+            format_offset_date_time(dt.to_offset(UtcOffset::UTC)),
+            "2024-01-02T03:04:05.12Z"
         );
     }
 

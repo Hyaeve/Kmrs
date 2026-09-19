@@ -54,11 +54,9 @@ impl SettingsDto {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingMultiSource<T: Serialize> {
-    #[serde(skip_serializing_if = "Option::is_none")]
+    // Jackson has no NON_NULL here: all three keys are always present, even when null
     pub configuration_source: Option<T>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub database_source: Option<T>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub effective_value: Option<T>,
 }
 

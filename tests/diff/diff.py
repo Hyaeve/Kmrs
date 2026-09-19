@@ -86,6 +86,104 @@ def normalize_body(text):
 
 
 # ---------------------------------------------------------------------------
+# endpoint-specific comparators
+# ---------------------------------------------------------------------------
+
+def shape(obj):
+    """A structural skeleton of a JSON value: dict keys and list lengths only."""
+    if isinstance(obj, dict):
+        return {k: shape(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [shape(v) for v in obj]
+    return type(obj).__name__
+
+
+def compare_actuator_health(java_body, rust_body):
+    problems = []
+    for side, body in (("java", java_body), ("rust", rust_body)):
+        if body.get("status") != "UP":
+            problems.append(f"{side} status != UP")
+    for ds in ("sqliteDataSourceRO", "sqliteDataSourceRW", "tasksDataSourceRO", "tasksDataSourceRW"):
+        for side, body in (("java", java_body), ("rust", rust_body)):
+            component = body.get("components", {}).get("db", {}).get("components", {}).get(ds)
+            if not component:
+                problems.append(f"{side} missing data source {ds}")
+            elif component.get("details", {}).get("database") != "SQLite" or component.get("details", {}).get("validationQuery") != "isValid()":
+                problems.append(f"{side} {ds} details differ: {component.get('details')}")
+    for side, body in (("java", java_body), ("rust", rust_body)):
+        disk = body.get("components", {}).get("diskSpace", {}).get("details", {})
+        for key in ("total", "free", "threshold", "exists"):
+            if key not in disk:
+                problems.append(f"{side} diskSpace missing {key}")
+    return problems
+
+
+def compare_actuator_info(java_body, rust_body):
+    problems = []
+    for section in ("git", "build", "java", "os"):
+        for side, body in (("java", java_body), ("rust", rust_body)):
+            if section not in body:
+                problems.append(f"{side} missing info section {section}")
+    if "git" in java_body and "git" in rust_body:
+        for key in ("branch", "commit"):
+            for side, body in (("java", java_body), ("rust", rust_body)):
+                if key not in body["git"]:
+                    problems.append(f"{side} git missing {key}")
+        for side, body in (("java", java_body), ("rust", rust_body)):
+            if "id" not in body["git"].get("commit", {}) or "time" not in body["git"].get("commit", {}):
+                problems.append(f"{side} git.commit missing id/time")
+    for key in ("artifact", "name", "version", "group"):
+        for side, body in (("java", java_body), ("rust", rust_body)):
+            if key not in body.get("build", {}):
+                problems.append(f"{side} build missing {key}")
+    for section in ("java", "os"):
+        sj, sr = shape(java_body.get(section, {})), shape(rust_body.get(section, {}))
+        if sj != sr:
+            problems.append(f"{section} shape differs ({sj} vs {sr})")
+    return problems
+
+
+def compare_actuator_metrics(java_body, rust_body):
+    problems = []
+    j_names = set(java_body.get("names", []))
+    r_names = set(rust_body.get("names", []))
+    # MultiGauge-backed komga.* names (e.g. komga.sidecars) only appear on the Java side
+    # when their row has data; tolerate them being absent there
+    tolerated_missing = {"komga.sidecars"}
+    if not r_names <= (j_names | tolerated_missing):
+        problems.append(
+            f"rust names not a subset of java names: {sorted(r_names - j_names - tolerated_missing)}"
+        )
+    for required in ("process.uptime", "process.start.time"):
+        if required not in r_names:
+            problems.append(f"rust missing {required}")
+    return problems
+
+
+def compare_actuator_scheduledtasks(java_body, rust_body):
+    problems = []
+    for key in ("cron", "fixedDelay", "fixedRate", "custom"):
+        if key not in rust_body:
+            problems.append(f"rust missing {key}")
+    r_targets = [t.get("runnable", {}).get("target", "") for t in rust_body.get("fixedRate", [])]
+    for required in ("SseController.heartbeat", "SseController.taskCount", "AuthenticationActivityCleanupController.cleanup"):
+        if required not in r_targets:
+            problems.append(f"rust missing fixedRate target {required}")
+    for task in rust_body.get("fixedRate", []):
+        if task.get("initialDelay") != task.get("interval"):
+            problems.append(f"rust task initialDelay != interval: {task}")
+    return problems
+
+
+ACTUATOR_RULES = {
+    "/actuator/health": compare_actuator_health,
+    "/actuator/info": compare_actuator_info,
+    "/actuator/metrics": compare_actuator_metrics,
+    "/actuator/scheduledtasks": compare_actuator_scheduledtasks,
+}
+
+
+# ---------------------------------------------------------------------------
 # servers
 # ---------------------------------------------------------------------------
 
@@ -398,9 +496,16 @@ def main():
                 problems.append(f"status {js} != {rs}")
             else:
                 if compare == "json":
-                    nj, nr = normalize_body(jb), normalize_body(rb)
-                    if nj != nr:
-                        problems.append("json body differs")
+                    rule = ACTUATOR_RULES.get(path)
+                    if rule:
+                        try:
+                            problems.extend(rule(json.loads(jb), json.loads(rb)))
+                        except json.JSONDecodeError as e:
+                            problems.append(f"json parse failed: {e}")
+                    else:
+                        nj, nr = normalize_body(jb), normalize_body(rb)
+                        if nj != nr:
+                            problems.append("json body differs")
                 elif compare == "bytes":
                     if jb != rb:
                         problems.append(f"bytes differ ({len(jb)} vs {len(rb)})")

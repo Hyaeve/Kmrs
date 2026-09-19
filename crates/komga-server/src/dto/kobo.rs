@@ -1,8 +1,8 @@
 //! Kobo sync DTOs, ported from `interfaces/api/kobo/dto/`.
 //!
 //! All use Jackson's UpperCamelCase naming; `NON_NULL` classes skip null fields. `ZonedDateTime`
-//! fields serialize with Jackson's `ISO_OFFSET_DATE_TIME` semantics (fraction in groups of 3,
-//! `Z` for UTC) via `komga_core::time_codec::format_offset_date_time`.
+//! fields serialize with Jackson's `ISO_OFFSET_DATE_TIME` semantics (nanos padded to 9 digits,
+//! trailing zeros stripped, `Z` for UTC) via `komga_core::time_codec::format_offset_date_time`.
 
 use komga_core::model::read_progress::ReadProgress;
 use komga_core::time_codec;

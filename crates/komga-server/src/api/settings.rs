@@ -36,14 +36,17 @@ async fn get_server_settings(
             effective_value: Some(s.server_port.unwrap_or(config.port)),
         }),
         server_context_path: Some(SettingMultiSource {
-            configuration_source: None,
+            configuration_source: config.server_context_path_env.clone(),
             database_source: s.server_context_path.clone(),
-            effective_value: s.server_context_path.clone(),
+            effective_value: Some(s.server_context_path.clone().unwrap_or_default()),
         }),
         kobo_proxy: Some(s.kobo_proxy),
         kobo_port: s.kobo_port.map(|p| p as i64),
         kepubify_path: Some(SettingMultiSource {
-            configuration_source: None,
+            configuration_source: config
+                .kepubify_path
+                .as_ref()
+                .map(|p| p.display().to_string()),
             database_source: s.kepubify_path.clone(),
             effective_value: s.kepubify_path.clone(),
         }),

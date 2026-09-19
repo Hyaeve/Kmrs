@@ -104,8 +104,14 @@ async fn get_health(State(state): State<AppState>, auth: MaybeAuth) -> Response 
     let mut db_components = std::collections::BTreeMap::new();
     db_components.insert("sqliteDataSourceRO".to_string(), data_source(&state.db));
     db_components.insert("sqliteDataSourceRW".to_string(), data_source(&state.db));
-    db_components.insert("tasksDataSourceRO".to_string(), data_source(&state.tasks_db));
-    db_components.insert("tasksDataSourceRW".to_string(), data_source(&state.tasks_db));
+    db_components.insert(
+        "tasksDataSourceRO".to_string(),
+        data_source(&state.tasks_db),
+    );
+    db_components.insert(
+        "tasksDataSourceRW".to_string(),
+        data_source(&state.tasks_db),
+    );
 
     let (total, free) = disk_space_k_bytes(&state.config.config_dir);
     let disk_component = HealthComponent {
@@ -341,7 +347,6 @@ const METRICS: &[&str] = &[
     "komga.sidecars",
     "process.cpu.usage",
     "process.start.time",
-    "process.threads",
     "process.uptime",
 ];
 
@@ -400,16 +405,6 @@ async fn get_metric(
             }],
             available_tags: vec![],
         },
-        "process.threads" => MetricBody {
-            name: "process.threads",
-            description: "The current number of threads",
-            base_unit: "threads",
-            measurements: vec![MetricMeasurement {
-                statistic: "VALUE",
-                value: thread_count() as f64,
-            }],
-            available_tags: vec![],
-        },
         name if name.starts_with("komga.") => komga_gauge(name, &_state)?,
         _ => return Err(ApiError::not_found("")),
     };
@@ -419,7 +414,11 @@ async fn get_metric(
 /// `MetricsPublisherController` gauges: entity counts read straight from the database.
 fn komga_gauge(name: &str, state: &AppState) -> Result<MetricBody, ApiError> {
     let (description, base_unit, value) = match name {
-        "komga.libraries" => ("Number of libraries", "libraries", count_of(state, "LIBRARY")),
+        "komga.libraries" => (
+            "Number of libraries",
+            "libraries",
+            count_of(state, "LIBRARY"),
+        ),
         "komga.series" => ("Number of series", "series", count_of(state, "SERIES")),
         "komga.books" => ("Number of books", "books", count_of(state, "BOOK")),
         "komga.books.filesize" => (
@@ -427,8 +426,16 @@ fn komga_gauge(name: &str, state: &AppState) -> Result<MetricBody, ApiError> {
             "bytes",
             sum_of(state, "SELECT COALESCE(SUM(FILE_SIZE), 0) FROM BOOK"),
         ),
-        "komga.collections" => ("Number of collections", "collections", count_of(state, "COLLECTION")),
-        "komga.readlists" => ("Number of read lists", "read lists", count_of(state, "READLIST")),
+        "komga.collections" => (
+            "Number of collections",
+            "collections",
+            count_of(state, "COLLECTION"),
+        ),
+        "komga.readlists" => (
+            "Number of read lists",
+            "read lists",
+            count_of(state, "READLIST"),
+        ),
         "komga.sidecars" => ("Number of sidecars", "sidecars", count_of(state, "SIDECAR")),
         _ => return Err(ApiError::not_found("")),
     };
@@ -514,19 +521,6 @@ fn cpu_usage_percent() -> f64 {
         .and_then(|s| s.trim().parse::<f64>().ok())
         .unwrap_or(0.0)
 }
-
-/// Thread count of this process, via `ps -M` line count.
-fn thread_count() -> i64 {
-    std::process::Command::new("ps")
-        .arg("-M")
-        .arg("-p")
-        .arg(std::process::id().to_string())
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.lines().skip(1).count() as i64)
-        .unwrap_or(0)
-}
 fn rss_bytes() -> i64 {
     std::process::Command::new("ps")
         .arg("-o")
@@ -573,23 +567,30 @@ struct ScheduledTaskRunnable {
 /// plus the fixed-rate jobs (SSE heartbeat / task count, authentication-activity cleanup).
 async fn get_scheduled_tasks(auth: RequireAuth) -> Result<Response, ApiError> {
     auth.0.require_admin()?;
-    let mut fixed_rate: Vec<ScheduledTaskEntry> = crate::service::scheduler::ScanScheduler::scheduled_tasks()
-        .into_iter()
-        .map(|registration| {
-            let millis = registration.period.as_millis() as u64;
-            ScheduledTaskEntry {
-                runnable: ScheduledTaskRunnable {
-                    target: format!("ScanScheduler for library '{}'", registration.library_name),
-                },
-                initial_delay: millis,
-                interval: millis,
-            }
-        })
-        .collect();
+    let mut fixed_rate: Vec<ScheduledTaskEntry> =
+        crate::service::scheduler::ScanScheduler::scheduled_tasks()
+            .into_iter()
+            .map(|registration| {
+                let millis = registration.period.as_millis() as u64;
+                ScheduledTaskEntry {
+                    runnable: ScheduledTaskRunnable {
+                        target: format!(
+                            "ScanScheduler for library '{}'",
+                            registration.library_name
+                        ),
+                    },
+                    initial_delay: millis,
+                    interval: millis,
+                }
+            })
+            .collect();
     for (target, millis) in [
         ("SseController.heartbeat", 15_000u64),
         ("SseController.taskCount", 10_000u64),
-        ("AuthenticationActivityCleanupController.cleanup", 86_400_000u64),
+        (
+            "AuthenticationActivityCleanupController.cleanup",
+            86_400_000u64,
+        ),
     ] {
         fixed_rate.push(ScheduledTaskEntry {
             runnable: ScheduledTaskRunnable {
@@ -838,7 +839,6 @@ mod tests {
                 "komga.sidecars",
                 "process.cpu.usage",
                 "process.start.time",
-                "process.threads",
                 "process.uptime"
             ])
         );
@@ -848,7 +848,6 @@ mod tests {
             "process.start.time",
             "process.uptime",
             "process.cpu.usage",
-            "process.threads",
             "komga.libraries",
             "komga.books",
             "komga.books.filesize",

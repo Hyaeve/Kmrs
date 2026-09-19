@@ -90,7 +90,8 @@ impl WPLinkDto {
 pub struct WPPublicationDto {
     pub metadata: WPMetadataDto,
     pub links: Vec<WPLinkDto>,
-    #[serde(rename = "@context", skip_serializing_if = "Option::is_none")]
+    // `@JsonAlias("@context")` only affects deserialization; Jackson writes the plain field name
+    #[serde(rename = "context", skip_serializing_if = "Option::is_none")]
     pub context: Option<String>,
     // NON_NULL class-level inclusion in Jackson: list fields are always present, even empty
     pub images: Vec<WPLinkDto>,
@@ -892,7 +893,7 @@ mod tests {
             &BTreeMap::new(),
         );
         let json = serde_json::to_value(&publication).unwrap();
-        assert_eq!(json["@context"], CONTEXT_WEBPUB);
+        assert_eq!(json["context"], CONTEXT_WEBPUB);
         let metadata = &json["metadata"];
         assert_eq!(metadata["title"], "Berserk v01");
         assert_eq!(metadata["identifier"], "urn:isbn:9781593070205");
