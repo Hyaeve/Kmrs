@@ -31,8 +31,10 @@ zip.workspace = true
 image.workspace = true
 rusqlite.workspace = true
 tokio-util = { version = "0.7", features = ["io"] }
+tokio-stream = "0.1"
 flate2.workspace = true
 
 [dev-dependencies]
 tower = { workspace = true, features = ["util"] }
 tempfile = "3"
+http-body-util = "0.1"

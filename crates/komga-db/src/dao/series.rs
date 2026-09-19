@@ -190,6 +190,80 @@ impl SeriesDao {
         Ok(count)
     }
 
+    /// `SeriesRepository.findAll(condition, context, pageable)`: domain-level conditional query
+    /// (`selectDistinct`, on-demand joins; jOOQ applies no ORDER BY).
+    pub fn find_all_by_condition(
+        &self,
+        condition: Option<&komga_core::search::SearchConditionSeries>,
+        ctx: &komga_core::search::SearchContext,
+    ) -> Result<Vec<Series>> {
+        let w = crate::search_sql::series_condition(condition, ctx);
+        let mut join_sql = String::new();
+        let mut join_params: Vec<rusqlite::types::Value> = vec![];
+        for join in &w.joins {
+            match join {
+                crate::search_sql::RequiredJoin::Collection(id) => {
+                    let alias = crate::search_sql::collection_alias(id);
+                    join_sql.push_str(&format!(
+                        " LEFT JOIN COLLECTION_SERIES AS \"{alias}\" ON (SERIES.ID = \"{alias}\".SERIES_ID AND \"{alias}\".COLLECTION_ID = ?)"
+                    ));
+                    join_params.push(rusqlite::types::Value::Text(id.clone()));
+                }
+                crate::search_sql::RequiredJoin::BookMetadataAggregation => join_sql.push_str(
+                    " LEFT JOIN BOOK_METADATA_AGGREGATION ON SERIES.ID = BOOK_METADATA_AGGREGATION.SERIES_ID",
+                ),
+                crate::search_sql::RequiredJoin::SeriesMetadata => join_sql
+                    .push_str(" INNER JOIN SERIES_METADATA ON SERIES.ID = SERIES_METADATA.SERIES_ID"),
+                crate::search_sql::RequiredJoin::ReadProgress(user_id) => {
+                    join_sql.push_str(
+                        " LEFT JOIN READ_PROGRESS_SERIES ON (READ_PROGRESS_SERIES.SERIES_ID = SERIES.ID AND READ_PROGRESS_SERIES.USER_ID = ?)",
+                    );
+                    join_params.push(rusqlite::types::Value::Text(user_id.clone()));
+                }
+                _ => {}
+            }
+        }
+        let mut sql = format!("SELECT DISTINCT {SERIES_COLUMNS} FROM SERIES{join_sql}");
+        if !w.sql.is_empty() {
+            sql.push_str(&format!(" WHERE {}", w.sql));
+        }
+        let params: Vec<rusqlite::types::Value> = join_params.into_iter().chain(w.params).collect();
+        let conn = self.db.ro();
+        let mut stmt = conn.prepare(&sql)?;
+        let series = stmt
+            .query_map(rusqlite::params_from_iter(params), Self::row_to_series)?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(series)
+    }
+
+    pub fn find_all_not_deleted_by_library_id_and_url_not_in(
+        &self,
+        library_id: &str,
+        urls: &[String],
+    ) -> Result<Vec<Series>> {
+        let conn = self.db.ro();
+        let sql = if urls.is_empty() {
+            format!(
+                "SELECT {SERIES_COLUMNS} FROM SERIES WHERE LIBRARY_ID = ? AND DELETED_DATE IS NULL"
+            )
+        } else {
+            let placeholders = urls.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+            format!(
+                "SELECT {SERIES_COLUMNS} FROM SERIES WHERE LIBRARY_ID = ? AND DELETED_DATE IS NULL AND URL NOT IN ({placeholders})"
+            )
+        };
+        let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(library_id.to_string())];
+        params.extend(
+            urls.iter()
+                .map(|u| Box::new(u.clone()) as Box<dyn rusqlite::ToSql>),
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let series = stmt
+            .query_map(rusqlite::params_from_iter(params), Self::row_to_series)?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(series)
+    }
+
     pub fn count_grouped_by_library_id(&self) -> Result<HashMap<String, i64>> {
         let conn = self.db.ro();
         let mut stmt =

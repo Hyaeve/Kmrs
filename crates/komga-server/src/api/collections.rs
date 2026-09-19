@@ -633,6 +633,11 @@ pub(crate) mod tests {
             sessions: SessionStore::new(Duration::from_secs(3600)),
             tsid: Arc::new(komga_core::tsid::TsidFactory::new_random_node()),
             events: crate::events::event_bus(),
+            task_emitter: Arc::new(crate::service::TaskEmitter::new(
+                db.clone(),
+                tasks_db.clone(),
+                std::sync::Arc::new(tokio::sync::Notify::new()),
+            )),
             db,
             tasks_db,
         }

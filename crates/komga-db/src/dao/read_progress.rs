@@ -205,6 +205,26 @@ impl ReadProgressDao {
         Ok(())
     }
 
+    /// Aligned with Java `deleteByBookIds`: deletes the rows, then recomputes
+    /// the aggregates of the affected series for all users.
+    pub fn delete_by_books(&self, book_ids: &[String]) -> Result<()> {
+        if book_ids.is_empty() {
+            return Ok(());
+        }
+        {
+            let conn = self.db.rw();
+            for chunk in book_ids.chunks(500) {
+                let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+                conn.execute(
+                    &format!("DELETE FROM READ_PROGRESS WHERE BOOK_ID IN ({placeholders})"),
+                    rusqlite::params_from_iter(chunk.iter()),
+                )?;
+            }
+        }
+        self.aggregate_series_progress(book_ids, None)?;
+        Ok(())
+    }
+
     pub fn delete_by_book(&self, book_id: &str) -> Result<()> {
         let conn = self.db.rw();
         conn.execute("DELETE FROM READ_PROGRESS WHERE BOOK_ID = ?", [book_id])?;

@@ -200,6 +200,23 @@ impl ThumbnailBookDao {
         Ok(())
     }
 
+    /// `findAllBookIdsByThumbnailTypeAndDimensionSmallerThan`: books having a thumbnail
+    /// of `type_` that is smaller than `size` on both dimensions.
+    pub fn find_all_book_ids_by_thumbnail_type_and_dimension_smaller_than(
+        &self,
+        type_: ThumbnailType,
+        size: u32,
+    ) -> Result<Vec<String>> {
+        let conn = self.db.ro();
+        let mut stmt = conn.prepare(
+            "SELECT BOOK_ID FROM THUMBNAIL_BOOK WHERE TYPE = ? AND WIDTH < ? AND HEIGHT < ?",
+        )?;
+        let ids = stmt
+            .query_map(rusqlite::params![type_.as_str(), size, size], |r| r.get(0))?
+            .collect::<std::result::Result<Vec<String>, _>>()?;
+        Ok(ids)
+    }
+
     pub fn delete_by_book_ids(&self, book_ids: &[String]) -> Result<()> {
         let conn = self.db.rw();
         let mut stmt = conn.prepare("DELETE FROM THUMBNAIL_BOOK WHERE BOOK_ID = ?")?;

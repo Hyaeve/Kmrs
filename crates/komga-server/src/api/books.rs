@@ -1624,6 +1624,11 @@ mod tests {
         AppState {
             config: Arc::new(config.clone()),
             settings: Arc::new(SettingsProvider::load(db.clone())),
+            task_emitter: Arc::new(crate::service::TaskEmitter::new(
+                db.clone(),
+                tasks_db.clone(),
+                std::sync::Arc::new(tokio::sync::Notify::new()),
+            )),
             db,
             tasks_db,
             sessions: SessionStore::new(config.session_timeout),

@@ -89,6 +89,209 @@ impl BookDao {
         Ok(books)
     }
 
+    /// `BookRepository.findAll(condition, context, pageable)`: domain-level conditional query.
+    /// Sortable properties: `createdDate`, `seriesId`, `number` (others are ignored).
+    pub fn find_all_by_condition(
+        &self,
+        condition: Option<&komga_core::search::SearchConditionBook>,
+        ctx: &komga_core::search::SearchContext,
+        sort: &[crate::dto_dao::SortOrder],
+    ) -> Result<Vec<Book>> {
+        let w = crate::search_sql::book_condition(condition, ctx);
+        let mut join_sql = String::new();
+        let mut join_params: Vec<rusqlite::types::Value> = vec![];
+        for join in &w.joins {
+            match join {
+                crate::search_sql::RequiredJoin::BookMetadata => join_sql
+                    .push_str(" INNER JOIN BOOK_METADATA ON BOOK.ID = BOOK_METADATA.BOOK_ID"),
+                crate::search_sql::RequiredJoin::SeriesMetadata => join_sql.push_str(
+                    " INNER JOIN SERIES_METADATA ON BOOK.SERIES_ID = SERIES_METADATA.SERIES_ID",
+                ),
+                crate::search_sql::RequiredJoin::Media => {
+                    join_sql.push_str(" INNER JOIN MEDIA ON BOOK.ID = MEDIA.BOOK_ID")
+                }
+                crate::search_sql::RequiredJoin::ReadProgress(user_id) => {
+                    join_sql.push_str(
+                        " LEFT JOIN READ_PROGRESS ON (BOOK.ID = READ_PROGRESS.BOOK_ID AND READ_PROGRESS.USER_ID = ?)",
+                    );
+                    join_params.push(rusqlite::types::Value::Text(user_id.clone()));
+                }
+                crate::search_sql::RequiredJoin::ReadList(id) => {
+                    let alias = crate::search_sql::readlist_alias(id);
+                    join_sql.push_str(&format!(
+                        " LEFT JOIN READLIST_BOOK AS \"{alias}\" ON (\"{alias}\".BOOK_ID = BOOK.ID AND \"{alias}\".READLIST_ID = ?)"
+                    ));
+                    join_params.push(rusqlite::types::Value::Text(id.clone()));
+                }
+                _ => {}
+            }
+        }
+        let order_by = sort
+            .iter()
+            .filter_map(|o| {
+                let column = match o.property.as_str() {
+                    "createdDate" => "BOOK.CREATED_DATE",
+                    "seriesId" => "BOOK.SERIES_ID",
+                    "number" => "BOOK.NUMBER",
+                    _ => return None,
+                };
+                Some(format!(
+                    "{} {}",
+                    column,
+                    if o.descending { "DESC" } else { "ASC" }
+                ))
+            })
+            .collect::<Vec<_>>();
+        let mut sql = format!("SELECT {BOOK_COLUMNS} FROM BOOK{join_sql}");
+        if !w.sql.is_empty() {
+            sql.push_str(&format!(" WHERE {}", w.sql));
+        }
+        if !order_by.is_empty() {
+            sql.push_str(&format!(" ORDER BY {}", order_by.join(", ")));
+        }
+        let params: Vec<rusqlite::types::Value> = join_params.into_iter().chain(w.params).collect();
+        let conn = self.db.ro();
+        let mut stmt = conn.prepare(&sql)?;
+        let books = stmt
+            .query_map(rusqlite::params_from_iter(params), Self::row_to_book)?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(books)
+    }
+
+    pub fn find_all_by_series_ids(&self, series_ids: &[String]) -> Result<Vec<Book>> {
+        if series_ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let conn = self.db.ro();
+        let placeholders = series_ids
+            .iter()
+            .map(|_| "?")
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {BOOK_COLUMNS} FROM BOOK WHERE SERIES_ID IN ({placeholders})"
+        ))?;
+        let books = stmt
+            .query_map(
+                rusqlite::params_from_iter(series_ids.iter()),
+                Self::row_to_book,
+            )?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(books)
+    }
+
+    pub fn find_all_not_deleted_by_library_id_and_url_not_in(
+        &self,
+        library_id: &str,
+        urls: &[String],
+    ) -> Result<Vec<Book>> {
+        let conn = self.db.ro();
+        let sql = if urls.is_empty() {
+            format!("SELECT {BOOK_COLUMNS} FROM BOOK WHERE LIBRARY_ID = ? AND DELETED_DATE IS NULL")
+        } else {
+            let placeholders = urls.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+            format!(
+                "SELECT {BOOK_COLUMNS} FROM BOOK WHERE LIBRARY_ID = ? AND DELETED_DATE IS NULL AND URL NOT IN ({placeholders})"
+            )
+        };
+        let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(library_id.to_string())];
+        params.extend(
+            urls.iter()
+                .map(|u| Box::new(u.clone()) as Box<dyn rusqlite::ToSql>),
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let books = stmt
+            .query_map(rusqlite::params_from_iter(params), Self::row_to_book)?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(books)
+    }
+
+    pub fn find_all_deleted_by_file_size(&self, file_size: i64) -> Result<Vec<Book>> {
+        let conn = self.db.ro();
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {BOOK_COLUMNS} FROM BOOK WHERE DELETED_DATE IS NOT NULL AND FILE_SIZE = ?"
+        ))?;
+        let books = stmt
+            .query_map([file_size], Self::row_to_book)?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(books)
+    }
+
+    pub fn find_all_by_library_id_and_with_empty_hash(
+        &self,
+        library_id: &str,
+    ) -> Result<Vec<Book>> {
+        let conn = self.db.ro();
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {BOOK_COLUMNS} FROM BOOK WHERE LIBRARY_ID = ? AND FILE_HASH = ''"
+        ))?;
+        let books = stmt
+            .query_map([library_id], Self::row_to_book)?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(books)
+    }
+
+    pub fn find_all_by_library_id_and_with_empty_hash_koreader(
+        &self,
+        library_id: &str,
+    ) -> Result<Vec<Book>> {
+        let conn = self.db.ro();
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {BOOK_COLUMNS} FROM BOOK WHERE LIBRARY_ID = ? AND FILE_HASH_KOREADER = ''"
+        ))?;
+        let books = stmt
+            .query_map([library_id], Self::row_to_book)?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(books)
+    }
+
+    pub fn find_all_ids_by_series_id(&self, series_id: &str) -> Result<Vec<String>> {
+        let conn = self.db.ro();
+        let mut stmt = conn.prepare("SELECT ID FROM BOOK WHERE SERIES_ID = ?")?;
+        let ids = stmt
+            .query_map([series_id], |r| r.get(0))?
+            .collect::<std::result::Result<Vec<String>, _>>()?;
+        Ok(ids)
+    }
+
+    /// Series cover candidates (`SeriesLifecycle.getThumbnailBytes`); deleted books are not
+    /// filtered out, matching the jOOQ queries.
+    pub fn find_first_id_in_series_or_null(&self, series_id: &str) -> Result<Option<String>> {
+        let conn = self.db.ro();
+        let mut stmt = conn.prepare(
+            "SELECT BOOK.ID FROM BOOK LEFT JOIN BOOK_METADATA ON BOOK.ID = BOOK_METADATA.BOOK_ID \
+             WHERE BOOK.SERIES_ID = ? ORDER BY BOOK_METADATA.NUMBER_SORT ASC LIMIT 1",
+        )?;
+        let mut rows = stmt.query_map([series_id], |r| r.get(0))?;
+        Ok(rows.next().transpose()?)
+    }
+
+    pub fn find_last_id_in_series_or_null(&self, series_id: &str) -> Result<Option<String>> {
+        let conn = self.db.ro();
+        let mut stmt = conn.prepare(
+            "SELECT BOOK.ID FROM BOOK LEFT JOIN BOOK_METADATA ON BOOK.ID = BOOK_METADATA.BOOK_ID \
+             WHERE BOOK.SERIES_ID = ? ORDER BY BOOK_METADATA.NUMBER_SORT DESC LIMIT 1",
+        )?;
+        let mut rows = stmt.query_map([series_id], |r| r.get(0))?;
+        Ok(rows.next().transpose()?)
+    }
+
+    pub fn find_first_unread_id_in_series_or_null(
+        &self,
+        series_id: &str,
+        user_id: &str,
+    ) -> Result<Option<String>> {
+        let conn = self.db.ro();
+        let mut stmt = conn.prepare(
+            "SELECT BOOK.ID FROM BOOK LEFT JOIN BOOK_METADATA ON BOOK.ID = BOOK_METADATA.BOOK_ID \
+             LEFT JOIN READ_PROGRESS ON BOOK.ID = READ_PROGRESS.BOOK_ID AND READ_PROGRESS.USER_ID = ? \
+             WHERE BOOK.SERIES_ID = ? AND (READ_PROGRESS.COMPLETED IS NULL OR READ_PROGRESS.COMPLETED = 0) \
+             ORDER BY BOOK_METADATA.NUMBER_SORT ASC LIMIT 1",
+        )?;
+        let mut rows = stmt.query_map(rusqlite::params![user_id, series_id], |r| r.get(0))?;
+        Ok(rows.next().transpose()?)
+    }
+
     /// Returns (id, created_date); generates a TSID when id is empty.
     pub fn insert(&self, book: &Book) -> Result<String> {
         let conn = self.db.rw();

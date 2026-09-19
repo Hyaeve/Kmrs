@@ -103,6 +103,15 @@ impl CollectionDao {
     )
     }
 
+    /// `SeriesCollectionRepository.findAllContainingSeriesId` with no restriction/library
+    /// filters (the restore path passes none).
+    pub fn find_all_containing_series_id(&self, series_id: &str) -> Result<Vec<SeriesCollection>> {
+        self.find_where(
+            "WHERE ID IN (SELECT COLLECTION_ID FROM COLLECTION_SERIES WHERE SERIES_ID = ?)",
+            Some(series_id),
+        )
+    }
+
     pub fn count(&self) -> Result<i64> {
         let conn = self.db.ro();
         Ok(conn.query_row("SELECT COUNT(*) FROM COLLECTION", [], |r| r.get(0))?)

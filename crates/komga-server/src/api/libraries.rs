@@ -95,11 +95,16 @@ pub(crate) mod test_support {
             let state = AppState {
                 config: Arc::new(test_config()),
                 db: db.clone(),
-                tasks_db,
+                tasks_db: tasks_db.clone(),
                 sessions: auth::SessionStore::new(std::time::Duration::from_secs(3600)),
-                settings: Arc::new(SettingsProvider::load(db)),
+                settings: Arc::new(SettingsProvider::load(db.clone())),
                 tsid: Arc::new(komga_core::tsid::TsidFactory::new_random_node()),
                 events: crate::events::event_bus(),
+                task_emitter: Arc::new(crate::service::TaskEmitter::new(
+                    db,
+                    tasks_db,
+                    std::sync::Arc::new(tokio::sync::Notify::new()),
+                )),
             };
             let app = routes
                 .layer(axum::middleware::from_fn_with_state(

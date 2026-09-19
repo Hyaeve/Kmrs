@@ -107,6 +107,15 @@ impl ReadListDao {
     )
     }
 
+    /// `ReadListRepository.findAllContainingBookId` with no restriction/library filters
+    /// (the restore path passes none).
+    pub fn find_all_containing_book_id(&self, book_id: &str) -> Result<Vec<ReadList>> {
+        self.find_where(
+            "WHERE ID IN (SELECT READLIST_ID FROM READLIST_BOOK WHERE BOOK_ID = ?)",
+            Some(book_id),
+        )
+    }
+
     pub fn count(&self) -> Result<i64> {
         let conn = self.db.ro();
         Ok(conn.query_row("SELECT COUNT(*) FROM READLIST", [], |r| r.get(0))?)

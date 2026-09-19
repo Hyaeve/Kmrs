@@ -5,7 +5,11 @@ mod dto;
 mod error;
 mod events;
 mod http;
+mod service;
 mod settings;
+// router is registered in main.rs by the coordinating agent
+#[allow(dead_code)]
+mod sse;
 mod state;
 
 use anyhow::Context;
@@ -48,6 +52,11 @@ async fn main() -> anyhow::Result<()> {
         settings: Arc::new(settings::SettingsProvider::load(db.clone())),
         tsid: Arc::new(komga_core::tsid::TsidFactory::new_random_node()),
         events: events::event_bus(),
+        task_emitter: Arc::new(service::TaskEmitter::new(
+            db.clone(),
+            tasks_db.clone(),
+            std::sync::Arc::new(tokio::sync::Notify::new()),
+        )),
         db,
         tasks_db,
         config: Arc::new(config.clone()),
@@ -77,7 +86,8 @@ pub fn build_router(state: AppState) -> axum::Router {
         .merge(api::series::router())
         .merge(api::books::router())
         .merge(api::collections::router())
-        .merge(api::readlists::router());
+        .merge(api::readlists::router())
+        .merge(sse::router());
 
     routes
         .layer(axum::middleware::from_fn(

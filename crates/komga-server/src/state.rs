@@ -16,6 +16,7 @@ pub struct AppState {
     pub settings: Arc<SettingsProvider>,
     pub tsid: Arc<TsidFactory>,
     pub events: crate::events::EventBus,
+    pub task_emitter: Arc<crate::service::TaskEmitter>,
 }
 
 impl AppState {

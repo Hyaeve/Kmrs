@@ -1147,6 +1147,11 @@ mod tests {
             settings: Arc::new(SettingsProvider::load(db.clone())),
             tsid: Arc::new(komga_core::tsid::TsidFactory::new_random_node()),
             events: crate::events::event_bus(),
+            task_emitter: std::sync::Arc::new(crate::service::TaskEmitter::new(
+                db.clone(),
+                tasks_db.clone(),
+                std::sync::Arc::new(tokio::sync::Notify::new()),
+            )),
             db,
             tasks_db,
             config: Arc::new(config),
