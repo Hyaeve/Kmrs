@@ -1,8 +1,9 @@
 //! `OpdsController.kt` and `OpdsCommonController.kt`: the OPDS v1.2 API (Atom XML).
 //!
 //! The Atom documents are serialized by hand to match Jackson XML's output exactly:
-//! `<?xml version='1.0' encoding='UTF-8'?>` declaration, `xmlns`/`xmlns:pse` on the root,
-//! `type`/`rel`/`href` attribute order, and Jackson's escaping rules.
+//! no XML declaration, only `xmlns` on the root (the pse namespace is declared inline
+//! on each page-streaming link), `type`/`rel`/`href` attribute order for plain links,
+//! and Jackson's escaping rules.
 
 use crate::api::restriction;
 use crate::auth::RequireAuth;
@@ -32,6 +33,16 @@ use komga_media::container;
 use komga_media::image::{self, ImageType};
 use std::collections::BTreeSet;
 use time::OffsetDateTime;
+
+/// `ZonedDateTime.now()` (system zone), used for feed `updated` where the Kotlin side has no entity time.
+fn now_zoned() -> OffsetDateTime {
+    komga_core::time_codec::to_zoned_date_time(komga_core::time_codec::now_utc())
+}
+
+/// `LocalDateTime.atZone(ZoneId.systemDefault())`: wall-clock preserved, offset re-tagged.
+fn at_zone(dt: OffsetDateTime) -> OffsetDateTime {
+    dt.replace_offset(komga_core::time_codec::system_offset())
+}
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -185,62 +196,64 @@ fn esc_attr(s: &str) -> String {
         .replace('\t', "&#x9;")
 }
 
-/// Jackson `ISO_OFFSET_DATE_TIME`: fraction printed as needed (trailing zeros trimmed), `Z` for UTC.
+/// Jackson `ISO_OFFSET_DATE_TIME` (delegates to `time_codec::format_offset_date_time`).
 fn format_updated(dt: OffsetDateTime) -> String {
-    let base = format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
+    komga_core::time_codec::format_offset_date_time(dt)
+}
+
+fn push_el(out: &mut String, name: &str, value: &str) {
+    // StAX writes start+characters+end, so even empty elements render as <name></name>
+    out.push_str(&format!("<{name}>{}</{name}>", esc_text(value)));
+}
+
+fn write_link(out: &mut String, link: &AtomLink) {
+    if let Some(count) = link.pse_count {
+        // Jackson XML declares the pse namespace inline on the link, not on the feed root;
+        // attribute order is href, xmlns:pse, pse:*, type, rel (verified against Java komga)
+        out.push_str(&format!(
+            "<link href=\"{}\" xmlns:pse=\"{PSE_NS}\" pse:count=\"{count}\"",
+            esc_attr(&link.href)
+        ));
+        if let Some(last_read) = link.pse_last_read {
+            out.push_str(&format!(" pse:lastRead=\"{last_read}\""));
+        }
+        if let Some(date) = link.pse_last_read_date {
+            out.push_str(&format!(
+                " pse:lastReadDate=\"{}\"",
+                format_pse_last_read_date(date)
+            ));
+        }
+        out.push_str(&format!(
+            " type=\"{}\" rel=\"{}\"/>",
+            esc_attr(&link.type_),
+            esc_attr(&link.rel)
+        ));
+        return;
+    }
+    out.push_str("<link");
+    out.push_str(&format!(" type=\"{}\"", esc_attr(&link.type_)));
+    out.push_str(&format!(" rel=\"{}\"", esc_attr(&link.rel)));
+    out.push_str(&format!(" href=\"{}\"", esc_attr(&link.href)));
+    out.push_str("/>");
+}
+
+/// `yyyy-MM-dd'T'HH:mm:ss'Z'` from the `@JsonFormat` on `OpdsLinkPageStreaming.lastReadDate`:
+/// second precision, literal Z (the value is a UTC LocalDateTime).
+fn format_pse_last_read_date(dt: OffsetDateTime) -> String {
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
         dt.year(),
         dt.month() as u8,
         dt.day(),
         dt.hour(),
         dt.minute(),
         dt.second(),
-    );
-    let nanos = dt.nanosecond();
-    if nanos == 0 {
-        return format!("{base}Z");
-    }
-    let mut frac = format!("{nanos:09}");
-    while frac.ends_with('0') {
-        frac.pop();
-    }
-    format!("{base}.{frac}Z")
-}
-
-fn push_el(out: &mut String, name: &str, value: &str) {
-    if value.is_empty() {
-        out.push_str(&format!("<{name}/>"));
-    } else {
-        out.push_str(&format!("<{name}>{}</{name}>", esc_text(value)));
-    }
-}
-
-fn write_link(out: &mut String, link: &AtomLink) {
-    out.push_str("<link");
-    out.push_str(&format!(" type=\"{}\"", esc_attr(&link.type_)));
-    out.push_str(&format!(" rel=\"{}\"", esc_attr(&link.rel)));
-    out.push_str(&format!(" href=\"{}\"", esc_attr(&link.href)));
-    if let Some(count) = link.pse_count {
-        out.push_str(&format!(" pse:count=\"{count}\""));
-    }
-    if let Some(last_read) = link.pse_last_read {
-        out.push_str(&format!(" pse:lastRead=\"{last_read}\""));
-    }
-    if let Some(date) = link.pse_last_read_date {
-        out.push_str(&format!(
-            " pse:lastReadDate=\"{}\"",
-            komga_core::time_codec::format_dto_datetime(date)
-        ));
-    }
-    out.push_str("/>");
+    )
 }
 
 fn write_feed(feed: &Feed) -> String {
     let mut out = String::with_capacity(2048);
-    out.push_str("<?xml version='1.0' encoding='UTF-8'?>");
-    out.push_str(&format!(
-        "<feed xmlns=\"{ATOM_NS}\" xmlns:pse=\"{PSE_NS}\">"
-    ));
+    out.push_str(&format!("<feed xmlns=\"{ATOM_NS}\">"));
     push_el(&mut out, "id", &feed.id);
     push_el(&mut out, "title", &feed.title);
     push_el(&mut out, "updated", &format_updated(feed.updated));
@@ -283,13 +296,12 @@ fn write_feed(feed: &Feed) -> String {
 
 fn write_open_search(template: &str) -> String {
     format!(
-        "<?xml version='1.0' encoding='UTF-8'?>\
-         <OpenSearchDescription xmlns=\"http://a9.com/-/spec/opensearch/1.1/\" xmlns:pse=\"{PSE_NS}\">\
+        "<OpenSearchDescription xmlns=\"http://a9.com/-/spec/opensearch/1.1/\">\
          <ShortName>Search</ShortName>\
          <Description>Search for series</Description>\
          <InputEncoding>UTF-8</InputEncoding>\
          <OutputEncoding>UTF-8</OutputEncoding>\
-         <Url type=\"{TYPE_ACQ}\" template=\"{}\"/>\
+         <Url template=\"{}\" type=\"{TYPE_ACQ}\"/>\
          </OpenSearchDescription>",
         esc_attr(template)
     )
@@ -413,11 +425,9 @@ fn extension_of(url: &str) -> &str {
 
 // endregion
 
-// region feed builders
+// endregion
 
-fn now() -> OffsetDateTime {
-    komga_core::time_codec::now_utc()
-}
+// region feed builders
 
 fn link_start(base: &str) -> AtomLink {
     AtomLink::nav("start", uri(base, "/catalog"))
@@ -467,7 +477,7 @@ fn series_entry_nav(series: &komga_core::dto::series::SeriesDto, base: &str) -> 
 fn library_entry_nav(library: &Library, base: &str) -> Entry {
     Entry::Nav(EntryNav {
         title: library.name.clone(),
-        updated: library.last_modified_date,
+        updated: at_zone(library.last_modified_date),
         id: library.id.clone(),
         content: String::new(),
         link: AtomLink::nav(
@@ -483,7 +493,7 @@ fn collection_entry_nav(
 ) -> Entry {
     Entry::Nav(EntryNav {
         title: collection.name.clone(),
-        updated: collection.last_modified_date,
+        updated: at_zone(collection.last_modified_date),
         id: collection.id.clone(),
         content: String::new(),
         link: AtomLink::nav(
@@ -496,7 +506,7 @@ fn collection_entry_nav(
 fn readlist_entry_nav(readlist: &komga_core::dto::readlist::ReadListDto, base: &str) -> Entry {
     Entry::Nav(EntryNav {
         title: readlist.name.clone(),
-        updated: readlist.last_modified_date,
+        updated: at_zone(readlist.last_modified_date),
         id: readlist.id.clone(),
         content: String::new(),
         link: AtomLink::nav(
@@ -583,7 +593,7 @@ fn book_entry_acq(book: &BookDto, media: &Media, prepend: &str, base: &str) -> E
 
     Entry::Acq(EntryAcq {
         title: format!("{prepend}{}", book.metadata.title),
-        updated: book.last_modified,
+        updated: komga_core::time_codec::to_zoned_date_time(book.last_modified),
         id: book.id.clone(),
         content: content.replace('\n', "<br/>"),
         authors: book
@@ -601,6 +611,23 @@ fn entries_with_series_title(
     books: &[BookDto],
     base: &str,
 ) -> Result<Vec<Entry>, ApiError> {
+    entries_with_prepend(state, books, base, |book| {
+        format!("{} {}: ", book.series_title, book.metadata.number)
+    })
+}
+
+/// Book entries without the series-title prepend (komga only prepends in the
+/// keep-reading/on-deck/latest/readlist feeds, not in the series detail feed).
+fn entries_plain(state: &AppState, books: &[BookDto], base: &str) -> Result<Vec<Entry>, ApiError> {
+    entries_with_prepend(state, books, base, |_| String::new())
+}
+
+fn entries_with_prepend(
+    state: &AppState,
+    books: &[BookDto],
+    base: &str,
+    prepend: impl Fn(&BookDto) -> String,
+) -> Result<Vec<Entry>, ApiError> {
     let dao = MediaDao::new(state.db.clone());
     books
         .iter()
@@ -608,12 +635,7 @@ fn entries_with_series_title(
             let media = dao
                 .find_by_id(&book.id)?
                 .ok_or_else(|| ApiError::Internal(format!("no media for book {}", book.id)))?;
-            Ok(book_entry_acq(
-                book,
-                &media,
-                &format!("{} {}: ", book.series_title, book.metadata.number),
-                base,
-            ))
+            Ok(book_entry_acq(book, &media, &prepend(book), base))
         })
         .collect()
 }
@@ -633,7 +655,7 @@ async fn get_catalog(
 
 /// Catalog entries; takes the request base (tests call it directly).
 fn catalog_feed(base: &str) -> Response {
-    let now = now();
+    let now = now_zoned();
     let entries = [
         (
             "Keep Reading",
@@ -756,7 +778,7 @@ async fn get_on_deck(
     Ok(atom_response(write_feed(&Feed {
         id: "ondeck".to_string(),
         title: "On Deck".to_string(),
-        updated: now(),
+        updated: now_zoned(),
         entries,
         links,
     })))
@@ -817,7 +839,7 @@ async fn get_keep_reading(
     Ok(atom_response(write_feed(&Feed {
         id: "keepReading".to_string(),
         title: "Keep Reading".to_string(),
-        updated: now(),
+        updated: now_zoned(),
         entries,
         links,
     })))
@@ -904,7 +926,7 @@ async fn get_all_series(
     Ok(atom_response(write_feed(&Feed {
         id: "allSeries".to_string(),
         title,
-        updated: now(),
+        updated: now_zoned(),
         entries: series_page
             .items
             .iter()
@@ -955,7 +977,7 @@ async fn get_latest_series(
     Ok(atom_response(write_feed(&Feed {
         id: "latestSeries".to_string(),
         title: "Latest series".to_string(),
-        updated: now(),
+        updated: now_zoned(),
         entries: series_page
             .items
             .iter()
@@ -1015,7 +1037,7 @@ async fn get_latest_books(
     Ok(atom_response(write_feed(&Feed {
         id: "latestBooks".to_string(),
         title: "Latest books".to_string(),
-        updated: now(),
+        updated: now_zoned(),
         entries,
         links,
     })))
@@ -1041,7 +1063,7 @@ async fn get_libraries(
     Ok(atom_response(write_feed(&Feed {
         id: "allLibraries".to_string(),
         title: "All libraries".to_string(),
-        updated: now(),
+        updated: now_zoned(),
         entries: libraries
             .iter()
             .map(|l| library_entry_nav(l, &base))
@@ -1088,7 +1110,7 @@ async fn get_collections(
     Ok(atom_response(write_feed(&Feed {
         id: "allCollections".to_string(),
         title: "All collections".to_string(),
-        updated: now(),
+        updated: now_zoned(),
         entries: collections
             .items
             .iter()
@@ -1133,7 +1155,7 @@ async fn get_readlists(
     Ok(atom_response(write_feed(&Feed {
         id: "allReadLists".to_string(),
         title: "All read lists".to_string(),
-        updated: now(),
+        updated: now_zoned(),
         entries: readlists
             .items
             .iter()
@@ -1178,13 +1200,13 @@ async fn get_publishers(
     Ok(atom_response(write_feed(&Feed {
         id: "allPublishers".to_string(),
         title: "All publishers".to_string(),
-        updated: now(),
+        updated: now_zoned(),
         entries: items
             .iter()
             .map(|publisher| {
                 Entry::Nav(EntryNav {
                     title: publisher.clone(),
-                    updated: now(),
+                    updated: now_zoned(),
                     id: format!("publisher:{}", encode_query_param(publisher)),
                     content: String::new(),
                     link: AtomLink::nav(
@@ -1245,7 +1267,7 @@ async fn get_one_series(
             ),
         )?;
 
-    let entries = entries_with_series_title(&state, &books_page.items, &base)?;
+    let entries = entries_plain(&state, &books_page.items, &base)?;
     let builder = uri(&base, &format!("/series/{id}"));
     let mut links = vec![AtomLink::nav("self", builder.clone()), link_start(&base)];
     links.extend(link_page(
@@ -1258,7 +1280,7 @@ async fn get_one_series(
     Ok(atom_response(write_feed(&Feed {
         id: series.id.clone(),
         title: series.metadata.title.clone(),
-        updated: series.last_modified,
+        updated: komga_core::time_codec::to_zoned_date_time(series.last_modified),
         entries,
         links,
     })))
@@ -1320,7 +1342,7 @@ async fn get_one_library(
     Ok(atom_response(write_feed(&Feed {
         id: library.id.clone(),
         title: library.name.clone(),
-        updated: library.last_modified_date,
+        updated: at_zone(library.last_modified_date),
         entries: entries_page
             .items
             .iter()
@@ -1394,7 +1416,7 @@ async fn get_one_collection(
     Ok(atom_response(write_feed(&Feed {
         id: collection.id.clone(),
         title: collection.name.clone(),
-        updated: collection.last_modified_date,
+        updated: at_zone(collection.last_modified_date),
         entries: entries_page
             .items
             .iter()
@@ -1473,7 +1495,7 @@ async fn get_one_readlist(
     Ok(atom_response(write_feed(&Feed {
         id: readlist.id.clone(),
         title: readlist.name.clone(),
-        updated: readlist.last_modified_date,
+        updated: at_zone(readlist.last_modified_date),
         entries,
         links,
     })))
@@ -1537,6 +1559,7 @@ async fn get_book_page_opds(
             convert: query.params.first("convert"),
             resize_to: None,
             accept: None,
+            with_disposition: true,
         },
     )
     .await
@@ -1833,8 +1856,9 @@ mod tests {
         let response = catalog_feed("http://localhost:25600");
         let xml = body_string(response).await;
 
-        assert!(xml.starts_with("<?xml version='1.0' encoding='UTF-8'?>"));
-        assert!(xml.contains("<feed xmlns=\"http://www.w3.org/2005/Atom\" xmlns:pse=\"http://vaemendis.net/opds-pse/ns\">"));
+        // no XML declaration; navigation-only feed has no pse declaration
+        assert!(xml.starts_with("<feed xmlns=\"http://www.w3.org/2005/Atom\">"));
+        assert!(!xml.contains("xmlns:pse"));
         assert!(xml.contains("<id>root</id>"));
         assert!(xml.contains("<title>Komga OPDS catalog</title>"));
         assert!(xml.contains(
@@ -1848,6 +1872,28 @@ mod tests {
         assert!(xml.contains("<id>keepReading</id>"));
         assert!(xml.contains("<id>allPublishers</id>"));
         assert!(xml.contains("<content>Continue reading your in progress books</content>"));
+
+        // `ZonedDateTime.now()` renders in the system zone
+        let offset = komga_core::time_codec::system_offset();
+        let offset_str = if offset.is_utc() {
+            "Z".to_string()
+        } else {
+            let total = offset.whole_seconds();
+            let sign = if total < 0 { '-' } else { '+' };
+            let abs = total.unsigned_abs();
+            format!("{sign}{:02}:{:02}", abs / 3600, (abs % 3600) / 60)
+        };
+        let updated = xml
+            .split("<updated>")
+            .nth(1)
+            .unwrap()
+            .split("</updated>")
+            .next()
+            .unwrap();
+        assert!(
+            updated.ends_with(&offset_str),
+            "updated {updated} should end with system offset {offset_str}"
+        );
     }
 
     #[tokio::test]
@@ -1857,12 +1903,14 @@ mod tests {
         ));
         let xml = body_string(response).await;
 
-        assert!(xml.contains("<OpenSearchDescription xmlns=\"http://a9.com/-/spec/opensearch/1.1/\" xmlns:pse=\"http://vaemendis.net/opds-pse/ns\">"));
+        assert!(xml
+            .starts_with("<OpenSearchDescription xmlns=\"http://a9.com/-/spec/opensearch/1.1/\">"));
+        assert!(!xml.contains("xmlns:pse"));
         assert!(xml.contains("<ShortName>Search</ShortName>"));
         assert!(xml.contains("<Description>Search for series</Description>"));
         assert!(xml.contains("<InputEncoding>UTF-8</InputEncoding>"));
         assert!(xml.contains("<OutputEncoding>UTF-8</OutputEncoding>"));
-        assert!(xml.contains("<Url type=\"application/atom+xml;profile=opds-catalog;kind=acquisition\" template=\"http://localhost:25600/opds/v1.2/series?search={searchTerms}\"/>"));
+        assert!(xml.contains("<Url template=\"http://localhost:25600/opds/v1.2/series?search={searchTerms}\" type=\"application/atom+xml;profile=opds-catalog;kind=acquisition\"/>"));
     }
 
     #[tokio::test]
@@ -1990,14 +2038,17 @@ mod tests {
             .unwrap();
         let xml = body_string(response).await;
 
-        // entries carry the "{seriesTitle} {number}: " prepend
-        assert!(xml.contains("<title>Berserk 1: Berserk v01</title>"));
-        assert!(xml.contains("<title>Berserk 2: Berserk v02</title>"));
+        // the pse namespace is declared inline on each page-streaming link, not on the root
+        assert!(xml.contains("<feed xmlns=\"http://www.w3.org/2005/Atom\">"));
+
+        // the series detail feed has no series-title prepend (only latest/keep-reading/readlist feeds do)
+        assert!(xml.contains("<title>Berserk v01</title>"));
+        assert!(xml.contains("<title>Berserk v02</title>"));
 
         // b1: same-type pages stream as-is, with progress attributes
-        assert!(xml.contains("<link type=\"image/png\" rel=\"http://vaemendis.net/opds-pse/stream\" href=\"http://localhost/opds/v1.2/books/b1/pages/{pageNumber}\" pse:count=\"2\" pse:lastRead=\"1\" pse:lastReadDate=\""));
+        assert!(xml.contains("<link href=\"http://localhost/opds/v1.2/books/b1/pages/{pageNumber}\" xmlns:pse=\"http://vaemendis.net/opds-pse/ns\" pse:count=\"2\" pse:lastRead=\"1\" pse:lastReadDate=\""));
         // b2: mixed types fall back to jpeg convert
-        assert!(xml.contains("<link type=\"image/jpeg\" rel=\"http://vaemendis.net/opds-pse/stream\" href=\"http://localhost/opds/v1.2/books/b2/pages/{pageNumber}?convert=jpeg\" pse:count=\"2\""));
+        assert!(xml.contains("<link href=\"http://localhost/opds/v1.2/books/b2/pages/{pageNumber}?convert=jpeg\" xmlns:pse=\"http://vaemendis.net/opds-pse/ns\" pse:count=\"2\" type=\"image/jpeg\" rel=\"http://vaemendis.net/opds-pse/stream\"/>"));
 
         // feed metadata
         assert!(xml.contains("<id>s1</id>"));
