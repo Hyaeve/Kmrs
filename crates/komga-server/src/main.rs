@@ -51,6 +51,7 @@ async fn main() -> anyhow::Result<()> {
     let task_notify: service::TaskNotify = std::sync::Arc::new(tokio::sync::Notify::new());
     let search_index =
         Arc::new(komga_search::SearchIndex::open(&config.lucene_dir).context("open search index")?);
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let state = AppState {
         sessions: auth::SessionStore::new(config.session_timeout),
         settings: Arc::new(settings::SettingsProvider::load(db.clone())),
@@ -62,6 +63,7 @@ async fn main() -> anyhow::Result<()> {
             task_notify.clone(),
         )),
         search_index: search_index.clone(),
+        shutdown_tx,
         db,
         tasks_db,
         config: Arc::new(config.clone()),
@@ -81,7 +83,7 @@ async fn main() -> anyhow::Result<()> {
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
-    .with_graceful_shutdown(shutdown_signal())
+    .with_graceful_shutdown(shutdown_signal(shutdown_rx))
     .await?;
     Ok(())
 }
@@ -112,6 +114,7 @@ pub fn build_router(state: AppState) -> axum::Router {
         .merge(api::releases::router())
         .merge(api::filesystem::router())
         .merge(api::fonts::router())
+        .merge(api::actuator::router())
         .merge(sse::router());
 
     routes
@@ -130,7 +133,10 @@ pub fn build_router(state: AppState) -> axum::Router {
         .with_state(state)
 }
 
-async fn shutdown_signal() {
-    let _ = tokio::signal::ctrl_c().await;
+async fn shutdown_signal(mut shutdown_rx: tokio::sync::watch::Receiver<bool>) {
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {},
+        _ = shutdown_rx.changed() => {},
+    }
     tracing::info!("shutting down");
 }

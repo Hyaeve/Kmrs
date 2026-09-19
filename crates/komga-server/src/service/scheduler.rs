@@ -12,13 +12,22 @@ use komga_db::dao::library::LibraryDao;
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
-/// Abort handles of the per-library interval tasks, keyed by library id.
+/// Abort handles of the per-library interval tasks, keyed by library id, with the metadata
+/// needed to report them (`/actuator/scheduledtasks`).
 /// A process-wide registry is required because `schedule_scan` is called from `update_library`,
 /// which has no access to the supervisor task.
-fn registry() -> &'static Mutex<HashMap<String, tokio::task::JoinHandle<()>>> {
-    static REGISTRY: OnceLock<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>> =
-        OnceLock::new();
+fn registry() -> &'static Mutex<Registry> {
+    static REGISTRY: OnceLock<Mutex<Registry>> = OnceLock::new();
     REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+type Registry = HashMap<String, (Registration, tokio::task::JoinHandle<()>)>;
+
+#[derive(Debug, Clone)]
+pub struct Registration {
+    pub library_id: String,
+    pub library_name: String,
+    pub period: std::time::Duration,
 }
 
 pub struct ScanScheduler;
@@ -27,7 +36,7 @@ impl ScanScheduler {
     /// Schedules (or reschedules) the periodic scan for a library; DISABLED cancels any existing one.
     pub fn schedule_scan(state: &AppState, library: &Library) {
         let mut registry = registry().lock().unwrap();
-        if let Some(handle) = registry.remove(&library.id) {
+        if let Some((_, handle)) = registry.remove(&library.id) {
             handle.abort();
         }
         if library.scan_interval == ScanInterval::Disabled {
@@ -50,7 +59,24 @@ impl ScanScheduler {
                 }
             }
         });
-        registry.insert(library.id.clone(), handle);
+        let registration = Registration {
+            library_id: library.id.clone(),
+            library_name: library.name.clone(),
+            period,
+        };
+        registry.insert(library.id.clone(), (registration, handle));
+    }
+
+    /// The currently registered periodic scans, sorted by library id (deterministic output).
+    pub fn scheduled_tasks() -> Vec<Registration> {
+        let mut tasks: Vec<Registration> = registry()
+            .lock()
+            .unwrap()
+            .values()
+            .map(|(registration, _)| registration.clone())
+            .collect();
+        tasks.sort_by(|a, b| a.library_id.cmp(&b.library_id));
+        tasks
     }
 
     /// Schedules every library's periodic scan and submits scans for `scanOnStartup` libraries.
@@ -153,16 +179,16 @@ mod tests {
 
         ScanScheduler::schedule_scan(&state, &library);
         assert!(registered_ids().contains(&id));
-        let first = registry().lock().unwrap().get(&id).unwrap().id();
+        let first = registry().lock().unwrap().get(&id).unwrap().1.id();
 
         ScanScheduler::schedule_scan(&state, &library);
-        let second = registry().lock().unwrap().get(&id).unwrap().id();
+        let second = registry().lock().unwrap().get(&id).unwrap().1.id();
         assert_ne!(first, second);
         // the aborted task finishes shortly after
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         let registry = registry().lock().unwrap();
-        assert!(registry.get(&id).unwrap().id() == second);
-        registry.get(&id).unwrap().abort();
+        assert!(registry.get(&id).unwrap().1.id() == second);
+        registry.get(&id).unwrap().1.abort();
         drop(registry);
     }
 
@@ -214,6 +240,6 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         let count = TasksDao::new(state.tasks_db.clone()).count().unwrap();
         assert_eq!(count, 0);
-        registry().lock().unwrap().get(&id).unwrap().abort();
+        registry().lock().unwrap().get(&id).unwrap().1.abort();
     }
 }

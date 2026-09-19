@@ -1080,6 +1080,7 @@ mod tests {
             epub_divina_letter_count_threshold: 15,
             kobo_sync_item_limit: 100,
             kepubify_path: None,
+            oauth2: Default::default(),
         };
         AppState {
             sessions: auth::SessionStore::new(config.session_timeout),
@@ -1095,6 +1096,7 @@ mod tests {
             tasks_db,
             config: Arc::new(config),
             search_index: test_search_index(),
+            shutdown_tx: tokio::sync::watch::channel(false).0,
         }
     }
 

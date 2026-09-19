@@ -1,4 +1,7 @@
 // routers for the M8 misc endpoints are registered in main.rs by the coordinating agent
+// actuator is registered in main.rs by the coordinating agent
+#[allow(dead_code)]
+pub mod actuator;
 #[allow(dead_code)]
 pub mod announcements;
 pub mod books;
@@ -18,6 +21,8 @@ pub mod kobo;
 pub mod koreader;
 pub mod libraries;
 pub mod login;
+#[allow(dead_code)]
+pub mod oauth2;
 #[allow(dead_code)]
 pub mod opds_v1;
 #[allow(dead_code)]

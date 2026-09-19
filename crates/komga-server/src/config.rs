@@ -22,6 +22,59 @@ pub struct ServerConfig {
     pub epub_divina_letter_count_threshold: usize,
     pub kobo_sync_item_limit: u32,
     pub kepubify_path: Option<PathBuf>,
+    pub oauth2: OAuth2Config,
+}
+
+/// OAuth2/OIDC client registrations, from `SPRING_SECURITY_OAUTH2_CLIENT_*` env vars.
+/// When empty, OAuth2 login is disabled (providers endpoint returns an empty list and the
+/// authorization/callback endpoints 404, matching `clientRegistrationRepository == null`).
+#[derive(Debug, Clone, Default)]
+pub struct OAuth2Config {
+    pub registrations: Vec<OAuth2ClientRegistration>,
+    /// `komga.oauth2-account-creation`, defaults to false
+    pub account_creation: bool,
+    /// `komga.oidc-email-verification`, defaults to true
+    pub oidc_email_verification: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct OAuth2ClientRegistration {
+    pub registration_id: String,
+    pub client_name: Option<String>,
+    pub client_id: String,
+    pub client_secret: String,
+    /// defaults to `authorization_code`
+    pub authorization_grant_type: String,
+    pub redirect_uri: Option<String>,
+    /// explicit scopes; empty means the OIDC defaults (`openid profile email`)
+    pub scopes: Vec<String>,
+    /// OIDC discovery base (`{issuer}/.well-known/openid-configuration`)
+    pub issuer_uri: Option<String>,
+    pub authorization_uri: Option<String>,
+    pub token_uri: Option<String>,
+    pub user_info_uri: Option<String>,
+    pub user_name_attribute: Option<String>,
+}
+
+impl OAuth2ClientRegistration {
+    /// Spring's `ClientRegistration.getClientName()`: defaults to the registration id
+    pub fn client_name_or_id(&self) -> &str {
+        self.client_name.as_deref().unwrap_or(&self.registration_id)
+    }
+
+    pub fn is_oidc(&self) -> bool {
+        self.issuer_uri.is_some()
+    }
+
+    pub fn effective_scopes(&self) -> Vec<String> {
+        if !self.scopes.is_empty() {
+            self.scopes.clone()
+        } else if self.is_oidc() {
+            vec!["openid".into(), "profile".into(), "email".into()]
+        } else {
+            vec![]
+        }
+    }
 }
 
 impl ServerConfig {
@@ -65,8 +118,89 @@ impl ServerConfig {
             kepubify_path: std::env::var("KOMGA_KOBO_KEPUBIFY_PATH")
                 .ok()
                 .map(PathBuf::from),
+            oauth2: oauth2_from_env(),
         }
     }
+}
+
+/// Reads `SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_{ID}_*` and
+/// `SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_{ID}_*` env vars into registrations.
+fn oauth2_from_env() -> OAuth2Config {
+    const REG_PREFIX: &str = "SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_";
+    const PROV_PREFIX: &str = "SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_";
+
+    let mut registrations: Vec<OAuth2ClientRegistration> = vec![];
+    for (key, value) in std::env::vars() {
+        if let Some(rest) = key.strip_prefix(REG_PREFIX) {
+            let Some((id, field)) = rest.rsplit_once('_') else {
+                continue;
+            };
+            let index = registrations
+                .iter()
+                .position(|r: &OAuth2ClientRegistration| r.registration_id == id)
+                .unwrap_or_else(|| {
+                    registrations.push(OAuth2ClientRegistration {
+                        registration_id: id.to_string(),
+                        client_name: None,
+                        client_id: String::new(),
+                        client_secret: String::new(),
+                        authorization_grant_type: "authorization_code".into(),
+                        redirect_uri: None,
+                        scopes: vec![],
+                        issuer_uri: None,
+                        authorization_uri: None,
+                        token_uri: None,
+                        user_info_uri: None,
+                        user_name_attribute: None,
+                    });
+                    registrations.len() - 1
+                });
+            let reg = &mut registrations[index];
+            match field {
+                "CLIENT-NAME" => reg.client_name = Some(value),
+                "CLIENT-ID" => reg.client_id = value,
+                "CLIENT-SECRET" => reg.client_secret = value,
+                "AUTHORIZATION-GRANT-TYPE" => reg.authorization_grant_type = value,
+                "REDIRECT-URI" => reg.redirect_uri = Some(value),
+                "SCOPE" => {
+                    reg.scopes = value
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                }
+                _ => {}
+            }
+        } else if let Some(rest) = key.strip_prefix(PROV_PREFIX) {
+            let Some((id, field)) = rest.rsplit_once('_') else {
+                continue;
+            };
+            let Some(reg) = registrations.iter_mut().find(|r| r.registration_id == id) else {
+                continue;
+            };
+            match field {
+                "ISSUER-URI" => reg.issuer_uri = Some(value),
+                "AUTHORIZATION-URI" => reg.authorization_uri = Some(value),
+                "TOKEN-URI" => reg.token_uri = Some(value),
+                "USER-INFO-URI" => reg.user_info_uri = Some(value),
+                "USER-NAME-ATTRIBUTE" => reg.user_name_attribute = Some(value),
+                _ => {}
+            }
+        }
+    }
+    registrations.retain(|r| !r.client_id.is_empty());
+    OAuth2Config {
+        registrations,
+        account_creation: env_bool("KOMGA_OAUTH2ACCOUNTCREATION", false),
+        oidc_email_verification: env_bool("KOMGA_OIDCMAILVERIFICATION", true),
+    }
+}
+
+fn env_bool(key: &str, default: bool) -> bool {
+    std::env::var(key)
+        .ok()
+        .map(|v| v.eq_ignore_ascii_case("true"))
+        .unwrap_or(default)
 }
 
 fn dirs_home() -> PathBuf {

@@ -18,6 +18,8 @@ pub struct AppState {
     pub events: crate::events::EventBus,
     pub task_emitter: Arc<crate::service::TaskEmitter>,
     pub search_index: Arc<komga_search::SearchIndex>,
+    /// Broadcasts the shutdown request (actuator `/actuator/shutdown`)
+    pub shutdown_tx: tokio::sync::watch::Sender<bool>,
 }
 
 /// A throwaway tantivy index for tests (one fresh directory per call).

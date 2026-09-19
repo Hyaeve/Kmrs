@@ -417,6 +417,7 @@ pub(crate) mod test_support {
                     std::sync::Arc::new(tokio::sync::Notify::new()),
                 )),
                 search_index: test_search_index(),
+                shutdown_tx: tokio::sync::watch::channel(false).0,
             };
             let app = routes
                 .layer(axum::middleware::from_fn_with_state(
@@ -500,6 +501,7 @@ pub(crate) mod test_support {
             epub_divina_letter_count_threshold: 15,
             kobo_sync_item_limit: 100,
             kepubify_path: None,
+            oauth2: Default::default(),
         }
     }
 

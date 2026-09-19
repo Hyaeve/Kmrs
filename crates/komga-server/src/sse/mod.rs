@@ -448,6 +448,7 @@ mod tests {
                 Arc::new(tokio::sync::Notify::new()),
             )),
             search_index: test_search_index(),
+            shutdown_tx: tokio::sync::watch::channel(false).0,
         }
     }
 

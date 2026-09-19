@@ -2219,6 +2219,7 @@ mod tests {
             tsid: Arc::new(TsidFactory::new_random_node()),
             events: crate::events::event_bus(),
             search_index: test_search_index(),
+            shutdown_tx: tokio::sync::watch::channel(false).0,
         }
     }
 

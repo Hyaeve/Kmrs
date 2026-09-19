@@ -671,6 +671,7 @@ pub(crate) mod tests {
             db,
             tasks_db,
             search_index: test_search_index(),
+            shutdown_tx: tokio::sync::watch::channel(false).0,
         }
     }
 
