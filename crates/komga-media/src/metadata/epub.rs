@@ -240,14 +240,16 @@ impl BookMetadataProvider for EpubMetadataProvider {
         };
 
         // identifiers are lowercased and stripped of a leading "isbn:"; only the first one is
-        // evaluated (an invalid one makes commons-validator throw, dropping the book's patch)
-        let isbn = if let Some(identifier) = opf.children_named("identifier").next() {
-            let text = identifier.text().unwrap_or("").to_lowercase();
-            let text = text.strip_prefix("isbn:").unwrap_or(&text);
-            Some(isbn_validate(text)?)
-        } else {
-            None
-        };
+        // `firstNotNullOfOrNull { isbnValidator.validate(it) }`: scan all identifiers and keep
+        // the first one the ISBN validator accepts (invalid ones are just skipped, never fatal)
+        let isbn = opf
+            .children_named("identifier")
+            .filter_map(|identifier| {
+                let text = identifier.text()?.to_lowercase();
+                let text = text.strip_prefix("isbn:").unwrap_or(&text);
+                isbn_validate(text)
+            })
+            .next();
 
         let series_index = opf
             .meta_with("belongs-to-collection", None)
@@ -493,7 +495,7 @@ mod tests {
     }
 
     #[test]
-    fn invalid_identifier_drops_whole_patch() {
+    fn first_valid_identifier_wins() {
         let dir = std::env::temp_dir().join("komga-rs-epub-4");
         std::fs::create_dir_all(&dir).unwrap();
         // same identifier layout as the Panik im Paradies fixture: the first one is not an ISBN
@@ -506,9 +508,11 @@ mod tests {
     <dc:identifier>isbn:9783440077894</dc:identifier>
             "##),
         );
-        assert!(provider()
+        let patch = provider()
             .get_book_metadata_from_book(&book, &media())
-            .is_none());
+            .expect("patch is kept: invalid identifiers are skipped, not fatal");
+        assert_eq!(patch.isbn.as_deref(), Some("9783440077894"));
+        assert_eq!(patch.title.as_deref(), Some("Panik im Paradies"));
     }
 
     #[test]
