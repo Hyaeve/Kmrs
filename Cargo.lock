@@ -1759,6 +1759,7 @@ dependencies = [
  "axum",
  "base64",
  "bcrypt",
+ "crc32fast",
  "flate2",
  "form_urlencoded",
  "http-body-util",

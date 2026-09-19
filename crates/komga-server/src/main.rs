@@ -12,6 +12,7 @@ mod sse;
 mod state;
 #[allow(dead_code)]
 mod webpub;
+mod zip_archive;
 
 use anyhow::Context;
 use komga_db::pool::Database;

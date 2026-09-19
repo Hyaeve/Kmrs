@@ -20,7 +20,6 @@ use komga_media::analyzer::Analyzer;
 use komga_media::container;
 use komga_media::scanner::Scanner;
 use std::collections::BTreeMap;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
 
@@ -218,13 +217,10 @@ pub fn convert_to_cbz(state: &AppState, book: &Book) -> ConvertResult<()> {
         .collect();
     let write_result = (|| -> ConvertResult<()> {
         let file = std::fs::File::create(&destination_path)?;
-        let mut zip = zip::ZipWriter::new(file);
-        let options = zip::write::FileOptions::<()>::default()
-            .compression_method(zip::CompressionMethod::Stored);
+        let mut zip = crate::zip_archive::ZipWriter::new(file);
         for entry in &entries {
-            zip.start_file(entry, options)?;
             let bytes = container::get_file_content(&book_path, &media, entry)?;
-            zip.write_all(&bytes)?;
+            zip.add_entry(entry, std::io::Cursor::new(bytes))?;
         }
         zip.finish()?;
         Ok(())
@@ -523,18 +519,15 @@ pub fn remove_hashed_pages(
         ));
     let write_result = (|| -> ConvertResult<()> {
         let file = std::fs::File::create(&temp_file)?;
-        let mut zip = zip::ZipWriter::new(file);
-        let options = zip::write::FileOptions::<()>::default()
-            .compression_method(zip::CompressionMethod::Stored);
+        let mut zip = crate::zip_archive::ZipWriter::new(file);
         let entries: Vec<String> = pages_to_keep
             .iter()
             .map(|p| p.file_name.clone())
             .chain(media.files.iter().map(|f| f.file_name.clone()))
             .collect();
         for entry in &entries {
-            zip.start_file(entry, options)?;
             let bytes = container::get_file_content(&book_path, &media, entry)?;
-            zip.write_all(&bytes)?;
+            zip.add_entry(entry, std::io::Cursor::new(bytes))?;
         }
         zip.finish()?;
         Ok(())
@@ -805,6 +798,7 @@ mod tests {
     use komga_core::model::page_hash::{PageHashAction, PageHashKnown};
     use komga_core::model::series::Series;
     use komga_db::dao::series::SeriesDao;
+    use std::io::Write;
 
     fn fixtures() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../komga/komga/src/test/resources")

@@ -30,6 +30,7 @@ base64 = "0.22"
 zip.workspace = true
 image.workspace = true
 rusqlite.workspace = true
+crc32fast.workspace = true
 tokio-util = { version = "0.7", features = ["io"] }
 tokio-stream = "0.1"
 flate2.workspace = true

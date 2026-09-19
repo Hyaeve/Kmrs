@@ -36,7 +36,6 @@ use komga_db::dto_dao::book::BookDtoDao;
 use komga_db::dto_dao::read_progress::ReadProgressDtoDao;
 use komga_db::dto_dao::readlist::ReadListDtoDao;
 use komga_db::dto_dao::{DtoPage, PageRequest};
-use std::io::Write;
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -346,25 +345,18 @@ async fn download_readlist_as_zip(
         entries.push((format!("{} - {}", index + 1, file_name), path));
     }
 
-    // the whole archive is built in memory: pages are Stored (no compression work), and a zip
-    // buffer cannot be rewound mid-stream without much more complexity
-    let mut cursor = std::io::Cursor::new(Vec::new());
-    {
-        let mut zip = zip::ZipWriter::new(&mut cursor);
-        let options = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Stored);
-        for (name, path) in &entries {
-            zip.start_file(name, options)
-                .map_err(|e| ApiError::Internal(e.to_string()))?;
-            let bytes = std::fs::read(path).map_err(|e| {
-                ApiError::Internal(format!("could not read {}: {e}", path.display()))
-            })?;
-            zip.write_all(&bytes)
-                .map_err(|e| ApiError::Internal(e.to_string()))?;
-        }
-        zip.finish()
+    // the whole archive is built in memory: a zip buffer cannot be rewound mid-stream
+    // without much more complexity
+    let mut zip = crate::zip_archive::ZipWriter::new(Vec::new());
+    for (name, path) in &entries {
+        let file = std::fs::File::open(path)
+            .map_err(|e| ApiError::Internal(format!("could not read {}: {e}", path.display())))?;
+        zip.add_entry(name, file)
             .map_err(|e| ApiError::Internal(e.to_string()))?;
     }
+    let bytes = zip
+        .finish()
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
 
     Ok(Response::builder()
         .header(header::CONTENT_TYPE, "application/zip")
@@ -372,7 +364,7 @@ async fn download_readlist_as_zip(
             header::CONTENT_DISPOSITION,
             content_disposition("attachment", &format!("{}.zip", readlist.name)),
         )
-        .body(Body::from(cursor.into_inner()))
+        .body(Body::from(bytes))
         .expect("zip response"))
 }
 

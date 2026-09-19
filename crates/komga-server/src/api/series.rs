@@ -958,38 +958,30 @@ async fn delete_series_file(
     Ok(StatusCode::ACCEPTED)
 }
 
-/// Stored (uncompressed) zip of every book file of the series; missing files are skipped.
-/// Buffered in memory like the Kotlin streaming version buffers per entry.
+/// Zip of every book file of the series; missing files are skipped. The byte layout mirrors
+/// Commons Compress (deflate level 0, Zip64 everywhere), buffered in memory like the Kotlin
+/// streaming version buffers per entry.
 fn build_series_zip(db: &Database, series_id: &str) -> Result<Vec<u8>, ApiError> {
     let books = BookDao::new(db.clone()).find_by_series_id(series_id)?;
-    let mut cursor = std::io::Cursor::new(Vec::new());
-    {
-        let mut zip = zip::ZipWriter::new(&mut cursor);
-        let options = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Stored);
-        for book in books {
-            let path = std::path::PathBuf::from(url_to_file_path(&book.url));
-            if !path.exists() {
-                tracing::warn!(
-                    "Book file not found, skipping archive entry: {}",
-                    path.display()
-                );
-                continue;
-            }
-            let file_name = path
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            zip.start_file(file_name, options)
-                .map_err(|e| ApiError::Internal(e.to_string()))?;
-            let mut file =
-                std::fs::File::open(&path).map_err(|e| ApiError::Internal(e.to_string()))?;
-            std::io::copy(&mut file, &mut zip).map_err(|e| ApiError::Internal(e.to_string()))?;
+    let mut zip = crate::zip_archive::ZipWriter::new(Vec::new());
+    for book in books {
+        let path = std::path::PathBuf::from(url_to_file_path(&book.url));
+        if !path.exists() {
+            tracing::warn!(
+                "Book file not found, skipping archive entry: {}",
+                path.display()
+            );
+            continue;
         }
-        zip.finish()
+        let file_name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let file = std::fs::File::open(&path).map_err(|e| ApiError::Internal(e.to_string()))?;
+        zip.add_entry(&file_name, file)
             .map_err(|e| ApiError::Internal(e.to_string()))?;
     }
-    Ok(cursor.into_inner())
+    zip.finish().map_err(|e| ApiError::Internal(e.to_string()))
 }
 
 // endregion
@@ -1606,7 +1598,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let json = body_json(response).await;
         assert_eq!(json["id"], "s1");
-        assert_eq!(json["url"], "/data/Berserk/");
+        assert_eq!(json["url"], "/data/Berserk");
 
         // non-admin (all libraries shared): url is restricted to ""
         let user = seed_user(&state, "user@komga.org", &[], "user-key");
