@@ -126,8 +126,7 @@ mod tests {
     use super::*;
 
     fn fixture() -> PathBuf {
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/resources/pdf/komga.pdf")
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/resources/pdf/komga.pdf")
     }
 
     #[test]

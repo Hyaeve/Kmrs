@@ -263,8 +263,7 @@ mod tests {
 
     #[test]
     fn epub_detection_from_fixture() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/resources");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/resources");
         let epub = std::fs::read(dir.join("archives/epub3.epub")).unwrap();
         assert_eq!(detect_media_type(&epub), APPLICATION_EPUB);
         let zip = std::fs::read(dir.join("archives/zip.zip")).unwrap();

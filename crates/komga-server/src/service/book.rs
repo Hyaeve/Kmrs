@@ -773,8 +773,7 @@ mod tests {
     }
 
     fn fixtures() -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/resources/archives")
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/resources/archives")
     }
 
     fn png_bytes() -> Vec<u8> {

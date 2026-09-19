@@ -138,8 +138,7 @@ mod tests {
     use super::*;
 
     fn fixtures() -> std::path::PathBuf {
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/resources")
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/resources")
     }
 
     fn zip_entry_bytes(name: &str) -> Vec<u8> {

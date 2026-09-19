@@ -382,8 +382,7 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     fn visible_tempdir(tag: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("kmrs-metadata-{tag}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("kmrs-metadata-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -434,8 +433,7 @@ mod tests {
     fn png_bytes() -> Vec<u8> {
         use std::io::Read;
         std::fs::read(
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("tests/resources/archives/zip.zip"),
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/resources/archives/zip.zip"),
         )
         .map(|zip| {
             let mut archive = zip::ZipArchive::new(std::io::Cursor::new(zip)).unwrap();

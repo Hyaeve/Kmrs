@@ -101,8 +101,7 @@ mod tests {
     use super::*;
 
     fn archives() -> std::path::PathBuf {
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/resources/archives")
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/resources/archives")
     }
 
     #[test]

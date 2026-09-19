@@ -963,10 +963,7 @@ mod tests {
     #[test]
     fn root_not_accessible_returns_err_1016() {
         let err = Scanner::new()
-            .scan_root_folder(
-                Path::new("/nonexistent-kmrs-test"),
-                &ScanOptions::default(),
-            )
+            .scan_root_folder(Path::new("/nonexistent-kmrs-test"), &ScanOptions::default())
             .unwrap_err();
         assert_eq!(err.code(), ERR_DIRECTORY_NOT_FOUND);
         assert_eq!(

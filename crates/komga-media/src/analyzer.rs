@@ -1797,8 +1797,7 @@ mod tests {
     use komga_core::model::media::BookPage;
 
     fn fixtures() -> std::path::PathBuf {
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/resources")
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/resources")
     }
 
     fn analyzer() -> Analyzer {

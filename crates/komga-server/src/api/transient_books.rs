@@ -211,8 +211,7 @@ mod tests {
     }
 
     fn fixtures() -> std::path::PathBuf {
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/resources")
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/resources")
     }
 
     #[tokio::test]

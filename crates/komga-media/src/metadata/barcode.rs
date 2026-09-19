@@ -140,8 +140,7 @@ mod tests {
     use std::io::Write;
 
     fn fixtures() -> std::path::PathBuf {
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/resources")
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/resources")
     }
 
     fn zip_media(file_names: &[(&str, &str)]) -> Media {

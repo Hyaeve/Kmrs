@@ -580,16 +580,14 @@ mod tests {
     }
 
     fn fixture_zip(dest: &Path) -> String {
-        let src = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/resources/archives/zip.zip");
+        let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/resources/archives/zip.zip");
         std::fs::copy(&src, dest).unwrap();
         dest.display().to_string()
     }
 
     /// A visible (non-hidden) subdirectory inside a temp dir: the scanner skips dot-dirs.
     fn visible_tempdir(tag: &str) -> std::path::PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("kmrs-processor-{tag}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("kmrs-processor-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir

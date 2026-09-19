@@ -207,8 +207,7 @@ mod tests {
     use komga_core::time_codec::now_utc;
 
     fn fixtures() -> std::path::PathBuf {
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/resources")
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/resources")
     }
 
     fn media(media_type: &str, pages: Vec<BookPage>) -> Media {
