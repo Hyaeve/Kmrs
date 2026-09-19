@@ -83,13 +83,10 @@ fn to_page_request(p: &Pageable) -> PageRequest {
     }
 }
 
-/// Assembles the Spring `PageImpl` JSON; an empty effective ORDER BY means the JSON sort is unsorted.
+/// Assembles the Spring `PageImpl` JSON. komga's `buildPage` swaps the request sort for the
+/// DAO-provided one; the JSON only carries the sorted/unsorted flag trio.
 fn to_page<T: Serialize>(dto_page: DtoPage<T>, pageable: &Pageable) -> Page<T> {
-    let mut p = pageable.clone();
-    if !dto_page.sorted {
-        p.sort = vec![];
-    }
-    Page::of(dto_page.items, dto_page.total as u64, &p)
+    Page::of_dto(dto_page, pageable)
 }
 
 // region v1
@@ -946,11 +943,16 @@ mod tests {
         let (status, body) = app.get_json("/api/v2/series/release-years", &key).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["content"].as_array().unwrap(), &["1990"]);
+        // the raw count includes the NULL row, but Spring's PageImpl shrinks the total
+        // to offset + content size on a non-full page (verified against Java komga)
+        assert_eq!(body["totalElements"], 1);
+        // v2 referential pages carry the DAO-provided sort, so they render as sorted
+        assert_eq!(body["sort"]["sorted"], true);
+        assert_eq!(body["pageable"]["sort"]["sorted"], true);
 
         let (status, body) = app.get_json("/api/v2/age-ratings", &key).await;
         assert_eq!(status, StatusCode::OK);
-        // NULL age ratings count towards the total but are not items
-        assert_eq!(body["totalElements"], 2);
+        assert_eq!(body["totalElements"], 1);
         assert_eq!(body["content"].as_array().unwrap(), &[12]);
     }
 

@@ -156,13 +156,9 @@ fn map_items<T, U>(page: DtoPage<T>, f: impl Fn(T) -> U) -> DtoPage<U> {
     }
 }
 
-/// The JSON sort is unsorted when the query applied no ORDER BY (Spring's pageSort semantics).
+/// The JSON sort reflects the ORDER BY the query actually applied (Spring's pageSort semantics).
 fn to_page<T: serde::Serialize>(dto: DtoPage<T>, pageable: &Pageable) -> Page<T> {
-    let mut p = pageable.clone();
-    if !dto.sorted {
-        p.sort = Vec::new();
-    }
-    Page::of(dto.items, dto.total.max(0) as u64, &p)
+    Page::of_dto(dto, pageable)
 }
 
 fn effective_sort(pageable: &Pageable, search_term: Option<&str>) -> Vec<DbSortOrder> {

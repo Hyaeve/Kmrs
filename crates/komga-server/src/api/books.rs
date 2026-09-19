@@ -228,11 +228,7 @@ fn to_page_request(p: &Pageable) -> PageRequest {
 
 /// The JSON `sort` reflects the ORDER BY actually applied (Spring `pageSort` semantics)
 fn page_response<T: serde::Serialize>(dto: DtoPage<T>, pageable: &Pageable) -> Page<T> {
-    let mut effective = pageable.clone();
-    if !dto.sorted {
-        effective.sort = vec![];
-    }
-    Page::of(dto.items, dto.total as u64, &effective)
+    Page::of_dto(dto, pageable)
 }
 
 fn restrict_books(books: Vec<BookDto>, user: &KomgaUser) -> Vec<BookDto> {

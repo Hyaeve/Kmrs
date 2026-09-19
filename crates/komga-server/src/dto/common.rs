@@ -83,6 +83,25 @@ pub struct Page<T: Serialize> {
 }
 
 impl<T: Serialize> Page<T> {
+    /// Page JSON from a DTO query result: the sort flags reflect whether the query actually
+    /// applied an ORDER BY (komga's `buildPage` puts the effective sort into the pageable,
+    /// so default-sorted endpoints render `sorted: true` even without a `sort` query param).
+    pub fn of_dto(dto: komga_db::dto_dao::DtoPage<T>, pageable: &Pageable) -> Self {
+        let mut page = Self::of(dto.items, dto.total.max(0) as u64, pageable);
+        let sort = if dto.sorted {
+            SortDto {
+                empty: false,
+                sorted: true,
+                unsorted: false,
+            }
+        } else {
+            SortDto::of(&[])
+        };
+        page.sort = sort;
+        page.pageable.sort = sort;
+        page
+    }
+
     /// Aligned with komga `SeriesDtoDao` construction: even when unpaged, returns PageRequest(page=0, size=max(total,20)).
     pub fn of(content: Vec<T>, total: u64, pageable: &Pageable) -> Self {
         let number_of_elements = content.len();
@@ -90,6 +109,13 @@ impl<T: Serialize> Page<T> {
             (0, total.max(20) as u32, 0)
         } else {
             (pageable.page, pageable.size.max(1), pageable.offset())
+        };
+        // Spring `PageImpl` shrinks an over-reported total down to offset + content size on a
+        // non-full page (e.g. referential counts include NULL rows the items list drops)
+        let total = if number_of_elements > 0 && offset + page_size as u64 > total {
+            offset + number_of_elements as u64
+        } else {
+            total
         };
         let total_pages = total.div_ceil(page_size as u64) as u32;
         Self {

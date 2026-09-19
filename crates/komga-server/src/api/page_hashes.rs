@@ -71,11 +71,7 @@ fn to_page_request(pageable: &Pageable) -> PageRequest {
 }
 
 fn to_page<T: serde::Serialize>(dto: DtoPage<T>, pageable: &Pageable) -> Page<T> {
-    let mut p = pageable.clone();
-    if !dto.sorted {
-        p.sort = Vec::new();
-    }
-    Page::of(dto.items, dto.total.max(0) as u64, &p)
+    Page::of_dto(dto, pageable)
 }
 
 async fn get_known_page_hashes(
