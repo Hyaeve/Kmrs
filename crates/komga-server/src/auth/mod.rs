@@ -101,23 +101,27 @@ fn resolve(state: &AppState, parts: &Parts) -> Outcome {
     if let Some(key) = headers.get("X-API-Key").and_then(|v| v.to_str().ok()) {
         let hashed = sha512_hex(key.trim());
         return match user_dao.find_by_api_key(&hashed) {
-            Ok(Some((user, api_key))) => Outcome {
-                auth: Some(Auth {
-                    user,
-                    source: AuthSource::ApiKey,
-                    api_key_id: Some(api_key.id.clone()),
-                }),
-                new_session_id: None,
-                activity: Some(ActivityDraft {
+            Ok(Some((user, api_key))) => {
+                // LoginListener records user.id/user.email on success; nulls are for failures
+                let activity = ActivityDraft {
                     user_id: Some(api_key.user_id.clone()),
-                    email: None,
-                    api_key_id: Some(api_key.id),
+                    email: Some(user.email.clone()),
+                    api_key_id: Some(api_key.id.clone()),
                     api_key_comment: Some(api_key.comment),
                     success: true,
                     error: None,
                     source: "ApiKey".into(),
-                }),
-            },
+                };
+                Outcome {
+                    auth: Some(Auth {
+                        user,
+                        source: AuthSource::ApiKey,
+                        api_key_id: activity.api_key_id.clone(),
+                    }),
+                    new_session_id: None,
+                    activity: Some(activity),
+                }
+            }
             _ => Outcome {
                 auth: None,
                 new_session_id: None,
@@ -146,23 +150,26 @@ fn resolve(state: &AppState, parts: &Parts) -> Outcome {
                 .flatten()
                 .filter(|user| bcrypt::verify(&password, &user.password).unwrap_or(false));
             return match verified {
-                Some(user) => Outcome {
-                    new_session_id: Some(state.sessions.create(&user.id)),
-                    auth: Some(Auth {
-                        user,
-                        source: AuthSource::Password,
-                        api_key_id: None,
-                    }),
-                    activity: Some(ActivityDraft {
-                        user_id: None,
-                        email: Some(email),
+                Some(user) => {
+                    let activity = ActivityDraft {
+                        user_id: Some(user.id.clone()),
+                        email: Some(user.email.clone()),
                         api_key_id: None,
                         api_key_comment: None,
                         success: true,
                         error: None,
                         source: "Password".into(),
-                    }),
-                },
+                    };
+                    Outcome {
+                        new_session_id: Some(state.sessions.create(&user.id)),
+                        auth: Some(Auth {
+                            user,
+                            source: AuthSource::Password,
+                            api_key_id: None,
+                        }),
+                        activity: Some(activity),
+                    }
+                }
                 None => Outcome {
                     auth: None,
                     new_session_id: None,
@@ -227,6 +234,15 @@ async fn resolve_session_and_remember(
                 if let Some(email) = decoded.split(':').next() {
                     if let Ok(Some(user)) = user_dao.find_by_email_ignore_case(email) {
                         if remember_me::decode_token(&token, &user, &key, now_millis).is_some() {
+                            let activity = ActivityDraft {
+                                user_id: Some(user.id.clone()),
+                                email: Some(user.email.clone()),
+                                api_key_id: None,
+                                api_key_comment: None,
+                                success: true,
+                                error: None,
+                                source: "RememberMe".into(),
+                            };
                             return Outcome {
                                 new_session_id: Some(state.sessions.create(&user.id)),
                                 auth: Some(Auth {
@@ -234,15 +250,7 @@ async fn resolve_session_and_remember(
                                     source: AuthSource::RememberMe,
                                     api_key_id: None,
                                 }),
-                                activity: Some(ActivityDraft {
-                                    user_id: None,
-                                    email: Some(email.to_string()),
-                                    api_key_id: None,
-                                    api_key_comment: None,
-                                    success: true,
-                                    error: None,
-                                    source: "RememberMe".into(),
-                                }),
+                                activity: Some(activity),
                             };
                         }
                     }

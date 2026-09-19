@@ -417,3 +417,150 @@ async fn delete_api_key(
     dao.delete_api_key_by_id_and_user_id(&key_id, &auth.0.user.id)?;
     Ok(StatusCode::NO_CONTENT)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settings::SettingsProvider;
+    use axum::body::Body;
+    use axum::http::Request;
+    use komga_core::model::user::ApiKey;
+    use komga_db::pool::Database;
+    use komga_db::{Migrator, Placeholders};
+    use std::sync::Arc;
+    use tower::ServiceExt;
+
+    fn test_state() -> (AppState, tokio::sync::watch::Receiver<bool>) {
+        let db = Database::open_in_memory(true).unwrap();
+        let migrations = komga_db::main_migrations();
+        Migrator::new(&migrations, Placeholders::default())
+            .migrate(&db.rw())
+            .unwrap();
+        let tasks_db = Database::open_in_memory(false).unwrap();
+        let tasks_migrations = komga_db::tasks_migrations();
+        Migrator::new(&tasks_migrations, Placeholders::default())
+            .migrate(&tasks_db.rw())
+            .unwrap();
+        let config = crate::config::ServerConfig::from_env();
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+        let state = AppState {
+            config: Arc::new(config.clone()),
+            settings: Arc::new(SettingsProvider::load(db.clone())),
+            task_emitter: Arc::new(crate::service::TaskEmitter::new(
+                db.clone(),
+                tasks_db.clone(),
+                std::sync::Arc::new(tokio::sync::Notify::new()),
+            )),
+            db,
+            tasks_db,
+            sessions: crate::auth::SessionStore::new(config.session_timeout),
+            tsid: Arc::new(komga_core::tsid::TsidFactory::new_random_node()),
+            events: crate::events::event_bus(),
+            search_index: crate::state::test_search_index(),
+            shutdown_tx,
+        };
+        (state, shutdown_rx)
+    }
+
+    fn test_router(state: AppState) -> Router {
+        Router::new()
+            .merge(router())
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::auth_middleware,
+            ))
+            .with_state(state)
+    }
+
+    fn seed_user(state: &AppState, email: &str) -> String {
+        let dao = UserDao::new(state.db.clone());
+        let user_id = dao
+            .insert(&KomgaUser {
+                id: String::new(),
+                email: email.to_string(),
+                password: bcrypt::hash("pass", 10).unwrap(),
+                roles: [UserRole::Admin].into_iter().collect(),
+                shared_libraries_ids: BTreeSet::new(),
+                shared_all_libraries: true,
+                restrictions: ContentRestrictions::default(),
+                created_date: now_utc(),
+                last_modified_date: now_utc(),
+            })
+            .unwrap();
+        dao.insert_api_key(&ApiKey {
+            id: String::new(),
+            user_id: user_id.clone(),
+            key: crate::auth::sha512_hex("secret"),
+            comment: "test".into(),
+            created_date: now_utc(),
+            last_modified_date: now_utc(),
+        })
+        .unwrap();
+        user_id
+    }
+
+    /// Activity is persisted on a spawned task; poll until it lands.
+    async fn wait_activity(
+        state: &AppState,
+        user_id: &str,
+        email: &str,
+    ) -> komga_core::model::user::AuthenticationActivity {
+        let dao = UserDao::new(state.db.clone());
+        for _ in 0..100 {
+            if let Ok(Some(activity)) = dao.find_most_recent_activity_by_user(user_id, email, None)
+            {
+                return activity;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        panic!("authentication activity was not recorded");
+    }
+
+    #[tokio::test]
+    async fn api_key_success_records_user_id_and_email() {
+        let (state, _rx) = test_state();
+        let user_id = seed_user(&state, "Admin@Example.com");
+        let app = test_router(state.clone());
+        let request = Request::builder()
+            .method("GET")
+            .uri("/api/v2/users/me")
+            .header("X-API-Key", "secret")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let activity = wait_activity(&state, &user_id, "Admin@Example.com").await;
+        assert_eq!(activity.user_id.as_deref(), Some(user_id.as_str()));
+        assert_eq!(activity.email.as_deref(), Some("Admin@Example.com"));
+        assert!(activity.success);
+        assert_eq!(activity.source.as_deref(), Some("ApiKey"));
+    }
+
+    #[tokio::test]
+    async fn password_success_records_user_id_and_canonical_email() {
+        let (state, _rx) = test_state();
+        let user_id = seed_user(&state, "Admin@Example.com");
+        let app = test_router(state.clone());
+        // credentials in a different case than the stored email
+        let credentials = base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            "admin@example.com:pass",
+        );
+        let request = Request::builder()
+            .method("GET")
+            .uri("/api/v2/users/me")
+            .header("Authorization", format!("Basic {credentials}"))
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // LoginListener records the canonical user.email, not the submitted principal
+        let activity = wait_activity(&state, &user_id, "Admin@Example.com").await;
+        assert_eq!(activity.user_id.as_deref(), Some(user_id.as_str()));
+        assert_eq!(activity.email.as_deref(), Some("Admin@Example.com"));
+        assert!(activity.success);
+        assert_eq!(activity.source.as_deref(), Some("Password"));
+    }
+}
