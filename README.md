@@ -1,6 +1,6 @@
 # kmrs
 
-A Rust rewrite of the [Komga](https://komga.org) server (work in progress). The goal is **full compatibility with the Java version's data formats and API behavior**:
+A Rust rewrite of the [Komga](https://komga.org) server. The goal is **full compatibility with the Java version's data formats and API behavior**:
 
 - Can directly open/upgrade existing komga data directories (`database.sqlite`, `tasks.sqlite`), and the Java version of komga can still open libraries written by kmrs
 - Endpoints, DTOs, pagination, error shapes, and authentication behavior for REST `/api/**`, OPDS v1.2/v2, SSE, Kobo, and KOReader match the Java version
@@ -18,7 +18,7 @@ A Rust rewrite of the [Komga](https://komga.org) server (work in progress). The 
 ## Development
 
 ```sh
-cargo test --workspace          # run tests
+cargo test --workspace          # run tests (self-contained: fixtures are vendored under crates/*/tests/resources)
 cargo clippy --all-targets      # lint
 cargo xtask sync-migrations     # reconcile with komga's Flyway migrations (requires a komga source checkout)
 cargo xtask dump-schema         # print the final migrated schema
@@ -39,4 +39,4 @@ python3 tests/diff/diff.py --java-jar /path/to/komga.jar --rust-bin ./target/deb
 
 ## License
 
-kmrs is under the [MIT License](LICENSE). The SQL migration files and the OpenAPI document are copied from the komga source tree; everything else is a rewritten implementation.
+kmrs is under the [MIT License](LICENSE). The SQL migration files, the OpenAPI document, and the test fixtures are copied from the komga source tree; everything else is a rewritten implementation.

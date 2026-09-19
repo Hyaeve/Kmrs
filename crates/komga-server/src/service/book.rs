@@ -774,7 +774,7 @@ mod tests {
 
     fn fixtures() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../komga/komga/src/test/resources/archives")
+            .join("tests/resources/archives")
     }
 
     fn png_bytes() -> Vec<u8> {

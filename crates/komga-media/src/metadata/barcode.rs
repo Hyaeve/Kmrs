@@ -141,7 +141,7 @@ mod tests {
 
     fn fixtures() -> std::path::PathBuf {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../komga/komga/src/test/resources")
+            .join("tests/resources")
     }
 
     fn zip_media(file_names: &[(&str, &str)]) -> Media {

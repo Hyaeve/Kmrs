@@ -63,3 +63,4 @@ tantivy = "0.26.2"
 [profile.release]
 lto = "thin"
 codegen-units = 1
+strip = "symbols"

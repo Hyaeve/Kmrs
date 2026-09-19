@@ -2095,7 +2095,7 @@ mod tests {
         // tiny png (48x48 real fixture)
         let png_bytes = std::fs::read(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../../komga/komga/src/test/resources/hashpage/tg.png/1.png"),
+                .join("tests/resources/hashpage/tg.png/1.png"),
         )
         .expect("read png fixture");
         let dir = tempfile::tempdir().unwrap();
@@ -2176,7 +2176,7 @@ mod tests {
         let book_path = dir.path().join("v01.cbz");
         std::fs::copy(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../../komga/komga/src/test/resources/archives/zip.zip"),
+                .join("tests/resources/archives/zip.zip"),
             &book_path,
         )
         .expect("copy zip fixture");

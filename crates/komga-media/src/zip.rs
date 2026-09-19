@@ -40,7 +40,7 @@ mod tests {
 
     fn archives() -> std::path::PathBuf {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../komga/komga/src/test/resources/archives")
+            .join("tests/resources/archives")
     }
 
     #[test]

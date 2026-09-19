@@ -208,7 +208,7 @@ mod tests {
 
     fn fixtures() -> std::path::PathBuf {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../komga/komga/src/test/resources")
+            .join("tests/resources")
     }
 
     fn media(media_type: &str, pages: Vec<BookPage>) -> Media {

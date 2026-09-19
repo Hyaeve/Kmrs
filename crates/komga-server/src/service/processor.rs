@@ -581,7 +581,7 @@ mod tests {
 
     fn fixture_zip(dest: &Path) -> String {
         let src = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../komga/komga/src/test/resources/archives/zip.zip");
+            .join("tests/resources/archives/zip.zip");
         std::fs::copy(&src, dest).unwrap();
         dest.display().to_string()
     }

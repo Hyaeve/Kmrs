@@ -2453,7 +2453,7 @@ mod tests {
     use std::path::PathBuf;
 
     fn fixtures() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../komga/komga/src/test/resources")
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/resources")
     }
 
     fn json(body: &[u8]) -> Value {

@@ -435,7 +435,7 @@ mod tests {
         use std::io::Read;
         std::fs::read(
             Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../../komga/komga/src/test/resources/archives/zip.zip"),
+                .join("tests/resources/archives/zip.zip"),
         )
         .map(|zip| {
             let mut archive = zip::ZipArchive::new(std::io::Cursor::new(zip)).unwrap();

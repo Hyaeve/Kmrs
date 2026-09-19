@@ -801,7 +801,7 @@ mod tests {
     use std::io::Write;
 
     fn fixtures() -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../komga/komga/src/test/resources")
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/resources")
     }
 
     fn make_library(id: &str, root: &str, convert: bool, repair: bool) -> Library {

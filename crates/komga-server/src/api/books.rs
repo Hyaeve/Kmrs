@@ -2172,7 +2172,7 @@ mod tests {
 
     const FIXTURE_ZIP: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../../komga/komga/src/test/resources/archives/zip.zip"
+        "/tests/resources/archives/zip.zip"
     );
 
     const PNG_1X1: &[u8] = &[
