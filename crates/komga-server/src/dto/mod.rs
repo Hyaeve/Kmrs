@@ -1,7 +1,12 @@
 pub mod book;
+pub mod client_settings;
 pub mod collection;
 pub mod common;
+pub mod kobo;
+pub mod koreader;
 pub mod library;
+pub mod page_hash;
 pub mod readlist;
 pub mod series;
+pub mod settings;
 pub mod user;

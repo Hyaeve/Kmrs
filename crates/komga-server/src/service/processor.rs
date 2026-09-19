@@ -5,10 +5,12 @@
 //! bounded by `task_pool_size`; GROUP_ID exclusion is enforced by the SQL in `take_first`, so
 //! workers never run two tasks of the same group at once.
 
-use crate::service::{book, library_content, series, TaskNotify};
+#[cfg(test)]
+use crate::events::DomainEvent;
+use crate::service::{book, convert, import, library_content, series, TaskNotify};
 use crate::state::AppState;
 use komga_core::model::library::Library;
-use komga_core::task::{BookMetadataPatchCapability, Task, LOWEST_PRIORITY};
+use komga_core::task::{BookMetadataPatchCapability, Task, LOWEST_PRIORITY, LOW_PRIORITY};
 use komga_db::dao::book::BookDao;
 use komga_db::dao::library::LibraryDao;
 use komga_db::dao::series::SeriesDao;
@@ -139,11 +141,19 @@ pub(crate) fn dispatch_task(state: &AppState, task: &Task) -> anyhow::Result<()>
             let emitter = &state.task_emitter;
             emitter.analyze_unknown_and_outdated_books(&library)?;
             if library.repair_extensions {
-                // the converter lands in M8; there is nothing to submit
-                tracing::debug!(
-                    "repairExtensions is enabled for library {} but is deferred to M8",
-                    library.id
-                );
+                let books = convert::get_mismatched_extension_books(state, &library)?;
+                let tasks: Vec<komga_core::task::Task> = books
+                    .iter()
+                    .map(|b| {
+                        komga_core::task::Task::RepairExtension(komga_core::task::AnalyzeBook {
+                            book_id: b.id.clone(),
+                            priority: LOW_PRIORITY,
+                            group_id: Some(b.series_id.clone()),
+                            unique_id: String::new(),
+                        })
+                    })
+                    .collect();
+                emitter.submit_many(&tasks)?;
             }
             emitter.find_books_to_convert(&library.id, LOWEST_PRIORITY)?;
             emitter.find_books_with_missing_page_hash(&library.id, LOWEST_PRIORITY)?;
@@ -310,22 +320,89 @@ pub(crate) fn dispatch_task(state: &AppState, task: &Task) -> anyhow::Result<()>
             state.task_emitter.hash_book_pages(&ids, t.priority + 1)?;
             Ok(())
         }
-        Task::FindDuplicatePagesToDelete(_) => {
-            tracing::warn!(
-                "FindDuplicatePagesToDelete is not implemented until M8 (page hash management)"
-            );
+        Task::FindDuplicatePagesToDelete(t) => {
+            let Some(library) = LibraryDao::new(state.db.clone()).find_by_id(&t.library_id)? else {
+                tracing::warn!(
+                    "Cannot execute task {}: Library does not exist",
+                    task.describe()
+                );
+                return Ok(());
+            };
+            let map = convert::get_book_pages_to_delete_automatically(state, &library)?;
+            state
+                .task_emitter
+                .remove_duplicate_pages(&map, t.priority + 1)?;
             Ok(())
         }
-        Task::FindBooksToConvert(_) | Task::ConvertBook(_) | Task::RepairExtension(_) => {
-            tracing::warn!("Book conversion is not implemented until M8 (BookConverter)");
+        Task::FindBooksToConvert(t) => {
+            let Some(library) = LibraryDao::new(state.db.clone()).find_by_id(&t.library_id)? else {
+                tracing::warn!(
+                    "Cannot execute task {}: Library does not exist",
+                    task.describe()
+                );
+                return Ok(());
+            };
+            let books = convert::get_convertible_books(state, &library)?;
+            state
+                .task_emitter
+                .convert_books_to_cbz(&books, t.priority + 1)?;
             Ok(())
         }
-        Task::RemoveHashedPages(_) => {
-            tracing::warn!("RemoveHashedPages is not implemented until M8 (BookPageEditor)");
+        Task::ConvertBook(t) => {
+            let Some(book) = BookDao::new(state.db.clone()).find_by_id(&t.book_id)? else {
+                tracing::warn!(
+                    "Cannot execute task {}: Book does not exist",
+                    task.describe()
+                );
+                return Ok(());
+            };
+            convert::convert_to_cbz(state, &book)?;
             Ok(())
         }
-        Task::ImportBook(_) => {
-            tracing::warn!("ImportBook is not implemented until M8 (BookImporter)");
+        Task::RepairExtension(t) => {
+            let Some(book) = BookDao::new(state.db.clone()).find_by_id(&t.book_id)? else {
+                tracing::warn!(
+                    "Cannot execute task {}: Book does not exist",
+                    task.describe()
+                );
+                return Ok(());
+            };
+            convert::repair_extension(state, &book)?;
+            Ok(())
+        }
+        Task::RemoveHashedPages(t) => {
+            let Some(book) = BookDao::new(state.db.clone()).find_by_id(&t.book_id)? else {
+                tracing::warn!(
+                    "Cannot execute task {}: Book does not exist",
+                    task.describe()
+                );
+                return Ok(());
+            };
+            let action = convert::remove_hashed_pages(state, &book, &t.pages)?;
+            if action == Some(book::BookAction::GenerateThumbnail) {
+                state
+                    .task_emitter
+                    .generate_book_thumbnail(&book.id, t.priority + 1)?;
+            }
+            Ok(())
+        }
+        Task::ImportBook(t) => {
+            let Some(series) = SeriesDao::new(state.db.clone()).find_by_id(&t.series_id)? else {
+                tracing::warn!(
+                    "Cannot execute task {}: Series does not exist",
+                    task.describe()
+                );
+                return Ok(());
+            };
+            let imported = import::import_book(
+                state,
+                std::path::Path::new(&t.source_file),
+                &series,
+                t.copy_mode,
+                t.destination_name.as_deref(),
+                t.upgrade_book_id.as_deref(),
+            )?;
+            state.task_emitter.analyze_book(&imported, t.priority + 1)?;
             Ok(())
         }
         Task::RebuildIndex(t) => {
@@ -449,6 +526,15 @@ mod tests {
             .execute(
                 "INSERT INTO SERIES (ID, NAME, URL, FILE_LAST_MODIFIED, LIBRARY_ID) VALUES (?, ?, ?, ?, ?)",
                 rusqlite::params![id, "S", "file:/l/s/", format_datetime(now_utc()), library_id],
+            )
+            .unwrap();
+    }
+
+    fn seed_series_at(db: &Database, library_id: &str, id: &str, url: &str) {
+        db.rw()
+            .execute(
+                "INSERT INTO SERIES (ID, NAME, URL, FILE_LAST_MODIFIED, LIBRARY_ID) VALUES (?, ?, ?, ?, ?)",
+                rusqlite::params![id, "S", url, format_datetime(now_utc()), library_id],
             )
             .unwrap();
     }
@@ -748,6 +834,89 @@ mod tests {
             })
             .unwrap();
         assert!(!hash.is_empty());
+    }
+
+    #[tokio::test]
+    async fn import_book_end_to_end() {
+        let state = series_tests::test_state();
+        let root = visible_tempdir("import");
+        let outside = visible_tempdir("import-outside");
+        seed_library(
+            &state.db,
+            &test_library("lib-i", &format!("file:{}/", root.display())),
+        );
+        seed_series_at(
+            &state.db,
+            "lib-i",
+            "s1",
+            &format!("file:{}/", root.display()),
+        );
+        let source = outside.join("incoming.cbz");
+        fixture_zip(&source);
+        let mut rx = state.events.subscribe();
+
+        let notify: TaskNotify = std::sync::Arc::new(tokio::sync::Notify::new());
+        let emitter = crate::service::TaskEmitter::new(
+            state.db.clone(),
+            state.tasks_db.clone(),
+            notify.clone(),
+        );
+        let handle = TaskProcessor::start(state.clone(), notify);
+        emitter
+            .import_book(
+                &source.display().to_string(),
+                "s1",
+                komga_core::task::CopyMode::Copy,
+                None,
+                None,
+                komga_core::task::HIGHEST_PRIORITY,
+            )
+            .unwrap();
+
+        let done = wait_until(|| queue_empty(&state)).await;
+        handle.abort();
+        assert!(done, "queue did not drain: {:?}", task_ids(&state));
+
+        // the file was imported into the series directory and the book row exists
+        assert!(root.join("incoming.cbz").exists());
+        let book_count: i64 = state
+            .db
+            .ro()
+            .query_row("SELECT COUNT(*) FROM BOOK", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(book_count, 1);
+        // AnalyzeBook was derived and ran to READY
+        let status: String = state
+            .db
+            .ro()
+            .query_row("SELECT STATUS FROM MEDIA", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(status, "READY");
+        // BookImported event with success
+        let mut imported = false;
+        for _ in 0..10 {
+            if let DomainEvent::BookImported {
+                book: Some(_),
+                success: true,
+                ..
+            } = rx.try_recv().unwrap()
+            {
+                imported = true;
+                break;
+            }
+        }
+        assert!(imported, "no successful BookImported event");
+        // BookImported history row
+        let history: i64 = state
+            .db
+            .ro()
+            .query_row(
+                "SELECT COUNT(*) FROM HISTORICAL_EVENT WHERE TYPE = 'BookImported'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(history, 1);
     }
 
     #[test]

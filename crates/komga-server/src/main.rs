@@ -100,6 +100,18 @@ pub fn build_router(state: AppState) -> axum::Router {
         .merge(api::tasks::router())
         .merge(api::opds_v1::router())
         .merge(api::opds_v2::router())
+        .merge(api::kobo::router())
+        .merge(api::koreader::router())
+        .merge(api::syncpoints::router())
+        .merge(api::page_hashes::router())
+        .merge(api::transient_books::router())
+        .merge(api::settings::router())
+        .merge(api::client_settings::router())
+        .merge(api::history::router())
+        .merge(api::announcements::router())
+        .merge(api::releases::router())
+        .merge(api::filesystem::router())
+        .merge(api::fonts::router())
         .merge(sse::router());
 
     routes

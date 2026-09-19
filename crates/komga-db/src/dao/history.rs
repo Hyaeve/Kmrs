@@ -81,6 +81,73 @@ impl HistoricalEventDao {
         event.properties = properties;
         Ok(Some(event))
     }
+
+    /// `HistoricalEventDtoDao.findAll`: paged, with the jOOQ sort mapping
+    /// (type/bookId/seriesId/timestamp).
+    pub fn find_all_paged(
+        &self,
+        page: &crate::dto_dao::PageRequest,
+    ) -> Result<crate::dto_dao::DtoPage<HistoricalEvent>> {
+        let conn = self.db.ro();
+        let total: i64 =
+            conn.query_row("SELECT COUNT(*) FROM HISTORICAL_EVENT", [], |r| r.get(0))?;
+
+        let order_sql = page
+            .sort
+            .iter()
+            .filter_map(|o| {
+                let expr = match o.property.as_str() {
+                    "type" => "TYPE",
+                    "bookId" => "BOOK_ID",
+                    "seriesId" => "SERIES_ID",
+                    "timestamp" => "TIMESTAMP",
+                    _ => return None,
+                };
+                Some(format!(
+                    "{expr} {}",
+                    if o.descending { "DESC" } else { "ASC" }
+                ))
+            })
+            .collect::<Vec<_>>();
+
+        let mut sql =
+            String::from("SELECT ID, TYPE, BOOK_ID, SERIES_ID, TIMESTAMP FROM HISTORICAL_EVENT");
+        if !order_sql.is_empty() {
+            sql.push_str(&format!(" ORDER BY {}", order_sql.join(", ")));
+        }
+        if !page.unpaged {
+            sql.push_str(&format!(" LIMIT {} OFFSET {}", page.size, page.offset()));
+        }
+        let mut stmt = conn.prepare(&sql)?;
+        let mut events = stmt
+            .query_map([], |row| {
+                let type_: String = row.get(1)?;
+                Ok(HistoricalEvent {
+                    id: row.get(0)?,
+                    type_: HistoricalEventType::from_str(&type_)
+                        .ok_or_else(|| invalid_column(1, "TYPE", &type_))?,
+                    book_id: row.get(2)?,
+                    series_id: row.get(3)?,
+                    timestamp: get_datetime(row, 4)?,
+                    properties: BTreeMap::new(),
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let mut prop_stmt =
+            conn.prepare("SELECT KEY, VALUE FROM HISTORICAL_EVENT_PROPERTIES WHERE ID = ?")?;
+        for event in &mut events {
+            event.properties = prop_stmt
+                .query_map([&event.id], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                })?
+                .collect::<std::result::Result<BTreeMap<_, _>, _>>()?;
+        }
+        Ok(crate::dto_dao::DtoPage {
+            items: events,
+            total,
+            sorted: !order_sql.is_empty(),
+        })
+    }
 }
 
 #[cfg(test)]

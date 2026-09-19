@@ -1389,7 +1389,7 @@ async fn download_book_file_wildcard(
     download_book_file_internal(state, auth, book_id).await
 }
 
-async fn download_book_file_internal(
+pub(crate) async fn download_book_file_internal(
     state: AppState,
     auth: RequireAuth,
     book_id: String,
@@ -1710,13 +1710,13 @@ fn url_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-struct EpubExtension {
-    positions: Vec<R2Locator>,
-    is_fixed_layout: bool,
+pub(crate) struct EpubExtension {
+    pub positions: Vec<R2Locator>,
+    pub is_fixed_layout: bool,
 }
 
 /// `mediaRepository.findExtensionByIdOrNull(bookId) as? MediaExtensionEpub`
-fn decode_epub_extension(media: &Media) -> Result<EpubExtension, ApiError> {
+pub(crate) fn decode_epub_extension(media: &Media) -> Result<EpubExtension, ApiError> {
     let not_found = || ApiError::bad_request("Epub extension not found");
     let Some(blob) = &media.extension_value else {
         return Err(not_found());
@@ -1744,7 +1744,7 @@ fn decode_epub_extension(media: &Media) -> Result<EpubExtension, ApiError> {
     })
 }
 
-fn mark_progression(
+pub(crate) fn mark_progression(
     state: &AppState,
     user: &KomgaUser,
     book: &Book,

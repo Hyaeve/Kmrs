@@ -9,6 +9,18 @@ use rusqlite::{params, Row};
 
 const COLUMNS: &str = "HASH, SIZE, ACTION, DELETE_COUNT, CREATED_DATE, LAST_MODIFIED_DATE";
 
+/// Row shape of `findMatchesByHash` (`PageHashMatch` domain model).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PageHashMatchRow {
+    pub book_id: String,
+    pub url: String,
+    /// 1-based (NUMBER + 1, as in the jOOQ mapping)
+    pub page_number: i32,
+    pub file_name: String,
+    pub file_size: i64,
+    pub media_type: String,
+}
+
 pub struct PageHashDao {
     db: Database,
 }
@@ -118,6 +130,264 @@ impl PageHashDao {
         let mut stmt = conn.prepare("SELECT THUMBNAIL FROM PAGE_HASH_THUMBNAIL WHERE HASH = ?")?;
         let mut rows = stmt.query_map([hash], |r| r.get(0))?;
         Ok(rows.next().transpose()?)
+    }
+
+    /// Paged variant of `findAllKnown`, with the jOOQ sort mapping.
+    pub fn find_all_known_paged(
+        &self,
+        actions: Option<&[PageHashAction]>,
+        page: &crate::dto_dao::PageRequest,
+    ) -> Result<crate::dto_dao::DtoPage<PageHashKnown>> {
+        let filter = match actions {
+            Some(actions) if !actions.is_empty() => format!(
+                "WHERE ph.ACTION IN ({})",
+                actions
+                    .iter()
+                    .map(|a| format!("'{}'", a.as_str()))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            _ => String::new(),
+        };
+        let count_sql = format!(
+            "SELECT COUNT(*) FROM (SELECT ph.HASH FROM PAGE_HASH ph LEFT JOIN MEDIA_PAGE p ON ph.HASH = p.FILE_HASH {filter} GROUP BY ph.HASH)"
+        );
+        let conn = self.db.ro();
+        let total: i64 = conn.query_row(&count_sql, [], |r| r.get(0))?;
+
+        let order_sql = page
+            .sort
+            .iter()
+            .filter_map(|o| {
+                let expr = match o.property.as_str() {
+                    "hash" => "ph.HASH",
+                    "matchCount" => "count",
+                    "deleteCount" => "ph.DELETE_COUNT",
+                    "deleteSize" => "ph.SIZE * ph.DELETE_COUNT",
+                    "fileSize" | "size" => "ph.SIZE",
+                    "createdDate" | "created" => "ph.CREATED_DATE",
+                    "lastModifiedDate" | "lastModified" => "ph.LAST_MODIFIED_DATE",
+                    _ => return None,
+                };
+                Some(format!(
+                    "{expr} {}",
+                    if o.descending { "DESC" } else { "ASC" }
+                ))
+            })
+            .collect::<Vec<_>>();
+
+        let cols = COLUMNS
+            .split(',')
+            .map(|c| format!("ph.{}", c.trim()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mut sql = format!(
+            "SELECT {cols}, COUNT(p.FILE_HASH) AS count FROM PAGE_HASH ph LEFT JOIN MEDIA_PAGE p ON ph.HASH = p.FILE_HASH {filter} GROUP BY ph.HASH"
+        );
+        if !order_sql.is_empty() {
+            sql.push_str(&format!(" ORDER BY {}", order_sql.join(", ")));
+        }
+        if !page.unpaged {
+            sql.push_str(&format!(" LIMIT {} OFFSET {}", page.size, page.offset()));
+        }
+        let mut stmt = conn.prepare(&sql)?;
+        let items = stmt
+            .query_map([], |row| {
+                let known = Self::row_to_known(row, 0)?;
+                let match_count: i64 = row.get(6)?;
+                Ok((known, match_count as i32))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?
+            .into_iter()
+            .map(|(mut k, count)| {
+                k.match_count = count;
+                k
+            })
+            .collect();
+        Ok(crate::dto_dao::DtoPage {
+            items,
+            total,
+            sorted: !order_sql.is_empty(),
+        })
+    }
+
+    /// `findAllUnknown`: hashes seen more than once in MEDIA_PAGE and not yet registered in PAGE_HASH.
+    pub fn find_all_unknown_paged(
+        &self,
+        page: &crate::dto_dao::PageRequest,
+    ) -> Result<crate::dto_dao::DtoPage<komga_core::model::page_hash::PageHashUnknown>> {
+        let conn = self.db.ro();
+        let total: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM (SELECT FILE_HASH FROM MEDIA_PAGE WHERE FILE_HASH != '' AND NOT EXISTS (SELECT 1 FROM PAGE_HASH WHERE PAGE_HASH.HASH = MEDIA_PAGE.FILE_HASH) GROUP BY FILE_HASH HAVING COUNT(BOOK_ID) > 1)",
+            [],
+            |r| r.get(0),
+        )?;
+
+        let order_sql = page
+            .sort
+            .iter()
+            .filter_map(|o| {
+                let expr = match o.property.as_str() {
+                    "hash" => "p.FILE_HASH",
+                    "fileSize" | "size" => "p.FILE_SIZE",
+                    "matchCount" => "count",
+                    "totalSize" => "totalSize",
+                    "url" => "b.URL",
+                    "bookId" => "b.ID",
+                    "pageNumber" => "p.NUMBER",
+                    _ => return None,
+                };
+                Some(format!(
+                    "{expr} {}",
+                    if o.descending { "DESC" } else { "ASC" }
+                ))
+            })
+            .collect::<Vec<_>>();
+
+        let mut sql = String::from(
+            "SELECT p.FILE_HASH, p.FILE_SIZE, COUNT(p.BOOK_ID) AS count, COUNT(p.BOOK_ID) * p.FILE_SIZE AS totalSize \
+             FROM MEDIA_PAGE p WHERE p.FILE_HASH != '' \
+             AND NOT EXISTS (SELECT 1 FROM PAGE_HASH ph WHERE ph.HASH = p.FILE_HASH) \
+             GROUP BY p.FILE_HASH HAVING COUNT(p.BOOK_ID) > 1",
+        );
+        if !order_sql.is_empty() {
+            sql.push_str(&format!(" ORDER BY {}", order_sql.join(", ")));
+        }
+        if !page.unpaged {
+            sql.push_str(&format!(" LIMIT {} OFFSET {}", page.size, page.offset()));
+        }
+        let mut stmt = conn.prepare(&sql)?;
+        let items = stmt
+            .query_map([], |row| {
+                Ok(komga_core::model::page_hash::PageHashUnknown {
+                    hash: row.get(0)?,
+                    size: komga_core::model::page_hash::PageHashKnown::normalize_size(row.get(1)?),
+                    match_count: row.get::<_, i64>(2)? as i32,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(crate::dto_dao::DtoPage {
+            items,
+            total,
+            sorted: !order_sql.is_empty(),
+        })
+    }
+
+    /// `findMatchesByHash`: every book page carrying this hash.
+    pub fn find_matches_by_hash_paged(
+        &self,
+        hash: &str,
+        page: &crate::dto_dao::PageRequest,
+    ) -> Result<crate::dto_dao::DtoPage<PageHashMatchRow>> {
+        let conn = self.db.ro();
+        let total: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM MEDIA_PAGE p WHERE p.FILE_HASH = ?",
+            [hash],
+            |r| r.get(0),
+        )?;
+
+        let order_sql = page
+            .sort
+            .iter()
+            .filter_map(|o| {
+                let expr = match o.property.as_str() {
+                    "hash" => "p.FILE_HASH",
+                    "fileSize" | "size" => "p.FILE_SIZE",
+                    "matchCount" => "count",
+                    "totalSize" => "totalSize",
+                    "url" => "b.URL",
+                    "bookId" => "b.ID",
+                    "pageNumber" => "p.NUMBER",
+                    _ => return None,
+                };
+                Some(format!(
+                    "{expr} {}",
+                    if o.descending { "DESC" } else { "ASC" }
+                ))
+            })
+            .collect::<Vec<_>>();
+
+        let mut sql = String::from(
+            "SELECT p.BOOK_ID, b.URL, p.NUMBER, p.FILE_NAME, p.FILE_SIZE, p.MEDIA_TYPE \
+             FROM MEDIA_PAGE p LEFT JOIN BOOK b ON p.BOOK_ID = b.ID WHERE p.FILE_HASH = ?",
+        );
+        if !order_sql.is_empty() {
+            sql.push_str(&format!(" ORDER BY {}", order_sql.join(", ")));
+        }
+        if !page.unpaged {
+            sql.push_str(&format!(" LIMIT {} OFFSET {}", page.size, page.offset()));
+        }
+        let mut stmt = conn.prepare(&sql)?;
+        let items = stmt
+            .query_map([hash], |row| {
+                Ok(PageHashMatchRow {
+                    book_id: row.get(0)?,
+                    url: row.get(1)?,
+                    page_number: row.get::<_, i32>(2)? + 1,
+                    file_name: row.get(3)?,
+                    file_size: row.get(4)?,
+                    media_type: row.get(5)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(crate::dto_dao::DtoPage {
+            items,
+            total,
+            sorted: !order_sql.is_empty(),
+        })
+    }
+
+    /// `findMatchesByKnownHashAction`: pages whose hash is registered with one of the given actions,
+    /// grouped by book id.
+    pub fn find_matches_by_known_hash_action(
+        &self,
+        actions: &[PageHashAction],
+        library_id: Option<&str>,
+    ) -> Result<std::collections::BTreeMap<String, Vec<komga_core::task::BookPageNumbered>>> {
+        if actions.is_empty() {
+            return Ok(std::collections::BTreeMap::new());
+        }
+        let action_list = actions
+            .iter()
+            .map(|a| format!("'{}'", a.as_str()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mut sql =
+            "SELECT p.BOOK_ID, p.FILE_NAME, p.NUMBER, p.FILE_HASH, p.MEDIA_TYPE, p.FILE_SIZE \
+             FROM MEDIA_PAGE p INNER JOIN PAGE_HASH ph ON p.FILE_HASH = ph.HASH"
+                .to_string();
+        if library_id.is_some() {
+            sql.push_str(" INNER JOIN BOOK b ON b.ID = p.BOOK_ID");
+        }
+        sql.push_str(&format!(" WHERE ph.ACTION IN ({action_list})"));
+        let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![];
+        if let Some(library_id) = library_id {
+            sql.push_str(" AND b.LIBRARY_ID = ?");
+            params.push(Box::new(library_id.to_string()));
+        }
+        let conn = self.db.ro();
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(params), |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                komga_core::task::BookPageNumbered {
+                    file_name: row.get(1)?,
+                    page_number: row.get::<_, i32>(2)? + 1,
+                    file_hash: row.get(3)?,
+                    media_type: row.get(4)?,
+                    file_size: row.get(5)?,
+                    width: None,
+                    height: None,
+                },
+            ))
+        })?;
+        let mut map: std::collections::BTreeMap<String, Vec<komga_core::task::BookPageNumbered>> =
+            std::collections::BTreeMap::new();
+        for row in rows {
+            let (book_id, page) = row?;
+            map.entry(book_id).or_default().push(page);
+        }
+        Ok(map)
     }
 }
 

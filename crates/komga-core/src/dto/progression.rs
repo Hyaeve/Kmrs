@@ -133,6 +133,28 @@ pub mod zoned_date_time {
     }
 }
 
+/// Optional variant of `zoned_date_time`
+pub mod zoned_date_time_opt {
+    use serde::{Deserializer, Serializer};
+    use time::OffsetDateTime;
+
+    pub fn serialize<S: Serializer>(
+        dt: &Option<OffsetDateTime>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        match dt {
+            Some(dt) => super::zoned_date_time::serialize(dt, serializer),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<OffsetDateTime>, D::Error> {
+        Ok(Some(time::serde::iso8601::deserialize(deserializer)?))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct R2Positions {
     pub total: i32,

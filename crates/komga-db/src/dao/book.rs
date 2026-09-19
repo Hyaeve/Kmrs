@@ -223,6 +223,18 @@ impl BookDao {
         Ok(books)
     }
 
+    /// `BookRepository.findAllByHashKoreader`
+    pub fn find_all_by_hash_koreader(&self, hash_koreader: &str) -> Result<Vec<Book>> {
+        let conn = self.db.ro();
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {BOOK_COLUMNS} FROM BOOK WHERE FILE_HASH_KOREADER = ?"
+        ))?;
+        let books = stmt
+            .query_map([hash_koreader], Self::row_to_book)?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(books)
+    }
+
     pub fn find_all_by_library_id_and_with_empty_hash(
         &self,
         library_id: &str,

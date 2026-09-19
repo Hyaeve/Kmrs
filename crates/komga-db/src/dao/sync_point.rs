@@ -20,6 +20,42 @@ const SPB_COLUMNS: &str = "SYNC_POINT_ID, BOOK_ID, BOOK_CREATED_DATE, BOOK_LAST_
 const SPRL_COLUMNS: &str =
   "SYNC_POINT_ID, READLIST_ID, READLIST_NAME, READLIST_CREATED_DATE, READLIST_LAST_MODIFIED_DATE, SYNCED";
 
+/// Spring `Page` semantics for the sync-diff queries.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SyncPage<T> {
+    pub content: Vec<T>,
+    pub total: i64,
+    pub page: u32,
+    pub size: u32,
+}
+
+impl<T> SyncPage<T> {
+    pub fn of(content: Vec<T>, total: i64, page: u32, size: u32) -> Self {
+        Self {
+            content,
+            total,
+            page,
+            size,
+        }
+    }
+
+    pub fn number_of_elements(&self) -> usize {
+        self.content.len()
+    }
+
+    pub fn is_last(&self) -> bool {
+        (self.page as i64 + 1) * self.size as i64 >= self.total
+    }
+
+    pub fn has_next(&self) -> bool {
+        !self.is_last()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.content.is_empty()
+    }
+}
+
 pub struct SyncPointDao {
     db: Database,
     tsid: TsidFactory,
@@ -414,6 +450,308 @@ impl SyncPointDao {
             conn.execute(&format!("DELETE FROM {table}"), [])?;
         }
         Ok(())
+    }
+
+    // ---------- sync-diff queries (`SyncPointDao` find*Added/Changed/Removed) ----------
+
+    fn query_books_page(
+        &self,
+        sql: String,
+        params: Vec<rusqlite::types::Value>,
+        page: u32,
+        size: u32,
+    ) -> Result<SyncPage<SyncPointBook>> {
+        let conn = self.db.ro();
+        let total: i64 = conn.query_row(
+            &format!("SELECT COUNT(*) FROM ({sql})"),
+            rusqlite::params_from_iter(params.clone()),
+            |r| r.get(0),
+        )?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {SPB_COLUMNS} FROM ({sql}) LIMIT ? OFFSET ?"
+        ))?;
+        let mut values = params;
+        values.push(rusqlite::types::Value::Integer(size as i64));
+        values.push(rusqlite::types::Value::Integer((page * size) as i64));
+        let content = stmt
+            .query_map(rusqlite::params_from_iter(values), Self::row_to_book)?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(SyncPage::of(content, total, page, size))
+    }
+
+    fn query_readlists_page(
+        &self,
+        sql: String,
+        params: Vec<rusqlite::types::Value>,
+        page: u32,
+        size: u32,
+    ) -> Result<SyncPage<SyncPointReadList>> {
+        let conn = self.db.ro();
+        let total: i64 = conn.query_row(
+            &format!("SELECT COUNT(*) FROM ({sql})"),
+            rusqlite::params_from_iter(params.clone()),
+            |r| r.get(0),
+        )?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {SPRL_COLUMNS} FROM ({sql}) LIMIT ? OFFSET ?"
+        ))?;
+        let mut values = params;
+        values.push(rusqlite::types::Value::Integer(size as i64));
+        values.push(rusqlite::types::Value::Integer((page * size) as i64));
+        let content = stmt
+            .query_map(rusqlite::params_from_iter(values), Self::row_to_readlist)?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(SyncPage::of(content, total, page, size))
+    }
+
+    pub fn find_books_by_id_page(
+        &self,
+        sync_point_id: &str,
+        only_not_synced: bool,
+        page: u32,
+        size: u32,
+    ) -> Result<SyncPage<SyncPointBook>> {
+        let sql = format!(
+            "SELECT * FROM SYNC_POINT_BOOK WHERE SYNC_POINT_ID = ?{}",
+            if only_not_synced {
+                " AND SYNCED = 0"
+            } else {
+                ""
+            }
+        );
+        self.query_books_page(
+            sql,
+            vec![rusqlite::types::Value::Text(sync_point_id.to_string())],
+            page,
+            size,
+        )
+    }
+
+    pub fn find_books_added(
+        &self,
+        from_sync_point_id: &str,
+        to_sync_point_id: &str,
+        only_not_synced: bool,
+        page: u32,
+        size: u32,
+    ) -> Result<SyncPage<SyncPointBook>> {
+        let sql = format!(
+            "SELECT * FROM SYNC_POINT_BOOK WHERE SYNC_POINT_ID = ?{} AND BOOK_ID NOT IN \
+             (SELECT BOOK_ID FROM SYNC_POINT_BOOK WHERE SYNC_POINT_ID = ?)",
+            if only_not_synced {
+                " AND SYNCED = 0"
+            } else {
+                ""
+            }
+        );
+        self.query_books_page(
+            sql,
+            vec![
+                rusqlite::types::Value::Text(to_sync_point_id.to_string()),
+                rusqlite::types::Value::Text(from_sync_point_id.to_string()),
+            ],
+            page,
+            size,
+        )
+    }
+
+    pub fn find_books_removed(
+        &self,
+        from_sync_point_id: &str,
+        to_sync_point_id: &str,
+        only_not_synced: bool,
+        page: u32,
+        size: u32,
+    ) -> Result<SyncPage<SyncPointBook>> {
+        let synced_exclusion = if only_not_synced {
+            " AND BOOK_ID NOT IN (SELECT BOOK_ID FROM SYNC_POINT_BOOK_REMOVED_SYNCED WHERE SYNC_POINT_ID = ?)"
+        } else {
+            ""
+        };
+        let sql = format!(
+            "SELECT * FROM SYNC_POINT_BOOK WHERE SYNC_POINT_ID = ? AND BOOK_ID NOT IN \
+             (SELECT BOOK_ID FROM SYNC_POINT_BOOK WHERE SYNC_POINT_ID = ?){synced_exclusion}"
+        );
+        let mut params = vec![
+            rusqlite::types::Value::Text(from_sync_point_id.to_string()),
+            rusqlite::types::Value::Text(to_sync_point_id.to_string()),
+        ];
+        if only_not_synced {
+            params.push(rusqlite::types::Value::Text(to_sync_point_id.to_string()));
+        }
+        self.query_books_page(sql, params, page, size)
+    }
+
+    pub fn find_books_changed(
+        &self,
+        from_sync_point_id: &str,
+        to_sync_point_id: &str,
+        only_not_synced: bool,
+        page: u32,
+        size: u32,
+    ) -> Result<SyncPage<SyncPointBook>> {
+        let sql = format!(
+            "SELECT SYNC_POINT_BOOK.* FROM SYNC_POINT_BOOK \
+             JOIN SYNC_POINT_BOOK AS spbFrom ON SYNC_POINT_BOOK.BOOK_ID = spbFrom.BOOK_ID \
+             WHERE SYNC_POINT_BOOK.SYNC_POINT_ID = ? AND spbFrom.SYNC_POINT_ID = ?{} AND (\
+             SYNC_POINT_BOOK.BOOK_FILE_LAST_MODIFIED <> spbFrom.BOOK_FILE_LAST_MODIFIED \
+             OR SYNC_POINT_BOOK.BOOK_FILE_SIZE <> spbFrom.BOOK_FILE_SIZE \
+             OR (SYNC_POINT_BOOK.BOOK_FILE_HASH <> spbFrom.BOOK_FILE_HASH AND spbFrom.BOOK_FILE_HASH IS NOT NULL) \
+             OR SYNC_POINT_BOOK.BOOK_METADATA_LAST_MODIFIED_DATE <> spbFrom.BOOK_METADATA_LAST_MODIFIED_DATE \
+             OR SYNC_POINT_BOOK.BOOK_THUMBNAIL_ID <> spbFrom.BOOK_THUMBNAIL_ID)",
+            if only_not_synced { " AND SYNC_POINT_BOOK.SYNCED = 0" } else { "" }
+        );
+        self.query_books_page(
+            sql,
+            vec![
+                rusqlite::types::Value::Text(to_sync_point_id.to_string()),
+                rusqlite::types::Value::Text(from_sync_point_id.to_string()),
+            ],
+            page,
+            size,
+        )
+    }
+
+    pub fn find_books_read_progress_changed(
+        &self,
+        from_sync_point_id: &str,
+        to_sync_point_id: &str,
+        only_not_synced: bool,
+        page: u32,
+        size: u32,
+    ) -> Result<SyncPage<SyncPointBook>> {
+        let sql = format!(
+            "SELECT SYNC_POINT_BOOK.* FROM SYNC_POINT_BOOK \
+             JOIN SYNC_POINT_BOOK AS spbFrom ON SYNC_POINT_BOOK.BOOK_ID = spbFrom.BOOK_ID \
+             WHERE SYNC_POINT_BOOK.SYNC_POINT_ID = ? AND spbFrom.SYNC_POINT_ID = ?{} AND (\
+             SYNC_POINT_BOOK.BOOK_FILE_LAST_MODIFIED = spbFrom.BOOK_FILE_LAST_MODIFIED \
+             AND SYNC_POINT_BOOK.BOOK_FILE_SIZE = spbFrom.BOOK_FILE_SIZE \
+             AND (SYNC_POINT_BOOK.BOOK_FILE_HASH = spbFrom.BOOK_FILE_HASH OR spbFrom.BOOK_FILE_HASH IS NULL) \
+             AND SYNC_POINT_BOOK.BOOK_METADATA_LAST_MODIFIED_DATE = spbFrom.BOOK_METADATA_LAST_MODIFIED_DATE \
+             AND SYNC_POINT_BOOK.BOOK_THUMBNAIL_ID = spbFrom.BOOK_THUMBNAIL_ID \
+             AND (SYNC_POINT_BOOK.BOOK_READ_PROGRESS_LAST_MODIFIED_DATE <> spbFrom.BOOK_READ_PROGRESS_LAST_MODIFIED_DATE \
+             OR (SYNC_POINT_BOOK.BOOK_READ_PROGRESS_LAST_MODIFIED_DATE IS NULL AND spbFrom.BOOK_READ_PROGRESS_LAST_MODIFIED_DATE IS NOT NULL) \
+             OR (SYNC_POINT_BOOK.BOOK_READ_PROGRESS_LAST_MODIFIED_DATE IS NOT NULL AND spbFrom.BOOK_READ_PROGRESS_LAST_MODIFIED_DATE IS NULL)))",
+            if only_not_synced { " AND SYNC_POINT_BOOK.SYNCED = 0" } else { "" }
+        );
+        self.query_books_page(
+            sql,
+            vec![
+                rusqlite::types::Value::Text(to_sync_point_id.to_string()),
+                rusqlite::types::Value::Text(from_sync_point_id.to_string()),
+            ],
+            page,
+            size,
+        )
+    }
+
+    pub fn find_readlists_by_id_page(
+        &self,
+        sync_point_id: &str,
+        only_not_synced: bool,
+        page: u32,
+        size: u32,
+    ) -> Result<SyncPage<SyncPointReadList>> {
+        let sql = format!(
+            "SELECT * FROM SYNC_POINT_READLIST WHERE SYNC_POINT_ID = ?{}",
+            if only_not_synced {
+                " AND SYNCED = 0"
+            } else {
+                ""
+            }
+        );
+        self.query_readlists_page(
+            sql,
+            vec![rusqlite::types::Value::Text(sync_point_id.to_string())],
+            page,
+            size,
+        )
+    }
+
+    pub fn find_readlists_added(
+        &self,
+        from_sync_point_id: &str,
+        to_sync_point_id: &str,
+        only_not_synced: bool,
+        page: u32,
+        size: u32,
+    ) -> Result<SyncPage<SyncPointReadList>> {
+        let sql = format!(
+            "SELECT sprl_to.* FROM SYNC_POINT_READLIST AS sprl_to \
+             LEFT OUTER JOIN SYNC_POINT_READLIST AS sprl_from \
+             ON sprl_to.READLIST_ID = sprl_from.READLIST_ID AND sprl_from.SYNC_POINT_ID = ? \
+             WHERE sprl_to.SYNC_POINT_ID = ?{} AND sprl_from.READLIST_ID IS NULL",
+            if only_not_synced {
+                " AND sprl_to.SYNCED = 0"
+            } else {
+                ""
+            }
+        );
+        self.query_readlists_page(
+            sql,
+            vec![
+                rusqlite::types::Value::Text(from_sync_point_id.to_string()),
+                rusqlite::types::Value::Text(to_sync_point_id.to_string()),
+            ],
+            page,
+            size,
+        )
+    }
+
+    pub fn find_readlists_changed(
+        &self,
+        from_sync_point_id: &str,
+        to_sync_point_id: &str,
+        only_not_synced: bool,
+        page: u32,
+        size: u32,
+    ) -> Result<SyncPage<SyncPointReadList>> {
+        let sql = format!(
+            "SELECT SYNC_POINT_READLIST.* FROM SYNC_POINT_READLIST \
+             JOIN SYNC_POINT_READLIST AS sprl_from ON SYNC_POINT_READLIST.READLIST_ID = sprl_from.READLIST_ID \
+             WHERE SYNC_POINT_READLIST.SYNC_POINT_ID = ? AND sprl_from.SYNC_POINT_ID = ?{} AND (\
+             SYNC_POINT_READLIST.READLIST_LAST_MODIFIED_DATE <> sprl_from.READLIST_LAST_MODIFIED_DATE \
+             OR SYNC_POINT_READLIST.READLIST_NAME <> sprl_from.READLIST_NAME)",
+            if only_not_synced { " AND SYNC_POINT_READLIST.SYNCED = 0" } else { "" }
+        );
+        self.query_readlists_page(
+            sql,
+            vec![
+                rusqlite::types::Value::Text(to_sync_point_id.to_string()),
+                rusqlite::types::Value::Text(from_sync_point_id.to_string()),
+            ],
+            page,
+            size,
+        )
+    }
+
+    pub fn find_readlists_removed(
+        &self,
+        from_sync_point_id: &str,
+        to_sync_point_id: &str,
+        only_not_synced: bool,
+        page: u32,
+        size: u32,
+    ) -> Result<SyncPage<SyncPointReadList>> {
+        let synced_exclusion = if only_not_synced {
+            " AND sprl_from.READLIST_ID NOT IN (SELECT READLIST_ID FROM SYNC_POINT_READLIST_REMOVED_SYNCED WHERE SYNC_POINT_ID = ?)"
+        } else {
+            ""
+        };
+        let sql = format!(
+            "SELECT sprl_from.* FROM SYNC_POINT_READLIST AS sprl_from \
+             LEFT OUTER JOIN SYNC_POINT_READLIST AS sprl_to \
+             ON sprl_from.READLIST_ID = sprl_to.READLIST_ID AND sprl_to.SYNC_POINT_ID = ? \
+             WHERE sprl_from.SYNC_POINT_ID = ?{synced_exclusion} AND sprl_to.READLIST_ID IS NULL"
+        );
+        let mut params = vec![
+            rusqlite::types::Value::Text(to_sync_point_id.to_string()),
+            rusqlite::types::Value::Text(from_sync_point_id.to_string()),
+        ];
+        if only_not_synced {
+            params.push(rusqlite::types::Value::Text(to_sync_point_id.to_string()));
+        }
+        self.query_readlists_page(sql, params, page, size)
     }
 }
 

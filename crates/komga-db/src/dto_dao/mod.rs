@@ -7,6 +7,7 @@
 
 pub mod book;
 pub mod collection;
+pub mod kobo;
 pub mod read_progress;
 pub mod readlist;
 pub mod referential;

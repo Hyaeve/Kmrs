@@ -136,6 +136,16 @@ impl SettingsProvider {
     pub fn reload(&self) {
         *self.inner.write().unwrap() = Self::load(self.db.clone()).get();
     }
+
+    /// `KomgaSettingsProvider.renewRememberMeKey`: regenerate the key and persist it.
+    pub fn renew_remember_me_key(&self) {
+        let key = random_remember_me_key();
+        if let Err(e) = SettingsDao::new(self.db.clone()).save_setting(KEY_REMEMBER_ME_KEY, &key) {
+            tracing::warn!("failed to renew remember-me key: {e}");
+            return;
+        }
+        self.reload();
+    }
 }
 
 /// komga `getRandomRememberMeKey`: 32 random alphanumeric characters.

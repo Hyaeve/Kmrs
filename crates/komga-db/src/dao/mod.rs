@@ -40,15 +40,12 @@ pub(crate) fn invalid_column(idx: usize, what: &str, value: &str) -> SqlError {
     )
 }
 
-pub(crate) fn get_datetime(row: &Row<'_>, idx: usize) -> rusqlite::Result<OffsetDateTime> {
+pub fn get_datetime(row: &Row<'_>, idx: usize) -> rusqlite::Result<OffsetDateTime> {
     let s: String = row.get(idx)?;
     time_codec::parse_datetime_utc(&s).ok_or_else(|| invalid_column(idx, "datetime", &s))
 }
 
-pub(crate) fn get_datetime_opt(
-    row: &Row<'_>,
-    idx: usize,
-) -> rusqlite::Result<Option<OffsetDateTime>> {
+pub fn get_datetime_opt(row: &Row<'_>, idx: usize) -> rusqlite::Result<Option<OffsetDateTime>> {
     let s: Option<String> = row.get(idx)?;
     match s {
         Some(s) => time_codec::parse_datetime_utc(&s)

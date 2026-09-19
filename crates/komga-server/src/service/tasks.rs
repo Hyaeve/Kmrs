@@ -8,7 +8,7 @@ use komga_core::task::{
 };
 use komga_db::dao::tasks::TasksDao;
 use komga_db::pool::Database;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 /// Wakes the task processor after a save, like `TaskAddedEvent` wakes the Java executor.
@@ -343,6 +343,43 @@ impl TaskEmitter {
             series_id,
             priority,
         ))
+    }
+
+    /// `TaskEmitter.convertBookToCbz`: one ConvertBook per book, grouped by series
+    pub fn convert_books_to_cbz(&self, books: &[Book], priority: i32) -> komga_db::Result<()> {
+        let tasks: Vec<Task> = books
+            .iter()
+            .map(|b| {
+                Task::ConvertBook(komga_core::task::AnalyzeBook {
+                    book_id: b.id.clone(),
+                    priority,
+                    group_id: Some(b.series_id.clone()),
+                    unique_id: String::new(),
+                })
+            })
+            .collect();
+        self.submit_many(&tasks)
+    }
+
+    /// `TaskEmitter.removeDuplicatePages`: one RemoveHashedPages per book
+    pub fn remove_duplicate_pages(
+        &self,
+        book_id_to_pages: &BTreeMap<String, Vec<komga_core::task::BookPageNumbered>>,
+        priority: i32,
+    ) -> komga_db::Result<()> {
+        let tasks: Vec<Task> = book_id_to_pages
+            .iter()
+            .map(|(book_id, pages)| {
+                Task::RemoveHashedPages(komga_core::task::RemoveHashedPages {
+                    book_id: book_id.clone(),
+                    pages: pages.clone(),
+                    priority,
+                    group_id: None,
+                    unique_id: String::new(),
+                })
+            })
+            .collect();
+        self.submit_many(&tasks)
     }
 
     pub fn find_book_thumbnails_to_regenerate(
