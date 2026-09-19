@@ -201,7 +201,9 @@ async fn update_user(
         return Err(ApiError::forbidden(""));
     }
     let dao = user_dao(&state);
-    let mut existing = dao.find_by_id(&id)?.ok_or_else(|| ApiError::not_found(""))?;
+    let mut existing = dao
+        .find_by_id(&id)?
+        .ok_or_else(|| ApiError::not_found(""))?;
 
     if let Some(roles) = &patch.roles {
         // komga NPEs on explicit null (roles!!); aligned here as a 500
@@ -256,7 +258,8 @@ async fn delete_user(
         return Err(ApiError::forbidden(""));
     }
     let dao = user_dao(&state);
-    dao.find_by_id(&id)?.ok_or_else(|| ApiError::not_found(""))?;
+    dao.find_by_id(&id)?
+        .ok_or_else(|| ApiError::not_found(""))?;
     dao.delete(&id)?;
     state.sessions.invalidate_user(&id);
     Ok(StatusCode::NO_CONTENT)
@@ -273,7 +276,9 @@ async fn update_password_by_id(
         return Err(ApiError::forbidden(""));
     }
     let dao = user_dao(&state);
-    let mut user = dao.find_by_id(&id)?.ok_or_else(|| ApiError::not_found(""))?;
+    let mut user = dao
+        .find_by_id(&id)?
+        .ok_or_else(|| ApiError::not_found(""))?;
     user.password =
         bcrypt::hash(&body.password, 10).map_err(|e| ApiError::Internal(e.to_string()))?;
     dao.update(&user)?;
@@ -340,7 +345,9 @@ async fn latest_authentication_activity(
         return Err(ApiError::forbidden(""));
     }
     let dao = user_dao(&state);
-    let user = dao.find_by_id(&id)?.ok_or_else(|| ApiError::not_found(""))?;
+    let user = dao
+        .find_by_id(&id)?
+        .ok_or_else(|| ApiError::not_found(""))?;
     let api_key_id = query.params.first("apikey_id").map(str::to_string);
     let activity = dao
         .find_most_recent_activity_by_user(&user.id, &user.email, api_key_id.as_deref())?

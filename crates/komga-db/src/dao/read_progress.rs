@@ -131,30 +131,65 @@ impl ReadProgressDao {
     /// defaults; on conflict, LAST_MODIFIED is set to the app-side UTC now), then
     /// recompute the aggregates for the series the book belongs to.
     pub fn insert_or_update(&self, progress: &ReadProgress) -> Result<()> {
-        let conn = self.db.rw();
-        conn.execute(
-      "INSERT INTO READ_PROGRESS (BOOK_ID, USER_ID, PAGE, COMPLETED, READ_DATE, DEVICE_ID, DEVICE_NAME, LOCATOR) \
-       VALUES (?,?,?,?,?,?,?,?) \
-       ON CONFLICT(BOOK_ID, USER_ID) DO UPDATE SET \
-       PAGE = excluded.PAGE, COMPLETED = excluded.COMPLETED, READ_DATE = excluded.READ_DATE, \
-       LAST_MODIFIED_DATE = ?, DEVICE_ID = excluded.DEVICE_ID, DEVICE_NAME = excluded.DEVICE_NAME, LOCATOR = excluded.LOCATOR",
-      params![
-        progress.book_id,
-        progress.user_id,
-        progress.page,
-        progress.completed,
-        time_codec::format_datetime(progress.read_date),
-        progress.device_id,
-        progress.device_name,
-        progress.locator.as_ref().map(gz_encode).transpose()?,
-        time_codec::format_datetime(time_codec::now_utc()),
-      ],
-    )?;
-        drop(conn);
+        upsert_one(&self.db.rw(), progress)?;
         self.aggregate_series_progress(
             std::slice::from_ref(&progress.book_id),
             Some(&progress.user_id),
         )?;
+        Ok(())
+    }
+
+    /// Aligned with Java `save(Collection)`: upserts every row, then recomputes the
+    /// aggregates once per affected user (instead of once per book).
+    pub fn save_many(&self, progresses: &[ReadProgress]) -> Result<()> {
+        if progresses.is_empty() {
+            return Ok(());
+        }
+        {
+            let conn = self.db.rw();
+            for progress in progresses {
+                upsert_one(&conn, progress)?;
+            }
+        }
+        let mut by_user: std::collections::BTreeMap<&str, Vec<String>> =
+            std::collections::BTreeMap::new();
+        for p in progresses {
+            by_user
+                .entry(&p.user_id)
+                .or_default()
+                .push(p.book_id.clone());
+        }
+        for (user_id, book_ids) in by_user {
+            self.aggregate_series_progress(&book_ids, Some(user_id))?;
+        }
+        Ok(())
+    }
+
+    /// Aligned with Java `deleteByBookIdsAndUserId`: deletes the rows, then recomputes
+    /// the aggregates of the affected series for that user.
+    pub fn delete_by_books_and_user(&self, book_ids: &[String], user_id: &str) -> Result<()> {
+        if book_ids.is_empty() {
+            return Ok(());
+        }
+        {
+            let conn = self.db.rw();
+            // chunked to stay under SQLite's variable limit (the Java side uses a temp table)
+            for chunk in book_ids.chunks(500) {
+                let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+                let mut params: Vec<Box<dyn rusqlite::ToSql>> = chunk
+                    .iter()
+                    .map(|id| Box::new(id.clone()) as Box<dyn rusqlite::ToSql>)
+                    .collect();
+                params.push(Box::new(user_id.to_string()));
+                conn.execute(
+                    &format!(
+                        "DELETE FROM READ_PROGRESS WHERE BOOK_ID IN ({placeholders}) AND USER_ID = ?"
+                    ),
+                    rusqlite::params_from_iter(params),
+                )?;
+            }
+        }
+        self.aggregate_series_progress(book_ids, Some(user_id))?;
         Ok(())
     }
 
@@ -272,6 +307,28 @@ impl ReadProgressDao {
         )?;
         Ok(())
     }
+}
+
+fn upsert_one(conn: &rusqlite::Connection, progress: &ReadProgress) -> Result<()> {
+    conn.execute(
+      "INSERT INTO READ_PROGRESS (BOOK_ID, USER_ID, PAGE, COMPLETED, READ_DATE, DEVICE_ID, DEVICE_NAME, LOCATOR) \
+       VALUES (?,?,?,?,?,?,?,?) \
+       ON CONFLICT(BOOK_ID, USER_ID) DO UPDATE SET \
+       PAGE = excluded.PAGE, COMPLETED = excluded.COMPLETED, READ_DATE = excluded.READ_DATE, \
+       LAST_MODIFIED_DATE = ?, DEVICE_ID = excluded.DEVICE_ID, DEVICE_NAME = excluded.DEVICE_NAME, LOCATOR = excluded.LOCATOR",
+      params![
+        progress.book_id,
+        progress.user_id,
+        progress.page,
+        progress.completed,
+        time_codec::format_datetime(progress.read_date),
+        progress.device_id,
+        progress.device_name,
+        progress.locator.as_ref().map(gz_encode).transpose()?,
+        time_codec::format_datetime(time_codec::now_utc()),
+      ],
+    )?;
+    Ok(())
 }
 
 fn gz_encode(value: &serde_json::Value) -> Result<Vec<u8>> {

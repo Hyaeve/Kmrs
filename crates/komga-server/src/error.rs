@@ -104,10 +104,24 @@ fn reason_phrase(status: StatusCode) -> String {
     status.canonical_reason().unwrap_or("").to_string()
 }
 
+/// Spring's `HttpStatus.toString()` uses the enum constant name, e.g. `NOT_FOUND`
+fn spring_status_name(status: StatusCode) -> String {
+    reason_phrase(status)
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphabetic() {
+                c.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
 /// `ResponseStatusException.getMessage()`: `"404 NOT_FOUND"` without a reason,
 /// `404 NOT_FOUND "reason"` with one.
 fn spring_message(status: StatusCode, reason: &str) -> String {
-    let base = format!("{} {}", status.as_u16(), reason_phrase(status));
+    let base = format!("{} {}", status.as_u16(), spring_status_name(status));
     if reason.is_empty() {
         base
     } else {

@@ -27,3 +27,12 @@ uuid.workspace = true
 moka.workspace = true
 form_urlencoded.workspace = true
 base64 = "0.22"
+zip.workspace = true
+image.workspace = true
+rusqlite.workspace = true
+tokio-util = { version = "0.7", features = ["io"] }
+flate2.workspace = true
+
+[dev-dependencies]
+tower = { workspace = true, features = ["util"] }
+tempfile = "3"

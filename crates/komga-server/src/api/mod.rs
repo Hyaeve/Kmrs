@@ -1,4 +1,10 @@
+pub mod books;
 pub mod claim;
+pub mod collections;
+pub mod libraries;
 pub mod login;
+pub mod readlists;
+pub mod referential;
 pub mod restriction;
+pub mod series;
 pub mod users;

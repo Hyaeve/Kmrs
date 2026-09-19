@@ -14,17 +14,7 @@ pub fn content_disposition(kind: &str, filename: &str) -> String {
         let attr_char = c.is_ascii_alphanumeric()
             || matches!(
                 c,
-                '!' | '#'
-                    | '$'
-                    | '&'
-                    | '+'
-                    | '-'
-                    | '.'
-                    | '^'
-                    | '_'
-                    | '`'
-                    | '|'
-                    | '~'
+                '!' | '#' | '$' | '&' | '+' | '-' | '.' | '^' | '_' | '`' | '|' | '~'
             );
         if attr_char {
             encoded.push(c);
@@ -87,9 +77,14 @@ pub fn parse_http_date(s: &str) -> Option<i64> {
     let hour: u8 = hms_it.next()?.parse().ok()?;
     let minute: u8 = hms_it.next()?.parse().ok()?;
     let second: u8 = hms_it.next()?.parse().ok()?;
-    let date = time::Date::from_calendar_date(year, time::Month::try_from(month).ok()?, day).ok()?;
+    let date =
+        time::Date::from_calendar_date(year, time::Month::try_from(month).ok()?, day).ok()?;
     let time = time::Time::from_hms(hour, minute, second).ok()?;
-    Some(time::PrimitiveDateTime::new(date, time).assume_utc().unix_timestamp())
+    Some(
+        time::PrimitiveDateTime::new(date, time)
+            .assume_utc()
+            .unix_timestamp(),
+    )
 }
 
 /// Spring `WebRequest.checkNotModified(lastModifiedTimestamp)`: true when the resource was not
@@ -115,8 +110,14 @@ pub fn parse_authors(values: &[String]) -> Vec<Author> {
         .iter()
         .filter(|v| v.contains(','))
         .map(|v| Author {
-            name: v.rsplit_once(',').map(|(n, _)| n.to_string()).unwrap_or_default(),
-            role: v.rsplit_once(',').map(|(_, r)| r.to_string()).unwrap_or_default(),
+            name: v
+                .rsplit_once(',')
+                .map(|(n, _)| n.to_string())
+                .unwrap_or_default(),
+            role: v
+                .rsplit_once(',')
+                .map(|(_, r)| r.to_string())
+                .unwrap_or_default(),
         })
         .collect()
 }

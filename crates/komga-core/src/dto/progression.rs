@@ -25,6 +25,7 @@ pub struct R2Locator {
     pub text: Option<R2Text>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
+    #[serde(rename = "koboSpan")]
     pub kobo_span: Option<String>,
 }
 
@@ -41,6 +42,7 @@ pub struct R2Location {
     pub position: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
+    #[serde(rename = "totalProgression")]
     pub total_progression: Option<f32>,
 }
 

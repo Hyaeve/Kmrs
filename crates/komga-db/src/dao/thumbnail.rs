@@ -299,8 +299,7 @@ impl ThumbnailSeriesDao {
 
     pub fn get_series_id_or_null(&self, thumbnail_id: &str) -> Result<Option<String>> {
         let conn = self.db.ro();
-        let mut stmt =
-            conn.prepare("SELECT SERIES_ID FROM THUMBNAIL_SERIES WHERE ID = ?")?;
+        let mut stmt = conn.prepare("SELECT SERIES_ID FROM THUMBNAIL_SERIES WHERE ID = ?")?;
         let mut rows = stmt.query_map([thumbnail_id], |r| r.get(0))?;
         Ok(rows.next().transpose()?)
     }

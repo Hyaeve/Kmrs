@@ -69,7 +69,13 @@ pub fn build_router(state: AppState) -> axum::Router {
     let routes = axum::Router::new()
         .merge(api::claim::router())
         .merge(api::login::router())
-        .merge(api::users::router());
+        .merge(api::users::router())
+        .merge(api::libraries::router())
+        .merge(api::referential::router())
+        .merge(api::series::router())
+        .merge(api::books::router())
+        .merge(api::collections::router())
+        .merge(api::readlists::router());
 
     routes
         .layer(axum::middleware::from_fn(
