@@ -480,7 +480,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--java-jar")
     ap.add_argument("--java-home", default=os.environ.get("JAVA_HOME", ""))
-    ap.add_argument("--rust-bin", default=os.path.expanduser("~/src/kmrs/target/debug/komga-server"))
+    ap.add_argument("--rust-bin", default=os.path.expanduser("~/src/kmrs/target/debug/kmrs"))
     ap.add_argument("--workdir", default="/tmp/komga-diff")
     ap.add_argument("--port-java", type=int, default=25611)
     ap.add_argument("--port-rust", type=int, default=25612)

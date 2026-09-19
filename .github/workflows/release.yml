@@ -46,7 +46,7 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           stage="kmrs_${version}_${{ matrix.target }}"
           mkdir -p "$stage" dist
-          cp "target/${{ matrix.target }}/release/komga-server" "$stage/"
+          cp "target/${{ matrix.target }}/release/kmrs" "$stage/"
           cp LICENSE README.md "$stage/"
           tar -czf "dist/${stage}.tar.gz" "$stage"
       - name: Package (windows)
@@ -56,7 +56,7 @@ jobs:
           $version = $env:GITHUB_REF_NAME.TrimStart('v')
           $stage = "kmrs_${version}_${{ matrix.target }}"
           New-Item -ItemType Directory -Force -Path $stage, dist | Out-Null
-          Copy-Item "target\${{ matrix.target }}\release\komga-server.exe" $stage
+          Copy-Item "target\${{ matrix.target }}\release\kmrs.exe" $stage
           Copy-Item LICENSE, README.md $stage
           Compress-Archive -Path $stage -DestinationPath "dist\${stage}.zip"
       - uses: actions/upload-artifact@v4

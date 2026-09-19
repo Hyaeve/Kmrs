@@ -15,8 +15,9 @@ mod webpub;
 mod zip_archive;
 
 use anyhow::Context;
+use clap::Parser;
 use komga_db::pool::Database;
-use komga_db::{Migrator, Placeholders};
+use komga_db::Migrator;
 use state::AppState;
 use std::sync::Arc;
 use tower_http::trace::TraceLayer;
@@ -29,7 +30,8 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let config = config::ServerConfig::from_env();
+    let cli = config::Cli::parse();
+    let config = config::ServerConfig::load(&cli)?;
     std::fs::create_dir_all(&config.config_dir).context("create config dir")?;
 
     let db = Database::open(&config.database).context("open main database")?;
@@ -37,14 +39,14 @@ async fn main() -> anyhow::Result<()> {
 
     {
         let migrations = komga_db::main_migrations();
-        let applied = Migrator::new(&migrations, Placeholders::default())
+        let applied = Migrator::new(&migrations, config.migration_placeholders.clone())
             .migrate(&db.rw())
             .context("main db migration")?;
         if applied > 0 {
             tracing::info!("applied {applied} main db migrations");
         }
         let tasks_migrations = komga_db::tasks_migrations();
-        Migrator::new(&tasks_migrations, Placeholders::default())
+        Migrator::new(&tasks_migrations, config.migration_placeholders.clone())
             .migrate(&tasks_db.rw())
             .context("tasks db migration")?;
     }
@@ -79,7 +81,7 @@ async fn main() -> anyhow::Result<()> {
     let app = build_router(state.clone());
 
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], config.port));
-    tracing::info!("komga-server listening on {addr}");
+    tracing::info!("kmrs listening on {addr}");
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(
         listener,

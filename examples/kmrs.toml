@@ -1,0 +1,73 @@
+# kmrs configuration file.
+#
+# Loaded from <config-dir>/kmrs.toml by default, or from an explicit path via `kmrs --config <FILE>`.
+# Every key is optional; the values below are the built-in defaults.
+# Precedence (lowest to highest): defaults < this file < env vars < CLI flags.
+# Env var names follow Spring relaxed binding: `komga.database.file` -> KOMGA_DATABASE_FILE.
+
+[server]
+port = 25600 # env: SERVER_PORT; CLI: --port
+# kmrs always resolves X-Forwarded-* headers (framework strategy) and always shuts down gracefully.
+# forward-headers-strategy = "framework"
+# shutdown = "graceful"
+
+[server.servlet]
+context-path = "/" # env: SERVER_SERVLET_CONTEXT_PATH
+
+[server.servlet.session]
+timeout = "7d" # env: SERVER_SERVLET_SESSION_TIMEOUT; strings like "500ms"/"10s"/"30m"/"1h"/"7d", bare integer = seconds
+
+[komga]
+config-dir = "~/.komga" # env: KOMGA_CONFIG_DIR; CLI: --config-dir
+page-hashing = 3 # env: KOMGA_PAGEHASHING
+epub-divina-letter-count-threshold = 15 # env: KOMGA_EPUBDIVINALETTERCOUNTTHRESHOLD
+oauth2-account-creation = false # env: KOMGA_OAUTH2ACCOUNTCREATION
+oidc-email-verification = true # env: KOMGA_OIDCMAILVERIFICATION
+# Migration placeholders; only relevant when migrations run (fresh or upgraded data directory).
+file-hashing = true # env: KOMGA_FILEHASHING
+libraries-scan-startup = false # env: KOMGA_LIBRARIESSCANSTARTUP
+delete-empty-collections = true # env: KOMGA_DELETEEMPTYCOLLECTIONS
+delete-empty-read-lists = true # env: KOMGA_DELETEEMPTYREADLISTS
+
+[komga.database]
+file = "<config-dir>/database.sqlite" # env: KOMGA_DATABASE_FILE
+# pool-size = 4 # read pool size; default: min(CPU cores, max-pool-size). env: KOMGA_DATABASE_POOLSIZE
+max-pool-size = 1 # env: KOMGA_DATABASE_MAXPOOLSIZE
+journal-mode = "WAL" # WAL/DELETE/TRUNCATE/PERSIST/MEMORY/OFF; env: KOMGA_DATABASE_JOURNALMODE
+# busy-timeout = "30s" # env: KOMGA_DATABASE_BUSYTIMEOUT
+# [komga.database.pragmas] # extra SQLite pragmas, TOML only
+# synchronous = "NORMAL"
+
+[komga.tasks-db]
+file = "<config-dir>/tasks.sqlite" # env: KOMGA_TASKSDB_FILE; same keys as komga.database, env prefix KOMGA_TASKSDB
+
+[komga.lucene]
+data-directory = "<config-dir>/lucene" # env: KOMGA_LUCENE_DATA_DIRECTORY
+# commit-delay and index-analyzer.* are accepted for komga parity but ignored by kmrs.
+
+[komga.fonts]
+data-directory = "<config-dir>/fonts" # env: KOMGA_FONTS_DATA_DIRECTORY
+
+[komga.cors]
+allowed-origins = [] # env: KOMGA_CORS_ALLOWEDORIGINS (comma-separated)
+
+[komga.kobo]
+sync-item-limit = 100 # env: KOMGA_KOBO_SYNCITEMLIMIT
+# kepubify-path = "/usr/local/bin/kepubify" # env: KOMGA_KOBO_KEPUBIFY_PATH
+
+# OAuth2/OIDC providers. Same layout as Spring's spring.security.oauth2.client.*;
+# env vars SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_<ID>_*/PROVIDER_<ID>_* override individual fields.
+# [spring.security.oauth2.client.registration.github]
+# client-id = "..."
+# client-secret = "..."
+# client-name = "GitHub" # defaults to the registration id
+# authorization-grant-type = "authorization_code"
+# redirect-uri = "{baseUrl}/login/oauth2/code/{registrationId}"
+# scope = ["read:user", "user:email"]
+#
+# [spring.security.oauth2.client.provider.github]
+# issuer-uri = "https://accounts.google.com" # OIDC discovery; sets provider to OIDC mode
+# authorization-uri = "..."
+# token-uri = "..."
+# user-info-uri = "..."
+# user-name-attribute = "..."

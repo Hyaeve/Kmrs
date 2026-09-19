@@ -36,7 +36,7 @@ async fn get_server_settings(
             effective_value: Some(s.server_port.unwrap_or(config.port)),
         }),
         server_context_path: Some(SettingMultiSource {
-            configuration_source: config.server_context_path_env.clone(),
+            configuration_source: config.server_context_path.clone(),
             database_source: s.server_context_path.clone(),
             effective_value: Some(s.server_context_path.clone().unwrap_or_default()),
         }),

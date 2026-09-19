@@ -811,7 +811,7 @@ mod tests {
             .starts_with("kmrs (rustc"));
         assert_eq!(body["build"]["name"], "kmrs");
         assert_eq!(body["build"]["version"], env!("CARGO_PKG_VERSION"));
-        assert_eq!(body["git"]["branch"], "master");
+        assert_eq!(body["git"]["branch"], env!("GIT_BRANCH"));
         assert!(body["git"]["commit"]["id"].is_string());
         assert!(body["os"]["name"].is_string());
         assert!(body["os"]["version"].is_string());

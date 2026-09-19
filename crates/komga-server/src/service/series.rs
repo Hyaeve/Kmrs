@@ -662,7 +662,8 @@ pub(crate) mod tests {
             epub_divina_letter_count_threshold: 15,
             kobo_sync_item_limit: 100,
             kepubify_path: None,
-            server_context_path_env: None,
+            server_context_path: None,
+            migration_placeholders: Default::default(),
             oauth2: Default::default(),
         };
         AppState {
