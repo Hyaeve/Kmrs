@@ -797,7 +797,7 @@ mod tests {
     }
 
     fn tmpdir() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("komga-rs-book-test-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("kmrs-book-test-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }

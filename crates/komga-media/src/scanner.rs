@@ -964,14 +964,14 @@ mod tests {
     fn root_not_accessible_returns_err_1016() {
         let err = Scanner::new()
             .scan_root_folder(
-                Path::new("/nonexistent-komga-rs-test"),
+                Path::new("/nonexistent-kmrs-test"),
                 &ScanOptions::default(),
             )
             .unwrap_err();
         assert_eq!(err.code(), ERR_DIRECTORY_NOT_FOUND);
         assert_eq!(
             err.to_string(),
-            "Folder is not accessible: /nonexistent-komga-rs-test"
+            "Folder is not accessible: /nonexistent-kmrs-test"
         );
     }
 

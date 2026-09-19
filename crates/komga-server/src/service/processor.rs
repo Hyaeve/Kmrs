@@ -589,7 +589,7 @@ mod tests {
     /// A visible (non-hidden) subdirectory inside a temp dir: the scanner skips dot-dirs.
     fn visible_tempdir(tag: &str) -> std::path::PathBuf {
         let dir =
-            std::env::temp_dir().join(format!("komga-rs-processor-{tag}-{}", std::process::id()));
+            std::env::temp_dir().join(format!("kmrs-processor-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir

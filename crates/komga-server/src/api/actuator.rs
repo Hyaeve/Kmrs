@@ -221,7 +221,7 @@ struct InfoOs {
 }
 
 /// `management.info.java/os.enabled: true`. There is no JVM: the `java` section keeps Spring's
-/// shape but reports komga-rs's own version, the `os` section reports the platform.
+/// shape but reports kmrs's own version, the `os` section reports the platform.
 async fn get_info() -> Response {
     let (os_name, os_version) = os_name_version();
     let toolchain = rustc_version();
@@ -235,14 +235,14 @@ async fn get_info() -> Response {
         },
         build: InfoBuild {
             artifact: "komga-server".to_string(),
-            name: "komga-rs".to_string(),
+            name: "kmrs".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
-            group: "komga-rs".to_string(),
+            group: "kmrs".to_string(),
         },
         java: InfoJava {
             version: env!("CARGO_PKG_VERSION").to_string(),
             vendor: InfoVendor {
-                name: format!("komga-rs ({toolchain})"),
+                name: format!("kmrs ({toolchain})"),
                 version: toolchain.clone(),
             },
             runtime: InfoRuntime {
@@ -251,7 +251,7 @@ async fn get_info() -> Response {
             },
             jvm: InfoJvm {
                 name: "komga-server".to_string(),
-                vendor: "komga-rs".to_string(),
+                vendor: "kmrs".to_string(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
             },
         },
@@ -808,8 +808,8 @@ mod tests {
         assert!(body["java"]["vendor"]["name"]
             .as_str()
             .unwrap()
-            .starts_with("komga-rs (rustc"));
-        assert_eq!(body["build"]["name"], "komga-rs");
+            .starts_with("kmrs (rustc"));
+        assert_eq!(body["build"]["name"], "kmrs");
         assert_eq!(body["build"]["version"], env!("CARGO_PKG_VERSION"));
         assert_eq!(body["git"]["branch"], "master");
         assert!(body["git"]["commit"]["id"].is_string());

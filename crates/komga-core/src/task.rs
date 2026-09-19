@@ -4,7 +4,7 @@
 //! (`org.gotson.komga.application.tasks.Task$<SimpleType>`), `SIMPLE_TYPE` the class simple name,
 //! and `PAYLOAD` the Jackson JSON of the task (all properties, including inherited
 //! `priority`/`groupId`/`uniqueId`). Field names must match Jackson's output exactly so Java komga
-//! can read tasks written by komga-rs and vice versa.
+//! can read tasks written by kmrs and vice versa.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;

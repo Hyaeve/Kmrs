@@ -418,7 +418,7 @@ mod tests {
 
     #[test]
     fn full_book_patch() {
-        let dir = std::env::temp_dir().join("komga-rs-epub-1");
+        let dir = std::env::temp_dir().join("kmrs-epub-1");
         std::fs::create_dir_all(&dir).unwrap();
         let book = write_epub(
             &dir,
@@ -459,7 +459,7 @@ mod tests {
 
     #[test]
     fn refines_role_used_when_no_opf_role() {
-        let dir = std::env::temp_dir().join("komga-rs-epub-2");
+        let dir = std::env::temp_dir().join("kmrs-epub-2");
         std::fs::create_dir_all(&dir).unwrap();
         let book = write_epub(
             &dir,
@@ -481,7 +481,7 @@ mod tests {
 
     #[test]
     fn default_role_is_writer() {
-        let dir = std::env::temp_dir().join("komga-rs-epub-3");
+        let dir = std::env::temp_dir().join("kmrs-epub-3");
         std::fs::create_dir_all(&dir).unwrap();
         let book = write_epub(
             &dir,
@@ -496,7 +496,7 @@ mod tests {
 
     #[test]
     fn first_valid_identifier_wins() {
-        let dir = std::env::temp_dir().join("komga-rs-epub-4");
+        let dir = std::env::temp_dir().join("kmrs-epub-4");
         std::fs::create_dir_all(&dir).unwrap();
         // same identifier layout as the Panik im Paradies fixture: the first one is not an ISBN
         let book = write_epub(
@@ -517,7 +517,7 @@ mod tests {
 
     #[test]
     fn no_identifier_keeps_patch() {
-        let dir = std::env::temp_dir().join("komga-rs-epub-5");
+        let dir = std::env::temp_dir().join("kmrs-epub-5");
         std::fs::create_dir_all(&dir).unwrap();
         let book = write_epub(
             &dir,
@@ -533,7 +533,7 @@ mod tests {
 
     #[test]
     fn non_epub_is_skipped() {
-        let dir = std::env::temp_dir().join("komga-rs-epub-6");
+        let dir = std::env::temp_dir().join("kmrs-epub-6");
         std::fs::create_dir_all(&dir).unwrap();
         let book = write_epub(&dir, "book.epub", &opf(r##"<dc:title>X</dc:title>"##));
         let mut m = media();
@@ -545,7 +545,7 @@ mod tests {
 
     #[test]
     fn series_patch() {
-        let dir = std::env::temp_dir().join("komga-rs-epub-7");
+        let dir = std::env::temp_dir().join("kmrs-epub-7");
         std::fs::create_dir_all(&dir).unwrap();
         let book = write_epub(
             &dir,

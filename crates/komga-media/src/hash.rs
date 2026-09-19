@@ -54,7 +54,7 @@ mod tests {
     fn xxh3_vectors() {
         // XXH3-128("") = 99aa06d3014798d86001c324468d497f
         assert_eq!(compute_hash_bytes(b""), "99aa06d3014798d86001c324468d497f");
-        let dir = std::env::temp_dir().join("komga-rs-hasher-test");
+        let dir = std::env::temp_dir().join("kmrs-hasher-test");
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("empty.bin");
         std::fs::write(&file, b"").unwrap();
@@ -64,7 +64,7 @@ mod tests {
     #[test]
     fn koreader_hash_matches_reference() {
         // Expected values computed with an independent Python reimplementation of the rule
-        let dir = std::env::temp_dir().join("komga-rs-hasher-test");
+        let dir = std::env::temp_dir().join("kmrs-hasher-test");
         std::fs::create_dir_all(&dir).unwrap();
 
         let file = dir.join("book.bin");

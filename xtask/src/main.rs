@@ -1,5 +1,5 @@
 //! xtask: engineering helper commands.
-//! - `cargo xtask sync-migrations`: reconcile the migration files embedded in komga-rs with the Java Flyway source files, byte for byte.
+//! - `cargo xtask sync-migrations`: reconcile the migration files embedded in kmrs with the Java Flyway source files, byte for byte.
 
 use anyhow::{bail, Context, Result};
 use std::collections::BTreeMap;
@@ -42,7 +42,7 @@ fn komga_repo_dir() -> Result<PathBuf> {
     })
 }
 
-/// Root of this repo (komga-rs).
+/// Root of this repo (kmrs).
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()

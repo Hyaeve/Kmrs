@@ -1840,7 +1840,7 @@ mod tests {
     }
 
     fn tmpdir(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("komga-rs-analyzer-{name}"));
+        let dir = std::env::temp_dir().join(format!("kmrs-analyzer-{name}"));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }

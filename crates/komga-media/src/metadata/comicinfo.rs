@@ -631,7 +631,7 @@ mod tests {
     use std::io::Write;
 
     fn book_with_comic_info(xml: &str) -> (std::path::PathBuf, Media) {
-        let dir = std::env::temp_dir().join(format!("komga-rs-comicinfo-{}", uuid_like()));
+        let dir = std::env::temp_dir().join(format!("kmrs-comicinfo-{}", uuid_like()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("book.cbz");
         {
@@ -968,7 +968,7 @@ mod tests {
 
     #[test]
     fn no_comic_info_file_returns_none() {
-        let dir = std::env::temp_dir().join(format!("komga-rs-comicinfo-empty-{}", uuid_like()));
+        let dir = std::env::temp_dir().join(format!("kmrs-comicinfo-empty-{}", uuid_like()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("book.cbz");
         {

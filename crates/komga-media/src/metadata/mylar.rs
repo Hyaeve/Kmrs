@@ -205,7 +205,7 @@ mod tests {
 
     #[test]
     fn full_metadata_volume_2() {
-        let dir = std::env::temp_dir().join("komga-rs-mylar-1");
+        let dir = std::env::temp_dir().join("kmrs-mylar-1");
         std::fs::create_dir_all(&dir).unwrap();
         write_series_json(&dir, &series_json(Some(2)));
         let patch = provider().get_series_metadata(&dir, false).unwrap();
@@ -227,7 +227,7 @@ mod tests {
 
     #[test]
     fn volume_1_and_null_use_plain_name() {
-        let dir = std::env::temp_dir().join("komga-rs-mylar-2");
+        let dir = std::env::temp_dir().join("kmrs-mylar-2");
         std::fs::create_dir_all(&dir).unwrap();
         write_series_json(&dir, &series_json(Some(1)));
         let patch = provider().get_series_metadata(&dir, false).unwrap();
@@ -240,7 +240,7 @@ mod tests {
 
     #[test]
     fn continuing_maps_to_ongoing() {
-        let dir = std::env::temp_dir().join("komga-rs-mylar-3");
+        let dir = std::env::temp_dir().join("kmrs-mylar-3");
         std::fs::create_dir_all(&dir).unwrap();
         write_series_json(&dir, &series_json(Some(1)).replace("Ended", "Continuing"));
         let patch = provider().get_series_metadata(&dir, false).unwrap();
@@ -249,7 +249,7 @@ mod tests {
 
     #[test]
     fn oneshot_and_missing_and_broken() {
-        let dir = std::env::temp_dir().join("komga-rs-mylar-4");
+        let dir = std::env::temp_dir().join("kmrs-mylar-4");
         std::fs::create_dir_all(&dir).unwrap();
         write_series_json(&dir, &series_json(Some(1)));
         // oneshot series are skipped

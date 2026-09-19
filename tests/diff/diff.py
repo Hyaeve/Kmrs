@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Differential test: Java komga vs komga-rs over the same fixture library.
+"""Differential test: Java komga vs kmrs over the same fixture library.
 
 Usage:
   python3 diff.py --java-jar <bootJar> --rust-bin <komga-server> [--workdir /tmp/komga-diff] [--skip-start]
@@ -480,7 +480,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--java-jar")
     ap.add_argument("--java-home", default=os.environ.get("JAVA_HOME", ""))
-    ap.add_argument("--rust-bin", default=os.path.expanduser("~/src/komga-rs/target/debug/komga-server"))
+    ap.add_argument("--rust-bin", default=os.path.expanduser("~/src/kmrs/target/debug/komga-server"))
     ap.add_argument("--workdir", default="/tmp/komga-diff")
     ap.add_argument("--port-java", type=int, default=25611)
     ap.add_argument("--port-rust", type=int, default=25612)
@@ -512,7 +512,7 @@ def main():
                 stdout=open(f"{workdir}/java.log", "w"), stderr=subprocess.STDOUT)
             procs.append(p)
 
-            print("[start] komga-rs ...")
+            print("[start] kmrs ...")
             env = dict(os.environ, KOMGA_CONFIG_DIR=rust_dir, SERVER_PORT=str(args.port_rust))
             p = subprocess.Popen([args.rust_bin],
                                  stdout=open(f"{workdir}/rust.log", "w"), stderr=subprocess.STDOUT, env=env)
@@ -523,7 +523,7 @@ def main():
         if not wait_ready(java_base + "/api/v1/claim", 120):
             print("java komga did not start in time"); sys.exit(2)
         if not wait_ready(rust_base + "/api/v1/claim", 30):
-            print("komga-rs did not start in time"); sys.exit(2)
+            print("kmrs did not start in time"); sys.exit(2)
 
         auth = basic("admin@komga.org", "admin")
         for name, base in (("java", java_base), ("rust", rust_base)):

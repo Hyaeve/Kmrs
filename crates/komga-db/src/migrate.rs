@@ -1,6 +1,6 @@
 //! Flyway-compatible migrator: aligns with Java Flyway 13's behavior on SQLite,
 //! so the same database.sqlite can be opened/upgraded interchangeably by Java komga
-//! and komga-rs.
+//! and kmrs.
 //!
 //! Alignment points:
 //! - `flyway_schema_history` table structure and row contents (type='SQL'/'JDBC',

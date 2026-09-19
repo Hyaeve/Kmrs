@@ -1,8 +1,8 @@
-# komga-rs
+# kmrs
 
-A Rust rewrite of the [Komga](https://github.com/gotson/komga) server (work in progress). The goal is **full compatibility with the Java version's data formats and API behavior**:
+A Rust rewrite of the [Komga](https://komga.org) server (work in progress). The goal is **full compatibility with the Java version's data formats and API behavior**:
 
-- Can directly open/upgrade existing komga data directories (`database.sqlite`, `tasks.sqlite`), and the Java version of komga can still open libraries written by this version
+- Can directly open/upgrade existing komga data directories (`database.sqlite`, `tasks.sqlite`), and the Java version of komga can still open libraries written by kmrs
 - Endpoints, DTOs, pagination, error shapes, and authentication behavior for REST `/api/**`, OPDS v1.2/v2, SSE, Kobo, and KOReader match the Java version
 - No UI
 
@@ -10,9 +10,9 @@ A Rust rewrite of the [Komga](https://github.com/gotson/komga) server (work in p
 
 - `crates/komga-core`: domain model, TSID, time encoding/decoding, natural-sort comparator, error codes
 - `crates/komga-db`: Flyway-compatible migrator (migration files are byte-for-byte copies of komga's Flyway migrations), connection pool, UDFs/collations, DAO
-- `crates/komga-media`: media pipeline (sniffing/extraction/hashing/thumbnails/metadata, WIP)
-- `crates/komga-search`: search (WIP)
-- `crates/komga-server`: axum HTTP layer (DTOs, authentication, SSE, OPDS, task queue, WIP)
+- `crates/komga-media`: media pipeline (sniffing/extraction/hashing/thumbnails/metadata)
+- `crates/komga-search`: tantivy search index and Lucene query syntax
+- `crates/komga-server`: axum HTTP layer (DTOs, authentication, SSE, OPDS, task queue)
 - `xtask`: engineering helper commands
 
 ## Development
@@ -29,6 +29,14 @@ cargo xtask dump-checksums      # print Flyway CRC32 for all migrations
 
 Run: `cargo run -p komga-server` (default port 25600, data directory `~/.komga`, overridable with `KOMGA_CONFIG_DIR`).
 
+## Compatibility testing
+
+`tests/diff/diff.py` starts the Java komga and kmrs side by side over the same fixture library and compares ~105 endpoints (status, normalized JSON/XML bodies, headers, zip structure):
+
+```sh
+python3 tests/diff/diff.py --java-jar /path/to/komga.jar --rust-bin ./target/debug/komga-server
+```
+
 ## License
 
-komga is under the [MIT License](LICENSE). The SQL migration files in this repo are copied from the komga source tree; everything else is a rewritten implementation.
+kmrs is under the [MIT License](LICENSE). The SQL migration files and the OpenAPI document are copied from the komga source tree; everything else is a rewritten implementation.
