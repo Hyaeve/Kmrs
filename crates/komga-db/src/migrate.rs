@@ -5,11 +5,11 @@
 //! Alignment points:
 //! - `flyway_schema_history` table structure and row contents (type='SQL'/'JDBC',
 //!   checksum, installed_by='').
-//! - checksum = Flyway `ChecksumCalculator`: after placeholder substitution, feed
-//!   the UTF-8 bytes of each line (split on \n/\r\n/\r) into CRC32 (line endings
-//!   excluded), strip the BOM from the first line, and convert the result to i32.
-//! - Placeholder substitution happens before both checksum and execution (komga's
-//!   4 placeholders carry default values).
+//! - checksum = Flyway `ChecksumCalculator`: feed the UTF-8 bytes of each line
+//!   (split on \n/\r\n/\r) of the raw resource into CRC32 (line endings excluded),
+//!   strip the BOM from the first line, and convert the result to i32. Placeholders
+//!   are NOT substituted for the checksum, only for execution (verified against
+//!   Java's recorded checksums for the 3 migrations using ${...} placeholders).
 //! - One transaction per migration (SQLite DDL is transactional); a failure rolls
 //!   back entirely and leaves no history row.
 //! - validate semantics: applied versions must exist locally; SQL migration
@@ -137,8 +137,8 @@ fn bool_str(b: bool) -> &'static str {
     }
 }
 
-/// Equivalent of Flyway's `ChecksumCalculator` (input must already have
-/// placeholders substituted).
+/// Equivalent of Flyway's `ChecksumCalculator`, over the raw resource content
+/// (placeholders are substituted later, only for execution).
 pub fn flyway_checksum(sql: &str) -> i32 {
     let mut hasher = crc32fast::Hasher::new();
     let mut lines = sql.lines();
@@ -244,11 +244,11 @@ impl<'a> Migrator<'a> {
                 .get(&version)
                 .ok_or_else(|| MigrateError::AppliedNotResolved(version.to_string()))?;
             if row.type_ == "SQL" {
-                let resolved = match local_migration {
-                    Migration::Sql(m) => self.placeholders.substitute(m.sql),
+                let local_checksum = match local_migration {
+                    // Flyway checksums the raw resource content, placeholders NOT substituted
+                    Migration::Sql(m) => flyway_checksum(m.sql),
                     Migration::Jdbc { .. } => unreachable!(),
                 };
-                let local_checksum = flyway_checksum(&resolved);
                 let db_checksum = row.checksum.unwrap_or(0);
                 if db_checksum != local_checksum {
                     return Err(MigrateError::ChecksumMismatch {
@@ -300,7 +300,8 @@ impl<'a> Migrator<'a> {
             match migration {
                 Migration::Sql(m) => {
                     let resolved = self.placeholders.substitute(m.sql);
-                    resolved_checksum = Some(flyway_checksum(&resolved));
+                    // checksum over the raw resource, like Flyway
+                    resolved_checksum = Some(flyway_checksum(m.sql));
                     tx.execute_batch(&resolved)
                         .map_err(|e| MigrateError::Failed(m.file_name.to_string(), e))?;
                 }
