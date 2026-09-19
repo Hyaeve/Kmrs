@@ -220,11 +220,10 @@ struct InfoOs {
     arch: String,
 }
 
-/// `management.info.java/os.enabled: true`. There is no JVM: the `java` section keeps Spring's
-/// shape but reports kmrs's own version, the `os` section reports the platform.
+/// `management.info.java/os.enabled: true`. The `java` section keeps Spring's shape for
+/// compatibility but holds no made-up JVM values; `os` reports the platform.
 async fn get_info() -> Response {
     let (os_name, os_version) = os_name_version();
-    let toolchain = rustc_version();
     actuator_response(&InfoBody {
         git: InfoGit {
             branch: env!("GIT_BRANCH").to_string(),
@@ -240,19 +239,19 @@ async fn get_info() -> Response {
             group: "kmrs".to_string(),
         },
         java: InfoJava {
-            version: env!("CARGO_PKG_VERSION").to_string(),
+            version: "-".to_string(),
             vendor: InfoVendor {
-                name: format!("kmrs ({toolchain})"),
-                version: toolchain.clone(),
+                name: "-".to_string(),
+                version: "-".to_string(),
             },
             runtime: InfoRuntime {
-                name: "tokio".to_string(),
-                version: String::new(),
+                name: "-".to_string(),
+                version: "-".to_string(),
             },
             jvm: InfoJvm {
-                name: "komga-server".to_string(),
-                vendor: "kmrs".to_string(),
-                version: env!("CARGO_PKG_VERSION").to_string(),
+                name: "-".to_string(),
+                vendor: "-".to_string(),
+                version: "-".to_string(),
             },
         },
         os: InfoOs {
@@ -261,16 +260,6 @@ async fn get_info() -> Response {
             arch: os_arch(),
         },
     })
-}
-
-fn rustc_version() -> String {
-    std::process::Command::new("rustc")
-        .arg("--version")
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
-        .unwrap_or_else(|| "unknown".to_string())
 }
 
 /// `os.name` as Spring reports it (from `System.getProperty("os.name")`), with `uname -r` for the version.
@@ -804,11 +793,10 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(headers.get(CONTENT_TYPE).unwrap(), ACTUATOR_JSON);
         let body = json(&bytes);
-        assert_eq!(body["java"]["version"], env!("CARGO_PKG_VERSION"));
-        assert!(body["java"]["vendor"]["name"]
-            .as_str()
-            .unwrap()
-            .starts_with("kmrs (rustc"));
+        assert_eq!(body["java"]["version"], "-");
+        assert_eq!(body["java"]["vendor"]["name"], "-");
+        assert_eq!(body["java"]["runtime"]["name"], "-");
+        assert_eq!(body["java"]["jvm"]["vendor"], "-");
         assert_eq!(body["build"]["name"], "kmrs");
         assert_eq!(body["build"]["version"], env!("CARGO_PKG_VERSION"));
         assert_eq!(body["git"]["branch"], env!("GIT_BRANCH"));
