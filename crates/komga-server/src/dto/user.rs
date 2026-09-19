@@ -55,6 +55,7 @@ impl From<&KomgaUser> for UserDto {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UserCreationDto {
     pub email: String,
     pub password: String,
@@ -69,6 +70,7 @@ pub struct UserCreationDto {
 /// Double Option: outer None = not provided (keep current value), Some(None) = explicit null (clear),
 /// matching the isSet semantics of komga `UserUpdateDto`.
 #[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct UserUpdateDto {
     #[serde(default)]
     pub age_restriction: Option<Option<AgeRestrictionUpdateDto>>,
@@ -89,6 +91,7 @@ pub struct AgeRestrictionUpdateDto {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SharedLibrariesUpdateDto {
     pub all: bool,
     #[serde(default)]
