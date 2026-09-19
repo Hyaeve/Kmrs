@@ -34,7 +34,8 @@ FIXTURES = [
 # normalization
 # ---------------------------------------------------------------------------
 
-TSID_RE = re.compile(r"\b[0-9A-Z]{13}\b")
+# Crockford Base32 (no I/L/O/U), 13 chars: komga TSID
+TSID_RE = re.compile(r"\b[0-9A-HJKMNP-TV-Z]{13}\b")
 HOST_RE = re.compile(r"http://localhost:\d+")
 
 TIME_KEYS = {
@@ -44,19 +45,29 @@ TIME_KEYS = {
     "mostRecentReadDate", "file_last_modified", "lastReadDate", "releaseDate",
 }
 
+# ISO-8601 date-time with optional fraction and offset (Z or ±HH:MM)
+ISO_TIME_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})")
+
 
 def is_tsid(value):
     return isinstance(value, str) and TSID_RE.fullmatch(value) is not None
 
 
 class Normalizer:
-    """Maps volatile values (TSIDs, hosts, timestamps) to stable placeholders."""
+    """Maps volatile values (TSIDs, hosts, timestamps) to stable placeholders.
 
-    def __init__(self):
+    `aliases` maps real entity ids to semantic names (e.g. series id -> "SERIES:berserk"),
+    so the same entity gets the same placeholder on both sides regardless of scan order.
+    """
+
+    def __init__(self, aliases=None):
+        self.aliases = aliases or {}
         self.tsid_map = {}
         self.tsid_counter = 0
 
     def tsid(self, value):
+        if value in self.aliases:
+            return f"<{self.aliases[value]}>"
         if value not in self.tsid_map:
             self.tsid_counter += 1
             self.tsid_map[value] = f"<TSID-{self.tsid_counter}>"
@@ -64,25 +75,36 @@ class Normalizer:
 
     def normalize(self, obj, key=""):
         if isinstance(obj, dict):
-            return {k: self.normalize(v, k) for k, v in obj.items()}
+            out = {}
+            for k, v in obj.items():
+                if k == "serverPort":
+                    out[k] = "<PORT>"
+                else:
+                    out[k] = self.normalize(v, k)
+            return out
         if isinstance(obj, list):
             return [self.normalize(v, key) for v in obj]
         if isinstance(obj, str):
-            if is_tsid(obj):
-                return self.tsid(obj)
-            if HOST_RE.search(obj):
-                return HOST_RE.sub("http://HOST", obj)
             if key in TIME_KEYS and re.fullmatch(r"\d{4}-\d{2}-\d{2}.*", obj):
                 return "<TIME>"
+            # TSIDs may appear as whole values or embedded in URLs/text
+            obj = TSID_RE.sub(lambda m: self.tsid(m.group(0)), obj)
+            obj = ISO_TIME_RE.sub("<TIME>", obj)
+            if HOST_RE.search(obj):
+                obj = HOST_RE.sub("http://HOST", obj)
             return obj
         return obj
 
 
-def normalize_body(text):
+def normalize_body(text, aliases=None):
+    # response bodies arrive as bytes; JSON normalization happens on the parsed value,
+    # text normalization (XML and other non-JSON) on the decoded string
+    if isinstance(text, bytes):
+        text = text.decode("utf-8", errors="replace")
     try:
-        return Normalizer().normalize(json.loads(text))
+        return Normalizer(aliases).normalize(json.loads(text))
     except (json.JSONDecodeError, ValueError):
-        return Normalizer().normalize(text)
+        return Normalizer(aliases).normalize(text)
 
 
 # ---------------------------------------------------------------------------
@@ -181,6 +203,81 @@ ACTUATOR_RULES = {
     "/actuator/metrics": compare_actuator_metrics,
     "/actuator/scheduledtasks": compare_actuator_scheduledtasks,
 }
+
+
+def sort_feed_lists(obj, key=""):
+    """Recursively sorts OPDS feed lists (navigation/publications/groups/facets) by title or href.
+
+    Latest-Books/Latest-Series lists are ordered by createdDate/lastModified, which depend on
+    each implementation's scan traversal order; the set of items must match, the order need not.
+    links/images/readingOrder keep their order — only known feed collection keys are sorted.
+    """
+    if isinstance(obj, dict):
+        return {k: sort_feed_lists(v, k) for k, v in obj.items()}
+    if isinstance(obj, list):
+        items = [sort_feed_lists(v) for v in obj]
+        if key not in ("navigation", "publications", "groups", "facets", "entries"):
+            return items
+
+        def sort_key(item):
+            if isinstance(item, dict):
+                for k in ("title", "href", "name", "id"):
+                    if k in item:
+                        return str(item[k])
+                if "metadata" in item and isinstance(item["metadata"], dict) and "title" in item["metadata"]:
+                    return str(item["metadata"]["title"])
+            return json.dumps(item, sort_keys=True)
+
+        return sorted(items, key=sort_key)
+    return obj
+
+
+# paths whose feed lists are order-insensitive (time-ordered lists that depend on scan order)
+UNORDERED_FEED_PREFIXES = (
+    "/opds/v1.2/books/latest",
+    "/opds/v1.2/series/latest",
+    "/opds/v2/libraries/books/latest",
+    "/opds/v2/libraries/series/latest",
+    "/opds/v2/catalog",
+    "/opds/v2/libraries",
+)
+
+
+def sort_xml_entries(text):
+    """Sorts the <entry> blocks of an Atom feed (OPDS v1.2) so time-ordered feeds can be
+    compared as sets. Entries do not nest, so a plain split is safe."""
+    if not isinstance(text, str) or "<entry>" not in text:
+        return text
+    head, rest = text.split("<entry>", 1)
+    parts = rest.split("<entry>")
+    entries, tail = [], ""
+    for i, part in enumerate(parts):
+        content, sep, after = part.partition("</entry>")
+        if i == len(parts) - 1:
+            tail = after
+        entries.append(content)
+    entries.sort()
+    return head + "".join(f"<entry>{e}</entry>" for e in entries) + tail
+
+
+def drop_keys(obj, keys):
+    """Recursively removes keys from a JSON value (for accepted per-endpoint differences)."""
+    if isinstance(obj, dict):
+        return {k: drop_keys(v, keys) for k, v in obj.items() if k not in keys}
+    if isinstance(obj, list):
+        return [drop_keys(v, keys) for v in obj]
+    return obj
+
+
+def zip_structure(data):
+    """Structural fingerprint of a zip archive: (name, crc, method) per entry, in order.
+
+    Byte equality is impossible across two servers (entry timestamps are the generation
+    time); the content and layout are what must match."""
+    import io
+    import zipfile
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        return [(i.filename, i.CRC, i.compress_type) for i in z.infolist()]
 
 
 # ---------------------------------------------------------------------------
@@ -292,7 +389,7 @@ def endpoints():
     get("series thumbnail", "/api/v1/series/{SERIES_BERSERK}/thumbnail", "jpeg")
     get("series thumbnails", "/api/v1/series/{SERIES_BERSERK}/thumbnails")
     get("series tachiyomi", "/api/v2/series/{SERIES_BERSERK}/read-progress/tachiyomi")
-    get("series zip", "/api/v1/series/{SERIES_BERSERK}/file", "bytes")
+    get("series zip", "/api/v1/series/{SERIES_BERSERK}/file", "zip")
 
     # collections / readlists
     get("collections", "/api/v1/collections")
@@ -303,7 +400,7 @@ def endpoints():
     get("readlist detail", "/api/v1/readlists/{RL}")
     get("readlist books", "/api/v1/readlists/{RL}/books")
     get("readlist thumbnail", "/api/v1/readlists/{RL}/thumbnail", "jpeg")
-    get("readlist zip", "/api/v1/readlists/{RL}/file", "bytes")
+    get("readlist zip", "/api/v1/readlists/{RL}/file", "zip")
     get("readlist tachiyomi", "/api/v1/readlists/{RL}/read-progress/tachiyomi")
 
     # referential
@@ -448,14 +545,15 @@ def main():
             return json.loads(body) if s == 200 else None
 
         ids = {}
+        aliases = {}
         for side, base in (("java", java_base), ("rust", rust_base)):
             lib = get_json(base, "/api/v1/libraries")[0]["id"]
             series = get_json(base, "/api/v1/series?unpaged=true")["content"]
             berserk = next(s for s in series if s["name"] == "berserk")
             books = get_json(base, f"/api/v1/series/{berserk['id']}/books")["content"]
             v01 = next(b for b in books if b["name"] == "v01")
-            epub = get_json(base, "/api/v1/books?unpaged=true")["content"]
-            epub = next(b for b in epub if b["name"] == "book")
+            all_books = get_json(base, "/api/v1/books?unpaged=true")["content"]
+            epub = next(b for b in all_books if b["name"] == "book")
             coll = get_json(base, "/api/v1/collections")
             rl = get_json(base, "/api/v1/readlists")
             ids[side] = {
@@ -466,6 +564,21 @@ def main():
                 "COLL": coll["content"][0]["id"] if coll.get("content") else None,
                 "RL": rl["content"][0]["id"] if rl.get("content") else None,
             }
+            # semantic aliases so TSIDs compare equal across implementations regardless of order
+            alias = {}
+            for library in get_json(base, "/api/v1/libraries"):
+                alias[library["id"]] = f"LIB:{library['name']}"
+            for s in series:
+                alias[s["id"]] = f"SERIES:{s['name']}"
+            for b in all_books:
+                alias[b["id"]] = f"BOOK:{b['seriesTitle']}/{b['name']}"
+            for c in coll.get("content", []):
+                alias[c["id"]] = f"COLL:{c['name']}"
+            for r in rl.get("content", []):
+                alias[r["id"]] = f"RL:{r['name']}"
+            for u in get_json(base, "/api/v2/users") or []:
+                alias[u["id"]] = f"USER:{u['email']}"
+            aliases[side] = alias
 
         mismatches = []
         total = 0
@@ -503,12 +616,26 @@ def main():
                         except json.JSONDecodeError as e:
                             problems.append(f"json parse failed: {e}")
                     else:
-                        nj, nr = normalize_body(jb), normalize_body(rb)
+                        nj = normalize_body(jb, aliases["java"])
+                        nr = normalize_body(rb, aliases["rust"])
+                        if path.startswith(UNORDERED_FEED_PREFIXES):
+                            nj = sort_feed_lists(nj)
+                            nr = sort_feed_lists(nr)
+                            nj = sort_xml_entries(nj)
+                            nr = sort_xml_entries(nr)
+                        if path.endswith("/thumbnails"):
+                            # JPEG re-encoding differs across encoders (4:2:0 vs 4:4:4),
+                            # so thumbnail byte sizes are never equal
+                            nj = drop_keys(nj, {"fileSize"})
+                            nr = drop_keys(nr, {"fileSize"})
                         if nj != nr:
                             problems.append("json body differs")
                 elif compare == "bytes":
                     if jb != rb:
                         problems.append(f"bytes differ ({len(jb)} vs {len(rb)})")
+                elif compare == "zip":
+                    if zip_structure(jb) != zip_structure(rb):
+                        problems.append("zip structure differs")
                 elif compare == "jpeg":
                     if not (jb.startswith(b"\xff\xd8\xff") and rb.startswith(b"\xff\xd8\xff")):
                         problems.append("not both jpeg")
@@ -522,14 +649,27 @@ def main():
             if problems:
                 mismatches.append((name, problems, jb, rb))
 
+        outdir = f"{workdir}/out"
+        shutil.rmtree(outdir, ignore_errors=True)
+        os.makedirs(outdir, exist_ok=True)
         print(f"\n== {total - len(mismatches)}/{total} endpoints match ==")
         for name, problems, jb, rb in mismatches:
             print(f"\n--- DIFF: {name}")
             for p in problems:
                 print(f"    {p}")
-            if len(jb) < 800 and len(rb) < 800:
-                print(f"    java: {jb[:400]!r}")
-                print(f"    rust: {rb[:400]!r}")
+            slug = name.replace(" ", "_").replace("/", "_")
+            # dump normalized bodies for offline inspection (what the comparison actually saw)
+            for side, body in (("java", jb), ("rust", rb)):
+                norm = normalize_body(body, aliases[side])
+                if path.startswith(UNORDERED_FEED_PREFIXES):
+                    norm = sort_xml_entries(sort_feed_lists(norm))
+                if path.endswith("/thumbnails"):
+                    norm = drop_keys(norm, {"fileSize"})
+                if not isinstance(norm, str):
+                    norm = json.dumps(norm, indent=2, sort_keys=True, ensure_ascii=False)
+                with open(f"{outdir}/{slug}.{side}.txt", "w") as f:
+                    f.write(norm)
+            print(f"    dumped: {outdir}/{slug}.{{java,rust}}.txt")
 
         sys.exit(1 if mismatches else 0)
     finally:
