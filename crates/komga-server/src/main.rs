@@ -5,6 +5,8 @@ mod dto;
 mod error;
 mod events;
 mod http;
+#[cfg(all(feature = "profiling", unix))]
+mod profiling;
 mod search_index;
 mod service;
 mod settings;
@@ -29,6 +31,9 @@ async fn main() -> anyhow::Result<()> {
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
+
+    #[cfg(all(feature = "profiling", unix))]
+    profiling::spawn_heap_dump_listener();
 
     let cli = config::Cli::parse();
     let config = config::ServerConfig::load(&cli)?;
@@ -136,6 +141,9 @@ pub fn build_router(state: AppState) -> axum::Router {
         .merge(api::fonts::router())
         .merge(api::actuator::router())
         .merge(sse::router());
+
+    #[cfg(all(feature = "profiling", unix))]
+    let routes = routes.merge(profiling::router());
 
     routes
         .layer(axum::middleware::from_fn(

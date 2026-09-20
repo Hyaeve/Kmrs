@@ -74,6 +74,19 @@ cargo xtask dump-checksums         # print Flyway CRC32 for all migrations
 
 `sync-migrations` looks for a `komga` source checkout next to this repo by default; `KOMGA_REPO_DIR` can be used to point elsewhere. The checkout should be at the compatibility target (`v1.27.0`).
 
+### Profiling memory usage
+
+Release binaries (Linux and macOS) ship with heap profiling: the global allocator is jemalloc with allocation sampling always on — the same model as Go's pprof, a backtrace per ~512 KiB allocated. The profile endpoint is ADMIN-only:
+
+```sh
+curl -H "X-API-Key: $KEY" -o heap.profile http://localhost:25600/debug/pprof/heap
+jeprof --svg ./kmrs heap.profile   # or --collapsed for flamegraphs
+```
+
+Release binaries keep their symbol table, so the published binary from the same release symbolizes the dump. Sampling can be toggled at runtime with `kill -USR1 <pid>` (in Docker: `docker kill --signal=USR1 kmrs`); when it's off the endpoint answers 409. `kill -USR2 <pid>` writes the same dump to `$TMPDIR/kmrs.<pid>.<seq>.heap` instead.
+
+For local analysis, `cargo build --profile profiling --features profiling` produces a release binary with line tables.
+
 ### Structure
 
 - `crates/komga-core`: domain model, TSID, time encoding/decoding, natural-sort comparator, error codes

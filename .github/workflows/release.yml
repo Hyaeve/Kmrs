@@ -55,18 +55,24 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             builder: cross
+            heapprof: true
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             builder: cross
+            heapprof: true
           - os: macos-14
             target: aarch64-apple-darwin
             builder: cargo
+            heapprof: true
           - os: macos-14
             target: x86_64-apple-darwin
             builder: cargo
+            heapprof: true
+          # jemalloc has no MSVC support; the feature is inert here
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             builder: cargo
+            heapprof: false
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -85,18 +91,22 @@ jobs:
         if: matrix.builder == 'cargo'
       - name: Build (cross)
         if: matrix.builder == 'cross'
-        run: cross build --release --target ${{ matrix.target }} -p komga-server
+        run: cross build --release --target ${{ matrix.target }} -p komga-server --features profiling
         env:
           # hermetic liblzma regardless of image contents
           LZMA_API_STATIC: "1"
+          # keep the symbol table: heap dumps taken from the shipped binary are
+          # symbolized against it (jeprof needs function names)
+          CARGO_PROFILE_RELEASE_STRIP: "debuginfo"
       - name: Build (cargo)
         if: matrix.builder == 'cargo'
-        run: cargo build --release --target ${{ matrix.target }} -p komga-server
+        run: cargo build --release --target ${{ matrix.target }} -p komga-server ${{ matrix.heapprof && '--features profiling' || '' }}
         env:
           LZMA_API_STATIC: "1"
           RUSTC_WRAPPER: sccache
           SCCACHE_GHA_ENABLED: "true"
           CARGO_INCREMENTAL: "0"
+          CARGO_PROFILE_RELEASE_STRIP: ${{ matrix.heapprof && 'debuginfo' || 'symbols' }}
       - name: Package (unix)
         if: runner.os != 'Windows'
         shell: bash

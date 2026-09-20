@@ -10,7 +10,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.4.3"
+version = "0.5.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/everpcpc/kmrs"
@@ -63,8 +63,18 @@ scraper = "0.23"
 compress-tools = { version = "0.16", default-features = false, features = ["static"] }
 pdfium-render = "0.9"
 tantivy = "0.26.2"
+# opt-in heap profiling (komga-server `profiling` feature)
+tikv-jemallocator = { version = "0.6", features = ["profiling"] }
+tikv-jemalloc-ctl = { version = "0.6", features = ["profiling"] }
 
 [profile.release]
 lto = "thin"
 codegen-units = 1
 strip = "symbols"
+
+# release + line tables: heap profiles (komga-server `profiling` feature) are symbolized
+# against the binary, which `strip = "symbols"` would gut
+[profile.profiling]
+inherits = "release"
+debug = 1
+strip = "debuginfo"

@@ -8,6 +8,10 @@ license.workspace = true
 name = "kmrs"
 path = "src/main.rs"
 
+[features]
+# jemalloc global allocator + SIGUSR2 heap dumps (src/profiling.rs); profiling builds only
+profiling = ["dep:tikv-jemallocator", "dep:tikv-jemalloc-ctl"]
+
 [dependencies]
 clap.workspace = true
 toml.workspace = true
@@ -42,6 +46,20 @@ tokio-util = { version = "0.7", features = ["io"] }
 tokio-stream = "0.1"
 flate2.workspace = true
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots", "json", "gzip"] }
+
+# unix-only: the `profiling` feature is inert on Windows (jemalloc has no MSVC support),
+# so release builds can pass --features profiling to every target
+[target.'cfg(unix)'.dependencies]
+tikv-jemalloc-ctl = { workspace = true, optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# macOS needs the whole-process override (zone_register): a prefixed jemalloc would sit
+# next to the system allocator, and one cross-boundary free corrupts the heap
+tikv-jemallocator = { workspace = true, optional = true, features = ["override_allocator_on_supported_platforms"] }
+
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+# Linux stays prefixed (`_rjem_`): C libraries keep glibc malloc, no interposition
+tikv-jemallocator = { workspace = true, optional = true }
 
 [dev-dependencies]
 tower = { workspace = true, features = ["util"] }
