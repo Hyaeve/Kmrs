@@ -23,7 +23,63 @@ const TYPE_FIELD: &str = "type";
 const INDEX_VERSION_FIELD: &str = "index_version";
 const INDEX_VERSION_TYPE: &str = "index_version";
 const MAX_RESULTS: usize = 1000;
-const INDEX_TOKENIZER: &str = "komga";
+// bumped together with ANALYZER_VERSION so an index built by another analyzer chain
+// can never be opened silently
+const INDEX_TOKENIZER: &str = "komga_index_v1";
+
+/// Version of the analyzer chain (tokenizer/filters), independent of the entity
+/// `index_version` document, which tracks the indexed *fields* like Java's marker.
+pub const ANALYZER_VERSION: u32 = 1;
+const ANALYZER_VERSION_FILE: &str = ".kmrs-search-analyzer-version";
+/// File names of a Java Lucene index, for detecting a data directory previously
+/// used by Java komga.
+const LUCENE_ARTIFACT_PREFIXES: &[&str] = &["segments_", "write.lock", "segments.gen"];
+
+/// Startup decision for the index directory (`prepare_index_directory` in spirit).
+pub enum StartupDecision {
+    Ready,
+    /// A full rebuild is required; `wipe` is only true when every file in the
+    /// directory is known to be disposable (a Java Lucene index or an outdated
+    /// kmrs index) — foreign files are never deleted.
+    Rebuild {
+        wipe: bool,
+    },
+}
+
+pub fn decide_startup(dir: &Path) -> StartupDecision {
+    if dir.join("meta.json").exists() {
+        return match analyzer_version_of(dir) {
+            Some(v) if v == ANALYZER_VERSION => StartupDecision::Ready,
+            // the directory holds a kmrs index from another analyzer version: disposable
+            _ => StartupDecision::Rebuild { wipe: true },
+        };
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return StartupDecision::Rebuild { wipe: false };
+    };
+    let names: Vec<String> = entries
+        .filter_map(|e| e.ok().map(|e| e.file_name().to_string_lossy().into_owned()))
+        .collect();
+    let has_lucene = names
+        .iter()
+        .any(|n| LUCENE_ARTIFACT_PREFIXES.iter().any(|p| n.starts_with(p)));
+    StartupDecision::Rebuild { wipe: has_lucene }
+}
+
+fn analyzer_version_of(dir: &Path) -> Option<u32> {
+    std::fs::read_to_string(dir.join(ANALYZER_VERSION_FILE))
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
+}
+
+/// Deletes the whole index directory; only call after `decide_startup` returned
+/// `Rebuild { wipe: true }`.
+pub fn wipe_index_dir(dir: &Path) -> std::io::Result<()> {
+    std::fs::remove_dir_all(dir)?;
+    std::fs::create_dir_all(dir)
+}
 
 /// komga's `LuceneCommitter` is synchronous: every write is committed and becomes
 /// searchable immediately.
@@ -161,6 +217,9 @@ pub struct SearchIndex {
 
 impl SearchIndex {
     /// Opens an existing index or creates it (the directory is created when missing).
+    ///
+    /// Stamps the analyzer-version marker on success: without it the next startup
+    /// would treat the index as outdated and rebuild it again.
     pub fn open(dir: &Path) -> Result<Self> {
         let index = match Index::open_in_dir(dir) {
             Ok(index) => index,
@@ -174,6 +233,10 @@ impl SearchIndex {
             .register(INDEX_TOKENIZER, KomgaIndexTokenizer);
         let writer = std::sync::Mutex::new(index.writer(50_000_000)?);
         let reader = index.reader()?;
+        std::fs::write(
+            dir.join(ANALYZER_VERSION_FILE),
+            ANALYZER_VERSION.to_string(),
+        )?;
         Ok(Self {
             index,
             writer,
@@ -563,5 +626,68 @@ mod tests {
         assert!(!SearchIndex::exists(&missing));
         let _index = SearchIndex::open(&missing).unwrap();
         assert!(SearchIndex::exists(&missing));
+    }
+
+    #[test]
+    fn tokenizer_name_tracks_analyzer_version() {
+        assert_eq!(INDEX_TOKENIZER, format!("komga_index_v{ANALYZER_VERSION}"));
+    }
+
+    #[test]
+    fn startup_decision_missing_or_empty_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("nope");
+        assert!(matches!(
+            decide_startup(&missing),
+            StartupDecision::Rebuild { wipe: false }
+        ));
+        assert!(matches!(
+            decide_startup(dir.path()),
+            StartupDecision::Rebuild { wipe: false }
+        ));
+    }
+
+    #[test]
+    fn startup_decision_java_lucene_dir_is_wiped() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("segments_3"), b"").unwrap();
+        std::fs::write(dir.path().join("write.lock"), b"").unwrap();
+        assert!(matches!(
+            decide_startup(dir.path()),
+            StartupDecision::Rebuild { wipe: true }
+        ));
+    }
+
+    #[test]
+    fn startup_decision_foreign_files_are_never_wiped() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("notes.txt"), b"").unwrap();
+        assert!(matches!(
+            decide_startup(dir.path()),
+            StartupDecision::Rebuild { wipe: false }
+        ));
+    }
+
+    #[test]
+    fn startup_decision_opened_index_is_ready() {
+        let dir = tempfile::tempdir().unwrap();
+        let _index = SearchIndex::open(dir.path()).unwrap();
+        assert!(matches!(decide_startup(dir.path()), StartupDecision::Ready));
+    }
+
+    #[test]
+    fn startup_decision_analyzer_version_mismatch_is_wiped() {
+        let dir = tempfile::tempdir().unwrap();
+        let _index = SearchIndex::open(dir.path()).unwrap();
+        std::fs::write(dir.path().join(ANALYZER_VERSION_FILE), "0").unwrap();
+        assert!(matches!(
+            decide_startup(dir.path()),
+            StartupDecision::Rebuild { wipe: true }
+        ));
+        std::fs::remove_file(dir.path().join(ANALYZER_VERSION_FILE)).unwrap();
+        assert!(matches!(
+            decide_startup(dir.path()),
+            StartupDecision::Rebuild { wipe: true }
+        ));
     }
 }

@@ -491,9 +491,13 @@ pub fn consume_events(state: AppState) -> tokio::task::JoinHandle<()> {
 }
 
 /// `SearchIndexController.createIndexIfNoneExist`: rebuild when missing, upgrade by version.
-pub fn check_on_startup(state: &AppState) {
-    if !komga_search::SearchIndex::exists(&state.config.lucene_dir) {
-        tracing::info!("Lucene index not found, trigger rebuild");
+///
+/// `rebuild_required` comes from `komga_search::decide_startup` (fresh directory, Java
+/// Lucene takeover, or analyzer version mismatch): `SearchIndex::open` always creates
+/// the index, so an existence check here could never detect those cases.
+pub fn check_on_startup(state: &AppState, rebuild_required: bool) {
+    if rebuild_required {
+        tracing::info!("search index requires rebuild, triggering full rebuild");
         let _ = state.task_emitter.rebuild_index(None, HIGHEST_PRIORITY);
         return;
     }

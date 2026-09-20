@@ -52,6 +52,19 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let task_notify: service::TaskNotify = std::sync::Arc::new(tokio::sync::Notify::new());
+    let search_rebuild = match komga_search::decide_startup(&config.lucene_dir) {
+        komga_search::StartupDecision::Ready => false,
+        komga_search::StartupDecision::Rebuild { wipe } => {
+            if wipe {
+                tracing::info!(
+                    "wiping outdated search index at {}",
+                    config.lucene_dir.display()
+                );
+                komga_search::wipe_index_dir(&config.lucene_dir).context("wipe search index")?;
+            }
+            true
+        }
+    };
     let search_index =
         Arc::new(komga_search::SearchIndex::open(&config.lucene_dir).context("open search index")?);
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
@@ -77,7 +90,7 @@ async fn main() -> anyhow::Result<()> {
     service::processor::TaskProcessor::start(state.clone(), task_notify);
     service::scheduler::ScanScheduler::start(state.clone());
     service::scheduler::ScanScheduler::start_auth_activity_cleanup(state.clone());
-    search_index::check_on_startup(&state);
+    search_index::check_on_startup(&state, search_rebuild);
     search_index::consume_events(state.clone());
 
     let app = build_router(state.clone());

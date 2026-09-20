@@ -74,11 +74,9 @@ Places where kmrs deviates from the Java version. Scope exclusions (no web UI) a
 
 - Lucene fuzzy (`~`) and phrase-slop (`~N`) queries are unsupported and yield empty results.
 - `komga.lucene.index-analyzer.*` and `komga.lucene.commit-delay` are ignored (warned and dropped during Java config migration); the analyzer is fixed to the multilingual ngram chain.
-- Index codec upgrade is a no-op: tantivy has no such concept, and version-based reindexing already covers it.
 
 ### Database / migrations
 
-- Flyway baseline is not supported: a database that has objects but no `flyway_schema_history` table hard-errors instead of being adopted.
 - Deprecated BCP47 aliases (e.g. `iw` → `he`) are not normalized by the language-code migration for pre-2023-08 libraries — an accepted deviation.
 
 ### Actuator
