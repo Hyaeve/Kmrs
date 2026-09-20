@@ -873,7 +873,6 @@ async fn update_mihon_read_progress(
             mark_read_progress_completed_book(&state, &book.id, &auth.0.user.id)?;
         }
     }
-    // TODO(M4): publish the read-progress events (SSE)
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -1084,6 +1083,8 @@ mod tests {
             tasks_db,
             config: Arc::new(config),
             search_index: test_search_index(),
+            kepub: crate::service::kepub::KepubConverter::new(tempfile::tempdir().unwrap().keep()),
+            kobo_proxy: crate::service::kobo_proxy::KoboProxy::new(),
             shutdown_tx: tokio::sync::watch::channel(false).0,
         }
     }
@@ -1854,6 +1855,7 @@ mod tests {
         assert_eq!(json["booksReadCount"], 0);
         assert_eq!(json["maxNumberSort"], 3.0);
 
+        let mut events = state.events.subscribe();
         let response = app
             .clone()
             .oneshot(authed_json(
@@ -1865,6 +1867,16 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+        // each newly completed book publishes a ReadProgressChanged event
+        let mut progress_events = vec![];
+        while let Ok(event) = events.try_recv() {
+            if let crate::events::DomainEvent::ReadProgressChanged(p) = event {
+                progress_events.push(p);
+            }
+        }
+        assert_eq!(progress_events.len(), 2);
+        assert!(progress_events.iter().all(|p| p.completed));
 
         let dao = ReadProgressDao::new(state.db.clone());
         let progresses = dao.find_by_user(&user.id).unwrap();

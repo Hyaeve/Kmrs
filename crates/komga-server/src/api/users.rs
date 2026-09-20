@@ -457,6 +457,8 @@ mod tests {
             tsid: Arc::new(komga_core::tsid::TsidFactory::new_random_node()),
             events: crate::events::event_bus(),
             search_index: crate::state::test_search_index(),
+            kepub: crate::service::kepub::KepubConverter::new(tempfile::tempdir().unwrap().keep()),
+            kobo_proxy: crate::service::kobo_proxy::KoboProxy::new(),
             shutdown_tx,
         };
         (state, shutdown_rx)

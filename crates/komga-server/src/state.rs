@@ -18,6 +18,8 @@ pub struct AppState {
     pub events: crate::events::EventBus,
     pub task_emitter: Arc<crate::service::TaskEmitter>,
     pub search_index: Arc<komga_search::SearchIndex>,
+    pub kepub: Arc<crate::service::kepub::KepubConverter>,
+    pub kobo_proxy: Arc<crate::service::kobo_proxy::KoboProxy>,
     /// Broadcasts the shutdown request (actuator `/actuator/shutdown`)
     pub shutdown_tx: tokio::sync::watch::Sender<bool>,
 }

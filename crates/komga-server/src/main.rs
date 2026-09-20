@@ -66,6 +66,8 @@ async fn main() -> anyhow::Result<()> {
             task_notify.clone(),
         )),
         search_index: search_index.clone(),
+        kepub: service::kepub::KepubConverter::new(service::kepub::default_tmp_dir()),
+        kobo_proxy: service::kobo_proxy::KoboProxy::new(),
         shutdown_tx,
         db,
         tasks_db,

@@ -2519,7 +2519,7 @@ mod tests {
         fixture: &str,
     ) -> komga_core::model::media::Media {
         let path = fixtures().join(fixture);
-        let analysis = komga_media::analyzer::Analyzer::new(3, 600, 15).analyze(&path, false);
+        let analysis = komga_media::analyzer::Analyzer::new(3, 600, 15, None).analyze(&path, false);
         let mut media = analysis.media;
         media.book_id = book_id.to_string();
         if let Some(ext) = &analysis.epub_extension {
@@ -3138,7 +3138,7 @@ mod tests {
             zip.write_all(&bmp.into_inner()).unwrap();
             zip.finish().unwrap();
         }
-        let analysis = komga_media::analyzer::Analyzer::new(3, 600, 15).analyze(&path, false);
+        let analysis = komga_media::analyzer::Analyzer::new(3, 600, 15, None).analyze(&path, false);
         let mut media = analysis.media;
         media.book_id = "b8".to_string();
         exec(

@@ -119,6 +119,9 @@ pub fn analyze_and_persist(state: &AppState, transient_book: &TransientBook) -> 
         state.config.page_hashing,
         state.settings.get().thumbnail_size.max_edge(),
         state.config.epub_divina_letter_count_threshold,
+        state
+            .kepub
+            .kepubify_path(&state.settings.get(), &state.config),
     );
     let analysis = analyzer.analyze(&book_path(&transient_book.book), true);
     let media = analysis.media;

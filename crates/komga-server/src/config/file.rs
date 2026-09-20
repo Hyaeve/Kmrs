@@ -262,7 +262,7 @@ pub fn render(file: &FileConfig, config: &ServerConfig, source: Option<&Path>) -
             .and_then(|s| s.data_directory.as_ref())
             .is_some(),
         format!(
-            "data-directory = {} # tantivy index; env: KOMGA_LUCENE_DATA_DIRECTORY",
+            "data-directory = {} # tantivy index; env: KOMGA_LUCENE_DATADIRECTORY",
             q(&config.lucene_dir.display().to_string())
         ),
     );
@@ -276,7 +276,7 @@ pub fn render(file: &FileConfig, config: &ServerConfig, source: Option<&Path>) -
             .and_then(|f| f.data_directory.as_ref())
             .is_some(),
         format!(
-            "data-directory = {} # env: KOMGA_FONTS_DATA_DIRECTORY",
+            "data-directory = {} # env: KOMGA_FONTS_DATADIRECTORY",
             q(&config.fonts_dir.display().to_string())
         ),
     );
@@ -357,11 +357,11 @@ pub fn render(file: &FileConfig, config: &ServerConfig, source: Option<&Path>) -
     );
     match &config.kepubify_path {
         Some(p) => out.push_str(&format!(
-            "kepubify-path = {} # env: KOMGA_KOBO_KEPUBIFY_PATH\n",
+            "kepubify-path = {} # env: KOMGA_KOBO_KEPUBIFYPATH\n",
             q(&p.display().to_string())
         )),
         None => out.push_str(
-            "# kepubify-path = \"/usr/local/bin/kepubify\" # env: KOMGA_KOBO_KEPUBIFY_PATH\n",
+            "# kepubify-path = \"/usr/local/bin/kepubify\" # env: KOMGA_KOBO_KEPUBIFYPATH\n",
         ),
     }
     out.push('\n');

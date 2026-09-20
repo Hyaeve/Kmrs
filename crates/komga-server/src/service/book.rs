@@ -60,6 +60,9 @@ fn analyzer_for(state: &AppState) -> Analyzer {
         state.config.page_hashing,
         state.settings.get().thumbnail_size.max_edge(),
         state.config.epub_divina_letter_count_threshold,
+        state
+            .kepub
+            .kepubify_path(&state.settings.get(), &state.config),
     )
 }
 
@@ -650,6 +653,8 @@ mod tests {
             db,
             tasks_db,
             search_index: test_search_index(),
+            kepub: crate::service::kepub::KepubConverter::new(tempfile::tempdir().unwrap().keep()),
+            kobo_proxy: crate::service::kobo_proxy::KoboProxy::new(),
             shutdown_tx: tokio::sync::watch::channel(false).0,
         }
     }

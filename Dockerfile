@@ -7,19 +7,22 @@
 
 # Runs on the build platform, so no emulation is ever needed: downloads
 # libpdfium (a lazy runtime dependency for PDF support; kmrs looks it up next
-# to the executable) and prepares the mount points for the target stage.
+# to the executable) and kepubify (EPUB -> KEPUB conversion for Kobo sync,
+# same as the komga image), and prepares the mount points for the target stage.
 FROM --platform=$BUILDPLATFORM debian:trixie-slim AS base
 ARG TARGETARCH
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
  && case "$TARGETARCH" in \
-      amd64) arch=x64 ;; \
-      arm64) arch=arm64 ;; \
+      amd64) arch=x64; kepub=64bit ;; \
+      arm64) arch=arm64; kepub=arm64 ;; \
       *) echo "unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
     esac; \
     curl -fsSL "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-linux-$arch.tgz" \
       | tar -xz -C /tmp --strip-components=1 lib/libpdfium.so \
  && test -s /tmp/libpdfium.so \
+ && curl -fsSL "https://github.com/pgaskin/kepubify/releases/latest/download/kepubify-linux-$kepub" -o /tmp/kepubify \
+ && test -s /tmp/kepubify \
  && install -d -m 777 /staging/config /staging/data
 
 FROM debian:trixie-slim
@@ -29,9 +32,11 @@ LABEL org.opencontainers.image.source="https://github.com/everpcpc/kmrs" \
       org.opencontainers.image.licenses="MIT"
 # Drop-in replacement for gotson/komga: same port, same /config and /data
 # mounts, same KOMGA_* env vars.
-ENV KOMGA_CONFIG_DIR=/config
+ENV KOMGA_CONFIG_DIR=/config \
+    KOMGA_KOBO_KEPUBIFYPATH=/usr/local/bin/kepubify
 COPY --chmod=755 "dist/$TARGETARCH/kmrs" /usr/local/bin/kmrs
 COPY --from=base /tmp/libpdfium.so /usr/local/bin/libpdfium.so
+COPY --chmod=755 --from=base /tmp/kepubify /usr/local/bin/kepubify
 # 777 so an arbitrary --user uid:gid can write when nothing is bind-mounted;
 # COPY of a directory preserves the modes set in the base stage
 COPY --from=base /staging /

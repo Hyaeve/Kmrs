@@ -25,6 +25,9 @@ pub struct Analyzer {
     page_hashing: u32,
     thumbnail_max_edge: u32,
     letter_count_threshold: usize,
+    /// Probed kepubify executable; plain EPUBs are converted on the fly to extract real kobo
+    /// span positions (`EpubExtractor.computePositions`).
+    kepubify_path: Option<std::path::PathBuf>,
 }
 
 pub struct Analysis {
@@ -79,11 +82,17 @@ pub struct GeneratedThumbnail {
 }
 
 impl Analyzer {
-    pub fn new(page_hashing: u32, thumbnail_max_edge: u32, letter_count_threshold: usize) -> Self {
+    pub fn new(
+        page_hashing: u32,
+        thumbnail_max_edge: u32,
+        letter_count_threshold: usize,
+        kepubify_path: Option<std::path::PathBuf>,
+    ) -> Self {
         Self {
             page_hashing,
             thumbnail_max_edge,
             letter_count_threshold,
+            kepubify_path,
         }
     }
 
@@ -310,7 +319,14 @@ impl Analyzer {
 
         let is_fixed_layout = !divina_pages.is_empty() || is_fixed_layout(&pkg);
 
-        let positions = match compute_positions(&mut pkg, &resources, is_fixed_layout, is_kepub) {
+        let positions = match compute_positions(
+            &mut pkg,
+            &resources,
+            is_fixed_layout,
+            is_kepub,
+            book_path,
+            self.kepubify_path.as_deref(),
+        ) {
             Ok(p) => p,
             Err(e) => {
                 tracing::error!("Error while getting EPUB positions: {e}");
@@ -1249,6 +1265,8 @@ fn compute_positions(
     resources: &[MediaFile],
     is_fixed_layout: bool,
     is_kepub: bool,
+    book_path: &Path,
+    kepubify_path: Option<&Path>,
 ) -> Result<Vec<R2Locator>> {
     let reading_order: Vec<&MediaFile> = resources
         .iter()
@@ -1259,8 +1277,15 @@ fn compute_positions(
         HashMap::new()
     } else if is_kepub {
         compute_positions_from_kobo_span(&reading_order, &mut |name| pkg.read_entry_string(name))?
+    } else if let Some(kepubify_path) = kepubify_path {
+        positions_via_kepubify(kepubify_path, book_path, &reading_order).unwrap_or_else(|| {
+            tracing::warn!(
+                "Could not convert to Kepub to compute positions: {}",
+                book_path.display()
+            );
+            HashMap::new()
+        })
     } else {
-        // kepubify conversion is not integrated; treated as unavailable
         HashMap::new()
     };
 
@@ -1338,6 +1363,30 @@ fn compute_positions(
             l
         })
         .collect())
+}
+
+/// `EpubExtractor`: plain EPUBs are converted to a temporary KEPUB so positions can be read
+/// from real kobo spans; the converted file is deleted right after.
+fn positions_via_kepubify(
+    kepubify_path: &Path,
+    book_path: &Path,
+    reading_order: &[&MediaFile],
+) -> Option<HashMap<String, Vec<(String, f32)>>> {
+    let kepub = crate::kepubify::convert(kepubify_path, book_path, None)?;
+    let result = std::fs::File::open(&kepub)
+        .ok()
+        .and_then(|f| zip::ZipArchive::new(f).ok())
+        .and_then(|mut archive| {
+            compute_positions_from_kobo_span(reading_order, &mut |name| {
+                let mut entry = archive.by_name(name).ok()?;
+                let mut buf = Vec::new();
+                entry.read_to_end(&mut buf).ok()?;
+                Some(String::from_utf8_lossy(&buf).into_owned())
+            })
+            .ok()
+        });
+    let _ = std::fs::remove_file(&kepub);
+    result
 }
 
 /// `EpubExtractor.computePositionsFromKoboSpan`: koboSpan id → progression per resource.
@@ -1801,7 +1850,7 @@ mod tests {
     }
 
     fn analyzer() -> Analyzer {
-        Analyzer::new(3, 300, 15)
+        Analyzer::new(3, 300, 15, None)
     }
 
     fn make_png(w: u32, h: u32) -> Vec<u8> {
@@ -2124,6 +2173,118 @@ mod tests {
         assert!((at(34).progression.unwrap() - 30.0 / 31.0).abs() < 1e-6);
         assert_eq!(at(34).total_progression, Some(1.0));
     }
+
+    // region analyze: epub positions via kepubify
+
+    fn executable_script(path: &Path, content: &str) {
+        std::fs::write(path, content).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+    }
+
+    fn kepub_fixture_paths(
+        dir: &Path,
+    ) -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
+        let source = dir.join("plain-book.epub");
+        let converted = dir.join("converted.epub");
+        let script = dir.join("kepubify");
+        (source, converted, script)
+    }
+
+    /// Builds a plain EPUB and its would-be kepubify output (same page with kobo spans).
+    /// The plain page is 2440 bytes: 3 positions at progressions 0, 1/3, 2/3. In the converted
+    /// page the kobo.9.9 span ends at byte 1303 (progression 1303/2440 ≈ 0.53), the nearest
+    /// span for both p1 and p2.
+    fn write_plain_and_converted_epubs(source: &Path, converted: &Path) {
+        let text1 = "lorem ".repeat(200);
+        let text2 = "ipsum ".repeat(200);
+        let container = br#"<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles><rootfile full-path="content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>"#;
+        let opf = br#"<?xml version="1.0" encoding="UTF-8"?>
+<package version="3.0" xmlns="http://www.idpf.org/2007/opf" unique-identifier="id">
+  <metadata><dc:identifier xmlns:dc="http://purl.org/dc/elements/1.1/">id</dc:identifier></metadata>
+  <manifest><item id="p1" href="page1.xhtml" media-type="application/xhtml+xml"/></manifest>
+  <spine><itemref idref="p1"/></spine>
+</package>"#;
+        let plain_page = format!("<html><body><p>{text1}</p><p>{text2}</p></body></html>");
+        assert_eq!(
+            plain_page.len(),
+            2440,
+            "position math depends on the page size"
+        );
+        let converted_page = format!(
+            "<html><body><span class=\"koboSpan\" id=\"kobo.1.1\"></span><p>{text1}<span class=\"koboSpan\" id=\"kobo.9.9\"></span></p><p>{text2}<span class=\"koboSpan\" id=\"kobo.9.10\"></span></p></body></html>"
+        );
+        write_zip(
+            source,
+            &[
+                ("mimetype", b"application/epub+zip".as_slice()),
+                ("META-INF/container.xml", container.as_slice()),
+                ("content.opf", opf.as_slice()),
+                ("page1.xhtml", plain_page.as_bytes()),
+            ],
+        );
+        write_zip(
+            converted,
+            &[
+                ("mimetype", b"application/epub+zip".as_slice()),
+                ("META-INF/container.xml", container.as_slice()),
+                ("content.opf", opf.as_slice()),
+                ("page1.xhtml", converted_page.as_bytes()),
+            ],
+        );
+    }
+
+    #[test]
+    fn analyze_epub_positions_from_kepubify_conversion() {
+        let dir = tmpdir("kepub-positions");
+        let (source, converted, script) = kepub_fixture_paths(&dir);
+        write_plain_and_converted_epubs(&source, &converted);
+        executable_script(
+            &script,
+            &format!("#!/bin/sh\ncp \"{}\" \"$3\"\n", converted.display()),
+        );
+
+        let analysis = Analyzer::new(3, 300, 15, Some(script.clone())).analyze(&source, false);
+        let media = &analysis.media;
+        assert_eq!(media.status, MediaStatus::Ready);
+        assert!(!media.epub_is_kepub);
+
+        let ext = analysis.epub_extension.as_ref().unwrap();
+        assert!(!ext.is_fixed_layout);
+        let positions = &ext.positions;
+        // 2440 bytes -> 3 positions; p0 is hardcoded, p1/p2 map to spans of the converted file
+        assert_eq!(positions.len(), 3);
+        assert_eq!(positions[0].kobo_span.as_deref(), Some("kobo.1.1"));
+        assert_eq!(positions[1].kobo_span.as_deref(), Some("kobo.9.9"));
+        assert_eq!(positions[2].kobo_span.as_deref(), Some("kobo.9.9"));
+        // the converted file is cleaned up
+        assert!(!std::env::temp_dir().join("plain-book.kepub.epub").exists());
+    }
+
+    #[test]
+    fn analyze_epub_positions_kepubify_failure_degrades() {
+        let dir = tmpdir("kepub-positions-fail");
+        let (source, converted, script) = kepub_fixture_paths(&dir);
+        write_plain_and_converted_epubs(&source, &converted);
+        executable_script(&script, "#!/bin/sh\nexit 1\n");
+
+        let analysis = Analyzer::new(3, 300, 15, Some(script.clone())).analyze(&source, false);
+        assert_eq!(analysis.media.status, MediaStatus::Ready);
+        let ext = analysis.epub_extension.as_ref().unwrap();
+        let positions = &ext.positions;
+        assert_eq!(positions.len(), 3);
+        assert_eq!(positions[0].kobo_span.as_deref(), Some("kobo.1.1"));
+        assert_eq!(positions[1].kobo_span, None);
+        assert_eq!(positions[2].kobo_span, None);
+    }
+
+    // endregion
 
     #[test]
     fn analyze_pdf_ready() {

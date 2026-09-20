@@ -2224,6 +2224,8 @@ mod tests {
             tsid: Arc::new(TsidFactory::new_random_node()),
             events: crate::events::event_bus(),
             search_index: test_search_index(),
+            kepub: crate::service::kepub::KepubConverter::new(tempfile::tempdir().unwrap().keep()),
+            kobo_proxy: crate::service::kobo_proxy::KoboProxy::new(),
             shutdown_tx: tokio::sync::watch::channel(false).0,
         }
     }

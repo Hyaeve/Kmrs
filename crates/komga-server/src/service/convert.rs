@@ -244,6 +244,9 @@ pub fn convert_to_cbz(state: &AppState, book: &Book) -> ConvertResult<()> {
         state.config.page_hashing,
         state.settings.get().thumbnail_size.max_edge(),
         state.config.epub_divina_letter_count_threshold,
+        state
+            .kepub
+            .kepubify_path(&state.settings.get(), &state.config),
     );
     let mut converted_media = analyzer
         .analyze(&destination_path, library.analyze_dimensions)
@@ -551,6 +554,9 @@ pub fn remove_hashed_pages(
         state.config.page_hashing,
         state.settings.get().thumbnail_size.max_edge(),
         state.config.epub_divina_letter_count_threshold,
+        state
+            .kepub
+            .kepubify_path(&state.settings.get(), &state.config),
     );
     let library = LibraryDao::new(state.db.clone())
         .find_by_id(&book.library_id)?
@@ -891,7 +897,7 @@ mod tests {
         book.library_id = "lib1".into();
         let added = crate::service::series::add_books(&env.state, &env.series, &[book]).unwrap();
         let book = added.into_iter().next().unwrap();
-        let analysis = Analyzer::new(3, 300, 15).analyze(file, true);
+        let analysis = Analyzer::new(3, 300, 15, None).analyze(file, true);
         let mut media = analysis.media;
         media.book_id = book.id.clone();
         media.status = MediaStatus::Ready;

@@ -6,7 +6,7 @@ A Rust rewrite of the [Komga](https://komga.org) server. The goal is **full comp
 - Endpoints, DTOs, pagination, error shapes, and authentication behavior for REST `/api/**`, OPDS v1.2/v2, SSE, Kobo, and KOReader match the Java version
 - No UI
 
-The compatibility target is **komga 1.27.0**: the Flyway migrations, the OpenAPI document, and the behavior fixtures are taken from that release, and API behavior is ported from it. Known deviations are cataloged in [docs/gaps.md](docs/gaps.md).
+The compatibility target is **komga 1.27.0**: the Flyway migrations, the OpenAPI document, and the behavior fixtures are taken from that release, and API behavior is ported from it. Known deviations are listed under [Known limitations](#known-limitations).
 
 ## Structure
 
@@ -59,6 +59,41 @@ An existing komga `/config` directory (with `database.sqlite` / `tasks.sqlite`) 
 ```sh
 python3 tests/diff/diff.py --java-jar /path/to/komga.jar --rust-bin ./target/debug/kmrs
 ```
+
+## Known limitations
+
+Places where kmrs deviates from the Java version. Scope exclusions (no web UI) are intentional and not listed.
+
+### Media formats
+
+- No JXL / HEIF / JPEG2000 decoding: those types are sniffed but excluded from the readable image types, so page convert/resize fails like an unsupported reader. The Java version decodes them via ImageIO/TwelveMonkeys.
+- PDF support requires a runtime libpdfium, looked up in `KOMGA_PDFIUM_PATH`, next to the executable, then system paths; when unavailable, every PDF operation returns `Unsupported`. The Java version bundles PDFBox. The Docker image ships libpdfium next to the binary.
+- JPEG output is not byte-identical to ImageIO (different encoder) — an accepted deviation that affects byte-level comparisons of thumbnails and page hashes.
+
+### Search
+
+- Lucene fuzzy (`~`) and phrase-slop (`~N`) queries are unsupported and yield empty results.
+- `komga.lucene.index-analyzer.*` and `komga.lucene.commit-delay` are ignored (warned and dropped during Java config migration); the analyzer is fixed to the multilingual ngram chain.
+- Index codec upgrade is a no-op: tantivy has no such concept, and version-based reindexing already covers it.
+
+### Database / migrations
+
+- Flyway baseline is not supported: a database that has objects but no `flyway_schema_history` table hard-errors instead of being adopted.
+- Deprecated BCP47 aliases (e.g. `iw` → `he`) are not normalized by the language-code migration for pre-2023-08 libraries — an accepted deviation.
+
+### Actuator
+
+- Only a subset of Spring's actuator is implemented (health, info, metrics, scheduledtasks, shutdown), and metrics are limited to about ten names.
+
+### Ignored Java configuration keys
+
+Warned about and dropped during `application.yml` migration:
+
+- `server.error.*`
+- `komga.database.batch-chunk-size`, `komga.tasks-db.batch-chunk-size`
+- `komga.database.check-local-filesystem`, `komga.tasks-db.check-local-filesystem`
+
+Ignored but behavior-equivalent (not limitations): `server.tomcat.*` (tomcat-specific), `server.forward-headers-strategy` (always `framework`), shutdown handling (always graceful).
 
 ## License
 

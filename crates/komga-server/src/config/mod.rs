@@ -232,13 +232,13 @@ impl ServerConfig {
             .filter(|v| !v.is_empty());
 
         Ok(Self {
-            lucene_dir: env_path(env, "KOMGA_LUCENE_DATA_DIRECTORY")
+            lucene_dir: env_path(env, "KOMGA_LUCENE_DATADIRECTORY")
                 .or_else(|| {
                     file.and_then(|f| f.search.as_ref())
                         .and_then(|s| s.data_directory.clone())
                 })
                 .unwrap_or_else(|| config_dir.join("lucene")),
-            fonts_dir: env_path(env, "KOMGA_FONTS_DATA_DIRECTORY")
+            fonts_dir: env_path(env, "KOMGA_FONTS_DATADIRECTORY")
                 .or_else(|| {
                     file.and_then(|f| f.fonts.as_ref())
                         .and_then(|f| f.data_directory.clone())
@@ -277,7 +277,7 @@ impl ServerConfig {
                         .and_then(|k| k.sync_item_limit)
                 })
                 .unwrap_or(100),
-            kepubify_path: env_path(env, "KOMGA_KOBO_KEPUBIFY_PATH").or_else(|| {
+            kepubify_path: env_path(env, "KOMGA_KOBO_KEPUBIFYPATH").or_else(|| {
                 file.and_then(|f| f.kobo.as_ref())
                     .and_then(|k| k.kepubify_path.clone())
             }),
@@ -647,6 +647,34 @@ kepubify-path = "/usr/local/bin/kepubify"
         assert_eq!(config.port, 7000);
         let config = resolve("[server]\nport = 8000\n", Cli::default(), &[]);
         assert_eq!(config.port, 8000);
+    }
+
+    #[test]
+    fn kepubify_path_from_env() {
+        // Spring canonical form (`komga.kobo.kepubify-path`, dashes removed)
+        let config = resolve(
+            "",
+            Cli::default(),
+            &env(&[("KOMGA_KOBO_KEPUBIFYPATH", "/opt/kepubify")]),
+        );
+        assert_eq!(
+            config.kepubify_path,
+            Some(std::path::PathBuf::from("/opt/kepubify"))
+        );
+    }
+
+    #[test]
+    fn data_directories_from_env() {
+        let config = resolve(
+            "",
+            Cli::default(),
+            &env(&[
+                ("KOMGA_LUCENE_DATADIRECTORY", "/lucene"),
+                ("KOMGA_FONTS_DATADIRECTORY", "/fonts"),
+            ]),
+        );
+        assert_eq!(config.lucene_dir, std::path::PathBuf::from("/lucene"));
+        assert_eq!(config.fonts_dir, std::path::PathBuf::from("/fonts"));
     }
 
     #[test]

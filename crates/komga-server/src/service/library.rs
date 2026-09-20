@@ -84,8 +84,9 @@ pub fn update_library(state: &AppState, to_update: &Library) -> Result<(), Libra
 
     dao.update(to_update)?;
 
-    // TODO(M4 scheduler): ScanScheduler::schedule_scan(state, to_update)
-    // when current.scan_interval != to_update.scan_interval
+    if current.scan_interval != to_update.scan_interval {
+        crate::service::scheduler::ScanScheduler::schedule_scan(state, to_update);
+    }
 
     if check_library_should_rescan(&current, to_update) {
         state
@@ -428,6 +429,41 @@ mod tests {
             .unwrap();
         assert_eq!(stored.name, "Renamed");
         assert!(stored.hash_koreader);
+    }
+
+    #[tokio::test]
+    async fn update_library_reschedules_periodic_scan() {
+        let app = app();
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("manga");
+        std::fs::create_dir(&root).unwrap();
+        let created = add_library(&app.state, &library("Manga", root.to_str().unwrap())).unwrap();
+        crate::service::scheduler::ScanScheduler::schedule_scan(&app.state, &created);
+        let period_of = |id: &str| {
+            crate::service::scheduler::ScanScheduler::scheduled_tasks()
+                .into_iter()
+                .find(|t| t.library_id == id)
+                .map(|t| t.period)
+        };
+        assert_eq!(
+            period_of(&created.id),
+            Some(std::time::Duration::from_secs(6 * 3600))
+        );
+
+        // interval changed: rescheduled with the new period
+        let mut updated = created.clone();
+        updated.scan_interval = ScanInterval::Daily;
+        update_library(&app.state, &updated).unwrap();
+        assert_eq!(
+            period_of(&created.id),
+            Some(std::time::Duration::from_secs(24 * 3600))
+        );
+
+        // disabled: the periodic scan is canceled
+        let mut updated2 = updated.clone();
+        updated2.scan_interval = ScanInterval::Disabled;
+        update_library(&app.state, &updated2).unwrap();
+        assert_eq!(period_of(&created.id), None);
     }
 
     #[test]
