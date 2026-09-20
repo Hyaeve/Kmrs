@@ -12,7 +12,7 @@ pub const SESSION_COOKIE_NAME: &str = "KOMGA-SESSION";
 pub const SESSION_HEADER_NAME: &str = "X-Auth-Token";
 
 /// Set once an API-key authentication replaces the session's security context
-/// (Java stores the `ApiKeyAuthenticationToken`, whose name is the key hash, in the session).
+/// (Java stores the `ApiKeyAuthenticationToken`, whose name is the masked key hash, in the session).
 #[derive(Clone)]
 pub struct SessionApiKey {
     pub id: String,
@@ -78,7 +78,7 @@ impl SessionStore {
 
     /// Replaces the session's identity with the API-key authentication, like Spring's
     /// `SecurityContextRepository` saving the new context. Unknown session ids are ignored:
-    /// API-key auth never establishes a session.
+    /// the caller creates the session first when the request had none.
     pub fn mark_api_key(&self, id: &str, user_id: &str, key_id: &str, key_hash: &str) {
         if let Some(existing) = self.cache.get(id) {
             self.cache.insert(

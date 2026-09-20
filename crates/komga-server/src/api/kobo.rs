@@ -136,9 +136,10 @@ impl axum::extract::FromRequestParts<AppState> for KoboAuth {
                 user_id: None,
                 email: None,
                 api_key_id: None,
-                api_key_comment: None,
+                // LoginListener.onFailure stores the masked key as apiKeyComment
+                api_key_comment: Some(komga_media::hash::compute_hash_bytes(token.as_bytes())),
                 success: false,
-                error: Some("Invalid API key".into()),
+                error: Some("Bad credentials".into()),
                 source: "ApiKey".into(),
             };
             state.record_activity(&Some(activity), parts).await;
@@ -149,7 +150,7 @@ impl axum::extract::FromRequestParts<AppState> for KoboAuth {
         }
         let activity = crate::auth::ActivityDraft {
             user_id: Some(api_key.user_id.clone()),
-            email: None,
+            email: Some(user.email.clone()),
             api_key_id: Some(api_key.id.clone()),
             api_key_comment: Some(api_key.comment.clone()),
             success: true,

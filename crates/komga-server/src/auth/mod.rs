@@ -1,8 +1,9 @@
 //! Authentication resolution and middleware: tries X-API-Key → Basic → X-Auth-Token/session cookie → remember-me, in that order.
 //! Aligned with `SecurityConfiguration.kt`: successful Basic/remember-me authentication establishes a session (IF_REQUIRED);
 //! any authenticated request with a `remember-me=true` parameter → issue a remember-me cookie.
-//! A successful API-key authentication is folded into the session's context, so subsequent requests
-//! with the same key skip re-authentication and record no further activity (`ApiKeyAuthenticationFilter.authenticationIsRequired`).
+//! A successful API-key authentication is folded into the session's context — creating the session
+//! when the request had none, like Spring's SecurityContext persistence — so subsequent requests with
+//! the same key skip re-authentication and record no further activity (`ApiKeyAuthenticationFilter.authenticationIsRequired`).
 
 pub mod remember_me;
 pub mod session;
@@ -93,8 +94,6 @@ struct Outcome {
     auth: Option<Auth>,
     new_session_id: Option<String>,
     activity: Option<ActivityDraft>,
-    /// Successful API-key auth to fold into the existing session (user id, key id, key hash).
-    api_key_mark: Option<(String, String, String)>,
 }
 
 fn resolve(state: &AppState, parts: &Parts, session_id: Option<&str>) -> Outcome {
@@ -103,12 +102,15 @@ fn resolve(state: &AppState, parts: &Parts, session_id: Option<&str>) -> Outcome
 
     // 1. X-API-Key
     if let Some(key) = headers.get("X-API-Key").and_then(|v| v.to_str().ok()) {
+        // sha512 is the DB lookup hash (Java's TokenEncoder credentials); the XXH3-128 masked hash
+        // is the token's principal name (Java's Hasher), used for the session mark and failure activity
         let hashed = sha512_hex(key.trim());
+        let masked = komga_media::hash::compute_hash_bytes(key.trim().as_bytes());
         // The session's SecurityContext is loaded before the API key filter runs; when it already
-        // holds an ApiKeyAuthenticationToken for the same key (its name is the key hash), the
+        // holds an ApiKeyAuthenticationToken for the same key (its name is the masked key hash), the
         // filter skips re-authentication, so no login event fires and no activity is recorded.
         if let Some(session) = session_id.and_then(|id| state.sessions.get(id)) {
-            if session.api_key.as_ref().is_some_and(|k| k.hash == hashed) {
+            if session.api_key.as_ref().is_some_and(|k| k.hash == masked) {
                 if let Ok(Some(user)) = user_dao.find_by_id(&session.user_id) {
                     return Outcome {
                         auth: Some(Auth {
@@ -118,7 +120,6 @@ fn resolve(state: &AppState, parts: &Parts, session_id: Option<&str>) -> Outcome
                         }),
                         new_session_id: None,
                         activity: None,
-                        api_key_mark: None,
                     };
                 }
             }
@@ -135,15 +136,32 @@ fn resolve(state: &AppState, parts: &Parts, session_id: Option<&str>) -> Outcome
                     error: None,
                     source: "ApiKey".into(),
                 };
+                // Spring persists the authenticated context into the session, creating one when
+                // the request had none; the session cookie issued in response lets the next
+                // request with the same key skip re-authentication (and its activity record).
+                let new_session_id = match session_id {
+                    Some(id) if state.sessions.get(id).is_some() => {
+                        state
+                            .sessions
+                            .mark_api_key(id, &user.id, &api_key.id, &masked);
+                        None
+                    }
+                    _ => {
+                        let id = state.sessions.create(&user.id);
+                        state
+                            .sessions
+                            .mark_api_key(&id, &user.id, &api_key.id, &masked);
+                        Some(id)
+                    }
+                };
                 Outcome {
                     auth: Some(Auth {
                         user: user.clone(),
                         source: AuthSource::ApiKey,
                         api_key_id: Some(api_key.id.clone()),
                     }),
-                    new_session_id: None,
+                    new_session_id,
                     activity: Some(activity),
-                    api_key_mark: Some((user.id, api_key.id, hashed)),
                 }
             }
             _ => Outcome {
@@ -153,12 +171,12 @@ fn resolve(state: &AppState, parts: &Parts, session_id: Option<&str>) -> Outcome
                     user_id: None,
                     email: None,
                     api_key_id: None,
-                    api_key_comment: None,
+                    // LoginListener.onFailure stores the masked key as apiKeyComment
+                    api_key_comment: Some(masked),
                     success: false,
-                    error: Some("Invalid API key".into()),
+                    error: Some("Bad credentials".into()),
                     source: "ApiKey".into(),
                 }),
-                api_key_mark: None,
             },
         };
     }
@@ -193,7 +211,6 @@ fn resolve(state: &AppState, parts: &Parts, session_id: Option<&str>) -> Outcome
                             api_key_id: None,
                         }),
                         activity: Some(activity),
-                        api_key_mark: None,
                     }
                 }
                 None => Outcome {
@@ -208,7 +225,6 @@ fn resolve(state: &AppState, parts: &Parts, session_id: Option<&str>) -> Outcome
                         error: Some("Bad credentials".into()),
                         source: "Password".into(),
                     }),
-                    api_key_mark: None,
                 },
             };
         }
@@ -218,7 +234,6 @@ fn resolve(state: &AppState, parts: &Parts, session_id: Option<&str>) -> Outcome
         auth: None,
         new_session_id: None,
         activity: None,
-        api_key_mark: None,
     }
 }
 
@@ -241,7 +256,6 @@ async fn resolve_session_and_remember(
                     }),
                     new_session_id: None,
                     activity: None,
-                    api_key_mark: None,
                 };
             }
         }
@@ -280,7 +294,6 @@ async fn resolve_session_and_remember(
                                     api_key_id: None,
                                 }),
                                 activity: Some(activity),
-                                api_key_mark: None,
                             };
                         }
                     }
@@ -293,7 +306,6 @@ async fn resolve_session_and_remember(
         auth: None,
         new_session_id: None,
         activity: None,
-        api_key_mark: None,
     }
 }
 
@@ -331,12 +343,6 @@ pub async fn auth_middleware(
     let mut outcome = resolve(&state, &parts, session_id.as_deref());
     if outcome.auth.is_none() && outcome.activity.is_none() {
         outcome = resolve_session_and_remember(&state, &parts, session_id.clone()).await;
-    }
-
-    // Spring persists the API-key authentication into the session's SecurityContext, so the
-    // next request with the same key skips re-authentication (and its activity record)
-    if let (Some(id), Some((user_id, key_id, key_hash))) = (&session_id, &outcome.api_key_mark) {
-        state.sessions.mark_api_key(id, user_id, key_id, key_hash);
     }
 
     state.record_activity(&outcome.activity, &parts).await;
