@@ -1009,8 +1009,8 @@ mod tests {
             .next()
             .unwrap();
         assert_eq!(
-            state.sessions.get(session_id).as_deref(),
-            Some(created.id.as_str())
+            state.sessions.get(session_id).map(|s| s.user_id),
+            Some(created.id.clone())
         );
     }
 

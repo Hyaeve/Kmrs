@@ -85,6 +85,11 @@ async fn process_one(state: &AppState, worker: u32) {
     let result = tokio::task::spawn_blocking(move || handle_task(&st, &task_for_blocking)).await;
     if let Err(e) = result {
         tracing::error!("Task {} execution panicked: {e}", task.describe());
+        crate::service::metrics::record_task_execution(
+            task.simple_type(),
+            std::time::Duration::ZERO,
+            false,
+        );
     }
     if let Err(e) = TasksDao::new(state.tasks_db.clone()).delete(&task.unique_id()) {
         tracing::error!("Failed to delete task {}: {e}", task.unique_id());
@@ -94,7 +99,14 @@ async fn process_one(state: &AppState, worker: u32) {
 fn handle_task(state: &AppState, task: &Task) {
     tracing::info!("Executing task: {}", task.describe());
     hook_start(&task.unique_id());
-    if let Err(e) = dispatch_task(state, task) {
+    let start = std::time::Instant::now();
+    let result = dispatch_task(state, task);
+    crate::service::metrics::record_task_execution(
+        task.simple_type(),
+        start.elapsed(),
+        result.is_ok(),
+    );
+    if let Err(e) = result {
         tracing::error!("Task {} execution failed: {e}", task.describe());
     }
     hook_end(&task.unique_id());

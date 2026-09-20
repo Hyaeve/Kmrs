@@ -1,6 +1,8 @@
 //! Authentication resolution and middleware: tries X-API-Key → Basic → X-Auth-Token/session cookie → remember-me, in that order.
 //! Aligned with `SecurityConfiguration.kt`: successful Basic/remember-me authentication establishes a session (IF_REQUIRED);
 //! any authenticated request with a `remember-me=true` parameter → issue a remember-me cookie.
+//! A successful API-key authentication is folded into the session's context, so subsequent requests
+//! with the same key skip re-authentication and record no further activity (`ApiKeyAuthenticationFilter.authenticationIsRequired`).
 
 pub mod remember_me;
 pub mod session;
@@ -91,15 +93,36 @@ struct Outcome {
     auth: Option<Auth>,
     new_session_id: Option<String>,
     activity: Option<ActivityDraft>,
+    /// Successful API-key auth to fold into the existing session (user id, key id, key hash).
+    api_key_mark: Option<(String, String, String)>,
 }
 
-fn resolve(state: &AppState, parts: &Parts) -> Outcome {
+fn resolve(state: &AppState, parts: &Parts, session_id: Option<&str>) -> Outcome {
     let headers = &parts.headers;
     let user_dao = UserDao::new(state.db.clone());
 
     // 1. X-API-Key
     if let Some(key) = headers.get("X-API-Key").and_then(|v| v.to_str().ok()) {
         let hashed = sha512_hex(key.trim());
+        // The session's SecurityContext is loaded before the API key filter runs; when it already
+        // holds an ApiKeyAuthenticationToken for the same key (its name is the key hash), the
+        // filter skips re-authentication, so no login event fires and no activity is recorded.
+        if let Some(session) = session_id.and_then(|id| state.sessions.get(id)) {
+            if session.api_key.as_ref().is_some_and(|k| k.hash == hashed) {
+                if let Ok(Some(user)) = user_dao.find_by_id(&session.user_id) {
+                    return Outcome {
+                        auth: Some(Auth {
+                            user,
+                            source: AuthSource::ApiKey,
+                            api_key_id: session.api_key.map(|k| k.id),
+                        }),
+                        new_session_id: None,
+                        activity: None,
+                        api_key_mark: None,
+                    };
+                }
+            }
+        }
         return match user_dao.find_by_api_key(&hashed) {
             Ok(Some((user, api_key))) => {
                 // LoginListener records user.id/user.email on success; nulls are for failures
@@ -114,12 +137,13 @@ fn resolve(state: &AppState, parts: &Parts) -> Outcome {
                 };
                 Outcome {
                     auth: Some(Auth {
-                        user,
+                        user: user.clone(),
                         source: AuthSource::ApiKey,
-                        api_key_id: activity.api_key_id.clone(),
+                        api_key_id: Some(api_key.id.clone()),
                     }),
                     new_session_id: None,
                     activity: Some(activity),
+                    api_key_mark: Some((user.id, api_key.id, hashed)),
                 }
             }
             _ => Outcome {
@@ -134,6 +158,7 @@ fn resolve(state: &AppState, parts: &Parts) -> Outcome {
                     error: Some("Invalid API key".into()),
                     source: "ApiKey".into(),
                 }),
+                api_key_mark: None,
             },
         };
     }
@@ -168,6 +193,7 @@ fn resolve(state: &AppState, parts: &Parts) -> Outcome {
                             api_key_id: None,
                         }),
                         activity: Some(activity),
+                        api_key_mark: None,
                     }
                 }
                 None => Outcome {
@@ -182,6 +208,7 @@ fn resolve(state: &AppState, parts: &Parts) -> Outcome {
                         error: Some("Bad credentials".into()),
                         source: "Password".into(),
                     }),
+                    api_key_mark: None,
                 },
             };
         }
@@ -191,6 +218,7 @@ fn resolve(state: &AppState, parts: &Parts) -> Outcome {
         auth: None,
         new_session_id: None,
         activity: None,
+        api_key_mark: None,
     }
 }
 
@@ -203,16 +231,17 @@ async fn resolve_session_and_remember(
 
     // 3. session (X-Auth-Token header takes precedence over cookie)
     if let Some(session_id) = session_id {
-        if let Some(user_id) = state.sessions.get(&session_id) {
-            if let Ok(Some(user)) = user_dao.find_by_id(&user_id) {
+        if let Some(session) = state.sessions.get(&session_id) {
+            if let Ok(Some(user)) = user_dao.find_by_id(&session.user_id) {
                 return Outcome {
                     auth: Some(Auth {
                         user,
                         source: AuthSource::Session,
-                        api_key_id: None,
+                        api_key_id: session.api_key.map(|k| k.id),
                     }),
                     new_session_id: None,
                     activity: None,
+                    api_key_mark: None,
                 };
             }
         }
@@ -251,6 +280,7 @@ async fn resolve_session_and_remember(
                                     api_key_id: None,
                                 }),
                                 activity: Some(activity),
+                                api_key_mark: None,
                             };
                         }
                     }
@@ -263,6 +293,7 @@ async fn resolve_session_and_remember(
         auth: None,
         new_session_id: None,
         activity: None,
+        api_key_mark: None,
     }
 }
 
@@ -295,10 +326,17 @@ pub async fn auth_middleware(
     let session_cookie = cookie_value(&parts, SESSION_COOKIE_NAME);
     let session_via_header = session_header.is_some();
 
-    let mut outcome = resolve(&state, &parts);
+    let session_id = session_header.or(session_cookie);
+
+    let mut outcome = resolve(&state, &parts, session_id.as_deref());
     if outcome.auth.is_none() && outcome.activity.is_none() {
-        outcome =
-            resolve_session_and_remember(&state, &parts, session_header.or(session_cookie)).await;
+        outcome = resolve_session_and_remember(&state, &parts, session_id.clone()).await;
+    }
+
+    // Spring persists the API-key authentication into the session's SecurityContext, so the
+    // next request with the same key skips re-authentication (and its activity record)
+    if let (Some(id), Some((user_id, key_id, key_hash))) = (&session_id, &outcome.api_key_mark) {
+        state.sessions.mark_api_key(id, user_id, key_id, key_hash);
     }
 
     state.record_activity(&outcome.activity, &parts).await;

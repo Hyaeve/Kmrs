@@ -565,4 +565,107 @@ mod tests {
         assert!(activity.success);
         assert_eq!(activity.source.as_deref(), Some("Password"));
     }
+
+    async fn activity_count(state: &AppState, user_id: &str, email: &str) -> i64 {
+        UserDao::new(state.db.clone())
+            .find_activities_by_user(user_id, email, None, 0)
+            .unwrap()
+            .1
+    }
+
+    /// Waits until `expected` activities are persisted (they are recorded on a spawned task).
+    async fn wait_activity_count(state: &AppState, user_id: &str, email: &str, expected: i64) {
+        for _ in 0..100 {
+            if activity_count(state, user_id, email).await >= expected {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        panic!("expected {expected} activities");
+    }
+
+    /// The session stores the API-key authentication, so further requests with the same key
+    /// skip re-authentication: one activity per session per key, like the Java filter chain.
+    #[tokio::test]
+    async fn api_key_with_session_records_activity_once_per_key() {
+        let (state, _rx) = test_state();
+        let user_id = seed_user(&state, "admin@example.com");
+        UserDao::new(state.db.clone())
+            .insert_api_key(&ApiKey {
+                id: String::new(),
+                user_id: user_id.clone(),
+                key: crate::auth::sha512_hex("secret2"),
+                comment: "test2".into(),
+                created_date: now_utc(),
+                last_modified_date: now_utc(),
+            })
+            .unwrap();
+        let session_id = state.sessions.create(&user_id);
+        let app = test_router(state.clone());
+
+        let call = |key: &str| {
+            let app = app.clone();
+            let session_id = session_id.clone();
+            let key = key.to_string();
+            async move {
+                app.oneshot(
+                    Request::builder()
+                        .method("GET")
+                        .uri("/api/v2/users/me")
+                        .header("X-API-Key", key)
+                        .header("X-Auth-Token", session_id)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap()
+            }
+        };
+
+        assert_eq!(call("secret").await.status(), StatusCode::OK);
+        wait_activity_count(&state, &user_id, "admin@example.com", 1).await;
+        assert_eq!(call("secret").await.status(), StatusCode::OK);
+        assert_eq!(call("secret").await.status(), StatusCode::OK);
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        assert_eq!(
+            activity_count(&state, &user_id, "admin@example.com").await,
+            1
+        );
+
+        // a different key has a different hash → re-authenticates once
+        assert_eq!(call("secret2").await.status(), StatusCode::OK);
+        wait_activity_count(&state, &user_id, "admin@example.com", 2).await;
+        assert_eq!(call("secret2").await.status(), StatusCode::OK);
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        assert_eq!(
+            activity_count(&state, &user_id, "admin@example.com").await,
+            2
+        );
+    }
+
+    /// Without a session there is no stored context to reuse: every API-key request records,
+    /// matching cookie-less clients against the Java server.
+    #[tokio::test]
+    async fn api_key_without_session_records_activity_every_time() {
+        let (state, _rx) = test_state();
+        let user_id = seed_user(&state, "admin@example.com");
+        let app = test_router(state.clone());
+
+        for _ in 0..2 {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("GET")
+                        .uri("/api/v2/users/me")
+                        .header("X-API-Key", "secret")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+        wait_activity_count(&state, &user_id, "admin@example.com", 2).await;
+    }
 }

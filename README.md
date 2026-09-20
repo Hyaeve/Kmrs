@@ -85,7 +85,7 @@ cargo xtask dump-checksums         # print Flyway CRC32 for all migrations
 
 ## Known limitations
 
-Places where kmrs deviates from the Java version. Scope exclusions (no web UI) are intentional and not listed.
+Places where kmrs deviates from the Java version. Scope exclusions are intentional and not listed: no web UI, and no actuator endpoints or metrics that only expose JVM/Spring internals (beans, conditions, env, configprops, loggers, mappings, heapdump, threaddump, `jvm.*`/`system.*`/`http.server.requests` meters and the like).
 
 ### Media formats
 
@@ -101,10 +101,6 @@ Places where kmrs deviates from the Java version. Scope exclusions (no web UI) a
 ### Database / migrations
 
 - Deprecated BCP47 aliases (e.g. `iw` → `he`) are not normalized by the language-code migration for pre-2023-08 libraries — an accepted deviation.
-
-### Actuator
-
-- Only a subset of Spring's actuator is implemented (health, info, metrics, scheduledtasks, shutdown), and metrics are limited to about ten names.
 
 ### Ignored Java configuration keys
 
