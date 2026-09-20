@@ -1372,7 +1372,10 @@ fn positions_via_kepubify(
     book_path: &Path,
     reading_order: &[&MediaFile],
 ) -> Option<HashMap<String, Vec<(String, f32)>>> {
-    let kepub = crate::kepubify::convert(kepubify_path, book_path, None)?;
+    // the output name is derived from the source file stem, so same-named EPUBs converted
+    // concurrently would clobber each other in the shared temp dir — isolate per call
+    let tmp = tempfile::tempdir().ok()?;
+    let kepub = crate::kepubify::convert(kepubify_path, book_path, Some(tmp.path()))?;
     let result = std::fs::File::open(&kepub)
         .ok()
         .and_then(|f| zip::ZipArchive::new(f).ok())
@@ -1385,7 +1388,6 @@ fn positions_via_kepubify(
             })
             .ok()
         });
-    let _ = std::fs::remove_file(&kepub);
     result
 }
 
@@ -2263,7 +2265,7 @@ mod tests {
         assert_eq!(positions[0].kobo_span.as_deref(), Some("kobo.1.1"));
         assert_eq!(positions[1].kobo_span.as_deref(), Some("kobo.9.9"));
         assert_eq!(positions[2].kobo_span.as_deref(), Some("kobo.9.9"));
-        // the converted file is cleaned up
+        // conversion runs in a per-call temp dir, nothing leaks into the shared one
         assert!(!std::env::temp_dir().join("plain-book.kepub.epub").exists());
     }
 

@@ -20,8 +20,8 @@ The compatibility target is **komga 1.27.0**: the Flyway migrations, the OpenAPI
 ## Development
 
 ```sh
-cargo test --workspace          # run tests (self-contained: fixtures are vendored under crates/*/tests/resources)
-cargo clippy --all-targets      # lint
+cargo nextest run --workspace     # run tests (self-contained: fixtures are vendored under crates/*/tests/resources)
+cargo clippy --all-targets        # lint
 cargo xtask sync-migrations     # reconcile with komga's Flyway migrations (requires a komga source checkout)
 cargo xtask dump-schema         # print the final migrated schema
 cargo xtask dump-checksums      # print Flyway CRC32 for all migrations
