@@ -8,7 +8,7 @@
 A drop-in, API-compatible reimplementation of the [Komga](https://komga.org) comic/manga server in Rust — a single static binary, no JVM required.
 
 > [!NOTE]
-> kmrs serves the API and OPDS feeds only — there is **no web UI**. Pair it with any Komga-compatible client (KOReader, Kobo, Paperback, Tachidesk, …).
+> kmrs serves the API and OPDS feeds only — there is **no web UI**. Pair it with a Komga-compatible client — [KMReader](https://github.com/everpcpc/KMReader) (iOS/macOS/tvOS), KOReader, Kobo, and [others](https://komga.org/docs/category/readers).
 
 ## Features
 
@@ -118,4 +118,4 @@ Ignored but behavior-equivalent (not limitations): `server.tomcat.*` (tomcat-spe
 
 ## License
 
-kmrs is under the [MIT License](LICENSE). The SQL migration files, the OpenAPI document, and the test fixtures are copied from the [komga](https://github.com/gotson/komga) source tree; everything else is a rewritten implementation. kmrs is not affiliated with the komga project.
+kmrs is under the [MIT License](LICENSE). The SQL migration files, the OpenAPI document, and the test fixtures are copied from the [komga](https://github.com/gotson/komga) source tree (see [NOTICE](NOTICE)); everything else is a rewritten implementation. kmrs is not affiliated with the komga project.
