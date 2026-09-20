@@ -11,7 +11,7 @@ use komga_core::model::series::{
 use komga_core::time_codec;
 use komga_core::tsid::TsidFactory;
 use rusqlite::{params, Row};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 const SERIES_COLUMNS: &str =
   "ID, NAME, URL, FILE_LAST_MODIFIED, LIBRARY_ID, BOOK_COUNT, DELETED_DATE, ONESHOT, CREATED_DATE, LAST_MODIFIED_DATE";
@@ -248,26 +248,19 @@ impl SeriesDao {
         urls: &[String],
     ) -> Result<Vec<Series>> {
         let conn = self.db.ro();
-        let sql = if urls.is_empty() {
-            format!(
-                "SELECT {SERIES_COLUMNS} FROM SERIES WHERE LIBRARY_ID = ? AND DELETED_DATE IS NULL"
-            )
-        } else {
-            let placeholders = urls.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
-            format!(
-                "SELECT {SERIES_COLUMNS} FROM SERIES WHERE LIBRARY_ID = ? AND DELETED_DATE IS NULL AND URL NOT IN ({placeholders})"
-            )
-        };
-        let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(library_id.to_string())];
-        params.extend(
-            urls.iter()
-                .map(|u| Box::new(u.clone()) as Box<dyn rusqlite::ToSql>),
-        );
-        let mut stmt = conn.prepare(&sql)?;
+        // urls is unbounded (one entry per scanned directory); a SQL NOT IN would exceed
+        // SQLite's variable limit, so the exclusion is applied in Rust
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {SERIES_COLUMNS} FROM SERIES WHERE LIBRARY_ID = ? AND DELETED_DATE IS NULL"
+        ))?;
+        let excluded: HashSet<&str> = urls.iter().map(String::as_str).collect();
         let series = stmt
-            .query_map(rusqlite::params_from_iter(params), Self::row_to_series)?
+            .query_map([library_id], Self::row_to_series)?
             .collect::<std::result::Result<Vec<_>, _>>()?;
-        Ok(series)
+        Ok(series
+            .into_iter()
+            .filter(|s| !excluded.contains(s.url.as_str()))
+            .collect())
     }
 
     pub fn count_grouped_by_library_id(&self) -> Result<HashMap<String, i64>> {
@@ -875,6 +868,36 @@ mod tests {
         let ids = dao.find_all_ids_by_library_id("lib1").unwrap();
         dao.delete_many(&ids).unwrap();
         assert_eq!(dao.count().unwrap(), 0);
+    }
+
+    #[test]
+    fn find_not_deleted_by_url_not_in_beyond_variable_limit() {
+        let db = db();
+        insert_library(&db, "lib1");
+        let dao = SeriesDao::new(db);
+
+        let gone_id = dao.insert(&sample_series("lib1")).unwrap();
+        // 33_000 > SQLITE_MAX_VARIABLE_NUMBER (32766)
+        let scanned: Vec<String> = (0..33_000)
+            .map(|i| format!("file:/data/s{i:05}/"))
+            .collect();
+        let gone = dao
+            .find_all_not_deleted_by_library_id_and_url_not_in("lib1", &scanned)
+            .unwrap();
+        assert_eq!(gone.len(), 1);
+        assert_eq!(gone[0].id, gone_id);
+
+        let mut kept = vec![sample_series("lib1").url];
+        kept.extend(scanned.iter().cloned());
+        assert!(dao
+            .find_all_not_deleted_by_library_id_and_url_not_in("lib1", &kept)
+            .unwrap()
+            .is_empty());
+
+        let all = dao
+            .find_all_not_deleted_by_library_id_and_url_not_in("lib1", &[])
+            .unwrap();
+        assert_eq!(all.len(), 1);
     }
 
     #[test]

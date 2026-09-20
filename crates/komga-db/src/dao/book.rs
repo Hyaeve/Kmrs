@@ -7,6 +7,7 @@ use komga_core::model::book::{Author, Book, BookMetadata, WebLink};
 use komga_core::time_codec;
 use komga_core::tsid::TsidFactory;
 use rusqlite::{params, Row};
+use std::collections::HashSet;
 
 const BOOK_COLUMNS: &str =
     "ID, NAME, URL, FILE_LAST_MODIFIED, SERIES_ID, LIBRARY_ID, FILE_SIZE, NUMBER, \
@@ -169,20 +170,18 @@ impl BookDao {
             return Ok(vec![]);
         }
         let conn = self.db.ro();
-        let placeholders = series_ids
-            .iter()
-            .map(|_| "?")
-            .collect::<Vec<_>>()
-            .join(", ");
-        let mut stmt = conn.prepare(&format!(
-            "SELECT {BOOK_COLUMNS} FROM BOOK WHERE SERIES_ID IN ({placeholders})"
-        ))?;
-        let books = stmt
-            .query_map(
-                rusqlite::params_from_iter(series_ids.iter()),
-                Self::row_to_book,
-            )?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let mut books = vec![];
+        // chunked to stay under SQLite's variable limit
+        for chunk in series_ids.chunks(500) {
+            let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+            let mut stmt = conn.prepare(&format!(
+                "SELECT {BOOK_COLUMNS} FROM BOOK WHERE SERIES_ID IN ({placeholders})"
+            ))?;
+            let rows = stmt
+                .query_map(rusqlite::params_from_iter(chunk.iter()), Self::row_to_book)?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            books.extend(rows);
+        }
         Ok(books)
     }
 
@@ -192,24 +191,19 @@ impl BookDao {
         urls: &[String],
     ) -> Result<Vec<Book>> {
         let conn = self.db.ro();
-        let sql = if urls.is_empty() {
-            format!("SELECT {BOOK_COLUMNS} FROM BOOK WHERE LIBRARY_ID = ? AND DELETED_DATE IS NULL")
-        } else {
-            let placeholders = urls.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
-            format!(
-                "SELECT {BOOK_COLUMNS} FROM BOOK WHERE LIBRARY_ID = ? AND DELETED_DATE IS NULL AND URL NOT IN ({placeholders})"
-            )
-        };
-        let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(library_id.to_string())];
-        params.extend(
-            urls.iter()
-                .map(|u| Box::new(u.clone()) as Box<dyn rusqlite::ToSql>),
-        );
-        let mut stmt = conn.prepare(&sql)?;
+        // urls is unbounded (one entry per scanned file); a SQL NOT IN would exceed
+        // SQLite's variable limit, so the exclusion is applied in Rust
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {BOOK_COLUMNS} FROM BOOK WHERE LIBRARY_ID = ? AND DELETED_DATE IS NULL"
+        ))?;
+        let excluded: HashSet<&str> = urls.iter().map(String::as_str).collect();
         let books = stmt
-            .query_map(rusqlite::params_from_iter(params), Self::row_to_book)?
+            .query_map([library_id], Self::row_to_book)?
             .collect::<std::result::Result<Vec<_>, _>>()?;
-        Ok(books)
+        Ok(books
+            .into_iter()
+            .filter(|b| !excluded.contains(b.url.as_str()))
+            .collect())
     }
 
     pub fn find_all_deleted_by_file_size(&self, file_size: i64) -> Result<Vec<Book>> {
@@ -690,6 +684,63 @@ mod tests {
 
         dao.delete(&id).unwrap();
         assert!(dao.find_by_id(&id).unwrap().is_none());
+    }
+
+    #[test]
+    fn find_not_deleted_by_url_not_in_beyond_variable_limit() {
+        let db = db();
+        let (library_id, series_id) = seed_library_series(&db);
+        let dao = BookDao::new(db);
+
+        let gone_id = dao.insert(&sample_book(&library_id, &series_id)).unwrap();
+        // 33_000 > SQLITE_MAX_VARIABLE_NUMBER (32766)
+        let scanned: Vec<String> = (0..33_000)
+            .map(|i| format!("file:/l/s/book{i:05}.cbz"))
+            .collect();
+        let gone = dao
+            .find_all_not_deleted_by_library_id_and_url_not_in(&library_id, &scanned)
+            .unwrap();
+        assert_eq!(gone.len(), 1);
+        assert_eq!(gone[0].id, gone_id);
+
+        let mut kept = vec![sample_book(&library_id, &series_id).url];
+        kept.extend(scanned.iter().cloned());
+        assert!(dao
+            .find_all_not_deleted_by_library_id_and_url_not_in(&library_id, &kept)
+            .unwrap()
+            .is_empty());
+
+        let all = dao
+            .find_all_not_deleted_by_library_id_and_url_not_in(&library_id, &[])
+            .unwrap();
+        assert_eq!(all.len(), 1);
+    }
+
+    #[test]
+    fn find_all_by_series_ids_across_chunks() {
+        let db = db();
+        let (library_id, series_id) = seed_library_series(&db);
+        db.rw()
+      .execute(
+        "INSERT INTO SERIES (ID, NAME, URL, FILE_LAST_MODIFIED, LIBRARY_ID) VALUES (?, ?, ?, ?, ?)",
+        params!["SERIES2", "S2", "file:/l/s2/", time_codec::format_datetime(now_utc()), library_id],
+      )
+      .unwrap();
+        let dao = BookDao::new(db);
+        let id1 = dao.insert(&sample_book(&library_id, &series_id)).unwrap();
+        let mut book2 = sample_book(&library_id, "SERIES2");
+        book2.url = "file:/l/s2/book01.cbz".into();
+        let id2 = dao.insert(&book2).unwrap();
+
+        // pad past the 500-id chunk boundary with ids that have no books
+        let mut ids: Vec<String> = (0..600).map(|i| format!("PAD{i}")).collect();
+        ids.push(series_id);
+        ids.push("SERIES2".into());
+        let mut found = dao.find_all_by_series_ids(&ids).unwrap();
+        found.sort_by(|a, b| a.id.cmp(&b.id));
+        let mut want = [id1, id2];
+        want.sort();
+        assert_eq!(found.iter().map(|b| b.id.clone()).collect::<Vec<_>>(), want);
     }
 
     fn sample_metadata(book_id: &str) -> BookMetadata {
