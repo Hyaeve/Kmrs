@@ -1,43 +1,27 @@
 # kmrs
 
-A Rust rewrite of the [Komga](https://komga.org) server. The goal is **full compatibility with the Java version's data formats and API behavior**:
+[![CI](https://github.com/everpcpc/kmrs/actions/workflows/ci.yml/badge.svg)](https://github.com/everpcpc/kmrs/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/everpcpc/kmrs)](https://github.com/everpcpc/kmrs/releases/latest)
+[![Docker image](https://img.shields.io/badge/ghcr.io-everpcpc%2Fkmrs-blue)](https://github.com/everpcpc/kmrs/pkgs/container/kmrs)
+[![License: MIT](https://img.shields.io/github/license/everpcpc/kmrs)](LICENSE)
 
-- Can directly open/upgrade existing komga data directories (`database.sqlite`, `tasks.sqlite`), and the Java version of komga can still open libraries written by kmrs
-- Endpoints, DTOs, pagination, error shapes, and authentication behavior for REST `/api/**`, OPDS v1.2/v2, SSE, Kobo, and KOReader match the Java version
-- No UI
+A drop-in, API-compatible reimplementation of the [Komga](https://komga.org) comic/manga server in Rust — a single static binary, no JVM required.
 
-The compatibility target is **komga 1.27.0**: the Flyway migrations, the OpenAPI document, and the behavior fixtures are taken from that release, and API behavior is ported from it. Known deviations are listed under [Known limitations](#known-limitations).
+> [!NOTE]
+> kmrs serves the API and OPDS feeds only — there is **no web UI**. Pair it with any Komga-compatible client (KOReader, Kobo, Paperback, Tachidesk, …).
 
-## Structure
+## Features
 
-- `crates/komga-core`: domain model, TSID, time encoding/decoding, natural-sort comparator, error codes
-- `crates/komga-db`: Flyway-compatible migrator (migration files are byte-for-byte copies of komga's Flyway migrations), connection pool, UDFs/collations, DAO
-- `crates/komga-media`: media pipeline (sniffing/extraction/hashing/thumbnails/metadata)
-- `crates/komga-search`: tantivy search index and Lucene query syntax
-- `crates/komga-server`: axum HTTP layer (DTOs, authentication, SSE, OPDS, task queue)
-- `xtask`: engineering helper commands
+- **Drop-in replacement** for `gotson/komga`: same port (25600), same `/config` and `/data` mounts, same `KOMGA_*` environment variables
+- **Data-level compatibility**: opens and upgrades existing komga data directories (`database.sqlite`, `tasks.sqlite`) in place — and the Java version can still open libraries written by kmrs
+- **API parity**: REST `/api/**`, OPDS v1.2/v2, SSE, Kobo sync, and KOReader progress sync — endpoints, DTOs, pagination, error shapes, and authentication behavior match the Java version
+- **Verified against the Java version**: byte-for-byte Flyway migrations, a differential test harness comparing ~105 endpoints against a live Java instance, and schema contract tests
 
-## Development
+## Quick start
 
-```sh
-cargo nextest run --workspace     # run tests (self-contained: fixtures are vendored under crates/*/tests/resources)
-cargo clippy --all-targets        # lint
-cargo xtask sync-migrations     # reconcile with komga's Flyway migrations (requires a komga source checkout)
-cargo xtask dump-schema         # print the final migrated schema
-cargo xtask dump-checksums      # print Flyway CRC32 for all migrations
-```
+### Docker
 
-`sync-migrations` looks for a `komga` source checkout next to this repo by default; `KOMGA_REPO_DIR` can be used to point elsewhere. The checkout should be at the compatibility target (`v1.27.0`).
-
-Run: `cargo run -p komga-server` produces the `kmrs` binary (default port 25600, data directory `~/.komga`, overridable with `KOMGA_CONFIG_DIR`).
-
-## Configuration
-
-`kmrs --help` lists the CLI flags (`--config-dir`, `--port`). The configuration file is always `<config-dir>/config.toml`; on first start it is generated from the built-in defaults, carrying over values from the Java komga's `application.yml`/`application.yaml` found in the same directory. See [examples/config.toml](examples/config.toml) for the full key list with defaults. Precedence: defaults < TOML file < env vars (Spring relaxed binding, e.g. `KOMGA_DATABASE_FILE`) < CLI flags.
-
-## Docker
-
-Every release publishes an image to `ghcr.io/everpcpc/kmrs` (tags: `latest`, `MAJOR.x`, `x.y.z`; platforms: `linux/amd64`, `linux/arm64`). It is a drop-in replacement for `gotson/komga` — same port, same `/config` and `/data` mounts, same `KOMGA_*` environment variables, so the [official Komga Docker instructions](https://komga.org/docs/installation/docker) apply verbatim, just with the image name swapped:
+Every release publishes an image to `ghcr.io/everpcpc/kmrs` (tags: `latest`, `MAJOR.x`, `x.y.z`; platforms: `linux/amd64`, `linux/arm64`). The [official Komga Docker instructions](https://komga.org/docs/installation/docker) apply verbatim — just swap the image name:
 
 ```sh
 docker run -d \
@@ -50,15 +34,54 @@ docker run -d \
   ghcr.io/everpcpc/kmrs
 ```
 
-An existing komga `/config` directory (with `database.sqlite` / `tasks.sqlite`) is picked up and upgraded in place. Note that kmrs serves the API/OPDS only — there is no web UI.
+An existing komga `/config` directory (with `database.sqlite` / `tasks.sqlite`) is picked up and upgraded in place.
 
-## Compatibility testing
+### Prebuilt binaries
+
+Download the archive for your platform from the [latest release](https://github.com/everpcpc/kmrs/releases/latest) (Linux, macOS, Windows; x86_64 and aarch64).
+
+### Build from source
+
+```sh
+cargo build --release -p komga-server   # produces target/release/kmrs
+```
+
+The binary serves on port 25600 with data directory `~/.komga` (override with `KOMGA_CONFIG_DIR`).
+
+## Configuration
+
+`kmrs --help` lists the CLI flags (`--config-dir`, `--port`). The configuration file is always `<config-dir>/config.toml`; on first start it is generated from the built-in defaults, carrying over values from the Java komga's `application.yml`/`application.yaml` found in the same directory. See [examples/config.toml](examples/config.toml) for the full key list with defaults. Precedence: defaults < TOML file < env vars (Spring relaxed binding, e.g. `KOMGA_DATABASE_FILE`) < CLI flags.
+
+## Compatibility
+
+The compatibility target is **komga 1.27.0**: the Flyway migrations, the OpenAPI document, and the behavior fixtures are taken from that release, and API behavior is ported from it. Known deviations are listed under [Known limitations](#known-limitations).
 
 `tests/diff/diff.py` starts the Java komga and kmrs side by side over the same fixture library and compares ~105 endpoints (status, normalized JSON/XML bodies, headers, zip structure):
 
 ```sh
 python3 tests/diff/diff.py --java-jar /path/to/komga.jar --rust-bin ./target/debug/kmrs
 ```
+
+## Development
+
+```sh
+cargo nextest run --workspace      # run tests (self-contained: fixtures are vendored under crates/*/tests/resources)
+cargo clippy --all-targets         # lint
+cargo xtask sync-migrations        # reconcile with komga's Flyway migrations (requires a komga source checkout)
+cargo xtask dump-schema            # print the final migrated schema
+cargo xtask dump-checksums         # print Flyway CRC32 for all migrations
+```
+
+`sync-migrations` looks for a `komga` source checkout next to this repo by default; `KOMGA_REPO_DIR` can be used to point elsewhere. The checkout should be at the compatibility target (`v1.27.0`).
+
+### Structure
+
+- `crates/komga-core`: domain model, TSID, time encoding/decoding, natural-sort comparator, error codes
+- `crates/komga-db`: Flyway-compatible migrator (migration files are byte-for-byte copies of komga's Flyway migrations), connection pool, UDFs/collations, DAO
+- `crates/komga-media`: media pipeline (sniffing/extraction/hashing/thumbnails/metadata)
+- `crates/komga-search`: tantivy search index and Lucene query syntax
+- `crates/komga-server`: axum HTTP layer (DTOs, authentication, SSE, OPDS, task queue)
+- `xtask`: engineering helper commands
 
 ## Known limitations
 
@@ -95,4 +118,4 @@ Ignored but behavior-equivalent (not limitations): `server.tomcat.*` (tomcat-spe
 
 ## License
 
-kmrs is under the [MIT License](LICENSE). The SQL migration files, the OpenAPI document, and the test fixtures are copied from the komga source tree; everything else is a rewritten implementation.
+kmrs is under the [MIT License](LICENSE). The SQL migration files, the OpenAPI document, and the test fixtures are copied from the [komga](https://github.com/gotson/komga) source tree; everything else is a rewritten implementation. kmrs is not affiliated with the komga project.
