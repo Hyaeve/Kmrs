@@ -220,21 +220,53 @@ impl UserDao {
         Ok(())
     }
 
-    /// Follows the deletion order of `KomgaUserDao.delete`.
-    pub fn delete(&self, user_id: &str) -> Result<()> {
+    /// `KomgaUserLifecycle.deleteUser` order: FKs to USER/SYNC_POINT have no
+    /// cascade, so dependents go first, all in one transaction. Activity rows
+    /// match by id or email like `AuthenticationActivityDao.deleteByUser`.
+    pub fn delete(&self, user_id: &str, email: &str) -> Result<()> {
         let conn = self.db.rw();
-        conn.execute("DELETE FROM USER_API_KEY WHERE USER_ID = ?", [user_id])?;
-        conn.execute(
+        let tx = conn.unchecked_transaction()?;
+        tx.execute(
+            "DELETE FROM CLIENT_SETTINGS_USER WHERE USER_ID = ?",
+            [user_id],
+        )?;
+        tx.execute("DELETE FROM READ_PROGRESS WHERE USER_ID = ?", [user_id])?;
+        tx.execute(
+            "DELETE FROM READ_PROGRESS_SERIES WHERE USER_ID = ?",
+            [user_id],
+        )?;
+        tx.execute(
+            "DELETE FROM AUTHENTICATION_ACTIVITY WHERE USER_ID = ? OR EMAIL = ?",
+            params![user_id, email],
+        )?;
+        for table in [
+            "SYNC_POINT_READLIST_REMOVED_SYNCED",
+            "SYNC_POINT_READLIST_BOOK",
+            "SYNC_POINT_READLIST",
+            "SYNC_POINT_BOOK_REMOVED_SYNCED",
+            "SYNC_POINT_BOOK",
+        ] {
+            tx.execute(
+                &format!(
+                    "DELETE FROM {table} WHERE SYNC_POINT_ID IN (SELECT ID FROM SYNC_POINT WHERE USER_ID = ?)"
+                ),
+                [user_id],
+            )?;
+        }
+        tx.execute("DELETE FROM SYNC_POINT WHERE USER_ID = ?", [user_id])?;
+        tx.execute("DELETE FROM USER_API_KEY WHERE USER_ID = ?", [user_id])?;
+        tx.execute(
             "DELETE FROM ANNOUNCEMENTS_READ WHERE USER_ID = ?",
             [user_id],
         )?;
-        conn.execute("DELETE FROM USER_SHARING WHERE USER_ID = ?", [user_id])?;
-        conn.execute(
+        tx.execute("DELETE FROM USER_SHARING WHERE USER_ID = ?", [user_id])?;
+        tx.execute(
             "DELETE FROM USER_LIBRARY_SHARING WHERE USER_ID = ?",
             [user_id],
         )?;
-        conn.execute("DELETE FROM USER_ROLE WHERE USER_ID = ?", [user_id])?;
-        conn.execute("DELETE FROM USER WHERE ID = ?", [user_id])?;
+        tx.execute("DELETE FROM USER_ROLE WHERE USER_ID = ?", [user_id])?;
+        tx.execute("DELETE FROM USER WHERE ID = ?", [user_id])?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -714,7 +746,7 @@ mod tests {
         assert_eq!(dao.count().unwrap(), 1);
         assert_eq!(dao.find_all().unwrap().len(), 1);
 
-        dao.delete(&id).unwrap();
+        dao.delete(&id, &found.email).unwrap();
         assert!(dao.find_by_id(&id).unwrap().is_none());
         for table in ["USER_ROLE", "USER_LIBRARY_SHARING", "USER_SHARING"] {
             let n: i64 = dao
@@ -771,13 +803,154 @@ mod tests {
 
         // deleting the user cascades to the keys
         dao.insert_api_key(&key).unwrap();
-        dao.delete(&user_id).unwrap();
+        dao.delete(&user_id, "Admin@Example.org").unwrap();
         let n: i64 = dao
             .db
             .ro()
             .query_row("SELECT COUNT(*) FROM USER_API_KEY", [], |r| r.get(0))
             .unwrap();
         assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn delete_removes_user_data_from_all_tables() {
+        let dao = dao();
+        let user = sample_user();
+        let user_id = dao.insert(&user).unwrap();
+
+        dao.insert_api_key(&ApiKey {
+            id: String::new(),
+            user_id: user_id.clone(),
+            key: "sha512hex".into(),
+            comment: "kobo".into(),
+            created_date: now_utc(),
+            last_modified_date: now_utc(),
+        })
+        .unwrap();
+        dao.insert_activity(&AuthenticationActivity {
+            user_id: Some(user_id.clone()),
+            email: Some(user.email.clone()),
+            api_key_id: None,
+            api_key_comment: None,
+            ip: None,
+            user_agent: None,
+            success: true,
+            error: None,
+            date_time: now_utc(),
+            source: Some("Password".into()),
+        })
+        .unwrap();
+        // failed logins leave rows without USER_ID; those match by email
+        dao.insert_activity(&AuthenticationActivity {
+            user_id: None,
+            email: Some(user.email.clone()),
+            api_key_id: None,
+            api_key_comment: None,
+            ip: None,
+            user_agent: None,
+            success: false,
+            error: Some("bad credentials".into()),
+            date_time: now_utc(),
+            source: Some("Password".into()),
+        })
+        .unwrap();
+
+        {
+            let conn = dao.db.rw();
+            conn.execute(
+                "INSERT INTO LIBRARY (ID, NAME, ROOT) VALUES ('lib1', 'L', 'file:/l/')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO SERIES (ID, NAME, URL, FILE_LAST_MODIFIED, LIBRARY_ID) \
+                 VALUES ('s1', 'S', 'file:/l/s/', '2020-01-01 00:00:00.0', 'lib1')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO BOOK (ID, NAME, URL, FILE_LAST_MODIFIED, SERIES_ID, LIBRARY_ID) \
+                 VALUES ('b1', 'B', 'file:/l/s/b.cbz', '2020-01-01 00:00:00.0', 's1', 'lib1')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO READ_PROGRESS (BOOK_ID, USER_ID, PAGE, COMPLETED) VALUES ('b1', ?, 1, 0)",
+                [&user_id],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO READ_PROGRESS_SERIES (SERIES_ID, USER_ID, READ_COUNT, IN_PROGRESS_COUNT) \
+                 VALUES ('s1', ?, 1, 0)",
+                [&user_id],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO CLIENT_SETTINGS_USER (USER_ID, KEY, VALUE) VALUES (?, 'k', 'v')",
+                [&user_id],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO SYNC_POINT (ID, USER_ID) VALUES ('sp1', ?)",
+                [&user_id],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO SYNC_POINT_BOOK \
+                 (SYNC_POINT_ID, BOOK_ID, BOOK_CREATED_DATE, BOOK_LAST_MODIFIED_DATE, BOOK_FILE_LAST_MODIFIED, BOOK_FILE_SIZE, BOOK_FILE_HASH, BOOK_METADATA_LAST_MODIFIED_DATE) \
+                 VALUES ('sp1', 'b1', '2020-01-01 00:00:00.0', '2020-01-01 00:00:00.0', '2020-01-01 00:00:00.0', 1, 'h', '2020-01-01 00:00:00.0')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO SYNC_POINT_BOOK_REMOVED_SYNCED (SYNC_POINT_ID, BOOK_ID) VALUES ('sp1', 'b2')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO SYNC_POINT_READLIST \
+                 (SYNC_POINT_ID, READLIST_ID, READLIST_NAME, READLIST_CREATED_DATE, READLIST_LAST_MODIFIED_DATE) \
+                 VALUES ('sp1', 'rl1', 'RL', '2020-01-01 00:00:00.0', '2020-01-01 00:00:00.0')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO SYNC_POINT_READLIST_BOOK (SYNC_POINT_ID, READLIST_ID, BOOK_ID) VALUES ('sp1', 'rl1', 'b1')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO SYNC_POINT_READLIST_REMOVED_SYNCED (SYNC_POINT_ID, READLIST_ID) VALUES ('sp1', 'rl2')",
+                [],
+            )
+            .unwrap();
+        }
+
+        dao.delete(&user_id, &user.email).unwrap();
+
+        for table in [
+            "USER_ROLE",
+            "USER_SHARING",
+            "USER_API_KEY",
+            "AUTHENTICATION_ACTIVITY",
+            "READ_PROGRESS",
+            "READ_PROGRESS_SERIES",
+            "CLIENT_SETTINGS_USER",
+            "SYNC_POINT",
+            "SYNC_POINT_BOOK",
+            "SYNC_POINT_BOOK_REMOVED_SYNCED",
+            "SYNC_POINT_READLIST",
+            "SYNC_POINT_READLIST_BOOK",
+            "SYNC_POINT_READLIST_REMOVED_SYNCED",
+        ] {
+            let n: i64 = dao
+                .db
+                .ro()
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(n, 0, "{table} not empty after delete");
+        }
+        assert!(dao.find_by_id(&user_id).unwrap().is_none());
     }
 
     #[test]

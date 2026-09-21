@@ -258,9 +258,10 @@ async fn delete_user(
         return Err(ApiError::forbidden(""));
     }
     let dao = user_dao(&state);
-    dao.find_by_id(&id)?
+    let user = dao
+        .find_by_id(&id)?
         .ok_or_else(|| ApiError::not_found(""))?;
-    dao.delete(&id)?;
+    dao.delete(&id, &user.email)?;
     state.sessions.invalidate_user(&id);
     Ok(StatusCode::NO_CONTENT)
 }
