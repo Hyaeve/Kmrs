@@ -58,6 +58,8 @@ pub struct ServerConfig {
     /// configurationSource of the settings DTO
     pub server_context_path: Option<String>,
     pub oauth2: OAuth2Config,
+    /// built komga-webui (dist/) served at / with SPA fallback; None = no web UI (default)
+    pub webui_dir: Option<PathBuf>,
     /// substituted into the SQL migrations
     pub migration_placeholders: Placeholders,
 }
@@ -283,6 +285,12 @@ impl ServerConfig {
             }),
             server_context_path,
             oauth2: merge_oauth2(file.and_then(|f| f.oauth2.as_ref()), env),
+            webui_dir: env_path(env, "KOMGA_WEBUI_DIR")
+                .or_else(|| {
+                    file.and_then(|f| f.webui.as_ref())
+                        .and_then(|w| w.dir.clone())
+                })
+                .filter(|p| !p.as_os_str().is_empty()),
             migration_placeholders: Placeholders {
                 library_file_hashing: env_bool(env, "KOMGA_FILEHASHING")
                     .or_else(|| {

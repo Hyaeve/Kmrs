@@ -506,6 +506,7 @@ pub(crate) mod test_support {
             server_context_path: None,
             migration_placeholders: Default::default(),
             oauth2: Default::default(),
+            webui_dir: None,
         }
     }
 

@@ -14,6 +14,7 @@ mod sse;
 mod state;
 #[allow(dead_code)]
 mod webpub;
+mod webui;
 mod zip_archive;
 
 use anyhow::Context;
@@ -148,6 +149,7 @@ pub fn build_router(state: AppState) -> axum::Router {
     let routes = routes.merge(profiling::router());
 
     routes
+        .fallback(webui::fallback)
         .layer(axum::middleware::from_fn(
             http::error_path::error_path_middleware,
         ))

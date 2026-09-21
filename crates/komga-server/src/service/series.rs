@@ -663,6 +663,7 @@ pub(crate) mod tests {
             server_context_path: None,
             migration_placeholders: Default::default(),
             oauth2: Default::default(),
+            webui_dir: None,
         };
         AppState {
             sessions: crate::auth::SessionStore::new(config.session_timeout),
