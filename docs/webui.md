@@ -29,12 +29,16 @@ and presets `KOMGA_WEBUI_DIR` to it, so the UI works out of the box — options 
 and B below are for running the bare binary. Run with an empty
 `KOMGA_WEBUI_DIR=` to disable the UI.
 
-For a local `docker build`, stage the build output next to the binaries
+For a local `docker build`, stage the webui bundle next to the binaries
 yourself — the Dockerfile only packages, it compiles nothing:
 
 ```sh
-mkdir -p dist/webui
-cp -R /path/to/komga-webui/dist/. dist/webui/
+mkdir -p dist
+# prebuilt bundle from kmworks/kmweb …
+gh release download komga-webui/v1.27.0 -R kmworks/kmweb \
+  -p 'komga-webui-*.tar.gz' -O dist/webui.tar.gz
+# … or tar up your own build from the section above
+tar -czf dist/webui.tar.gz -C /path/to/komga-webui/dist .
 ```
 
 ## Option A: let kmrs serve it (simplest)

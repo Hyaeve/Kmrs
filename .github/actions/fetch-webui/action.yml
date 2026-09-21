@@ -1,0 +1,23 @@
+name: fetch-webui
+description: Download the prebuilt komga-webui tarball from a kmworks/kmweb release and stage it at dist/webui.tar.gz
+inputs:
+  komga-version:
+    # bump together with komga-sha256
+    description: komga-webui version to fetch; kmweb tags its releases komga-webui/v<version>
+    default: "1.27.0"
+  komga-sha256:
+    description: SHA-256 of komga-webui-v<version>.tar.gz, as noted on the kmweb release
+    default: "730a2869503000aab0776e3b9ec85fe723a0d87f70e05ab1e3b334e715b52357"
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        KOMGA_VERSION: ${{ inputs.komga-version }}
+        KOMGA_SHA256: ${{ inputs.komga-sha256 }}
+      run: |
+        mkdir -p "$GITHUB_WORKSPACE/dist"
+        gh release download "komga-webui/v$KOMGA_VERSION" -R kmworks/kmweb \
+          -p "komga-webui-v$KOMGA_VERSION.tar.gz" -O "$GITHUB_WORKSPACE/dist/webui.tar.gz"
+        echo "$KOMGA_SHA256  $GITHUB_WORKSPACE/dist/webui.tar.gz" | sha256sum -c -

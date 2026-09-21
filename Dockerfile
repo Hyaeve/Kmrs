@@ -4,7 +4,7 @@
 # as produced by the release workflow (or by hand for a local build):
 #   dist/amd64/kmrs   x86_64-unknown-linux-gnu build
 #   dist/arm64/kmrs   aarch64-unknown-linux-gnu build
-#   dist/webui/       komga-webui build output (see docs/webui.md)
+#   dist/webui.tar.gz  prebuilt komga-webui bundle (see docs/webui.md)
 
 # Runs on the build platform, so no emulation is ever needed: downloads
 # libpdfium (a lazy runtime dependency for PDF support; kmrs looks it up next
@@ -43,7 +43,8 @@ ENV KOMGA_CONFIG_DIR=/config \
 COPY --chmod=755 "dist/$TARGETARCH/kmrs" /usr/local/bin/kmrs
 COPY --from=base /tmp/libpdfium.so /usr/local/bin/libpdfium.so
 COPY --chmod=755 --from=base /tmp/kepubify /usr/local/bin/kepubify
-COPY dist/webui /komga-webui
+# ADD auto-extracts the tarball into /komga-webui
+ADD dist/webui.tar.gz /komga-webui
 # 777 so an arbitrary --user uid:gid can write when nothing is bind-mounted;
 # COPY of a directory preserves the modes set in the base stage
 COPY --from=base /staging /

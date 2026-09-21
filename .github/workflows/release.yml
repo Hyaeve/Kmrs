@@ -136,13 +136,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: ./.github/actions/build-webui
-      - name: Package
-        run: tar -czf webui.tar.gz -C dist/webui .
+      - uses: ./.github/actions/fetch-webui
       - uses: actions/upload-artifact@v7
         with:
           name: komga-webui
-          path: webui.tar.gz
+          path: dist/webui.tar.gz
 
   docker:
     needs: [version, build, webui]
@@ -160,11 +158,11 @@ jobs:
           path: artifacts/webui
       - name: Stage binaries
         run: |
-          mkdir -p dist/amd64 dist/arm64 dist/webui
+          mkdir -p dist/amd64 dist/arm64
           tar -xzf artifacts/kmrs-x86_64-unknown-linux-gnu/*.tar.gz -C dist/amd64 --strip-components=1 --wildcards '*/kmrs'
           tar -xzf artifacts/kmrs-aarch64-unknown-linux-gnu/*.tar.gz -C dist/arm64 --strip-components=1 --wildcards '*/kmrs'
-          tar -xzf artifacts/webui/webui.tar.gz -C dist/webui
-          ls -l dist/amd64 dist/arm64 dist/webui
+          cp artifacts/webui/webui.tar.gz dist/
+          ls -l dist/amd64 dist/arm64 dist
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
         with:
