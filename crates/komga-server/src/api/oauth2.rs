@@ -11,7 +11,6 @@
 //!
 //! With no registrations, OAuth2 login is disabled entirely (`oauth2Enabled = false`).
 
-use crate::auth::RequireAuth;
 use crate::config::{OAuth2ClientRegistration, ServerConfig};
 use crate::dto::oauth2::{
     GithubEmail, OAuth2ClientDto, OidcDiscovery, TokenResponse, UserInfoClaims,
@@ -60,10 +59,10 @@ pub fn router() -> Router<AppState> {
         .layer(axum::Extension(OAuth2State::new()))
 }
 
-async fn get_providers(
-    _auth: RequireAuth,
-    State(state): State<AppState>,
-) -> Json<Vec<OAuth2ClientDto>> {
+/// PermitAll in `SecurityConfiguration.kt`: the webui login page calls this before any
+/// authentication exists. With no registrations this is an empty list, same as Java's
+/// null `clientRegistrationRepository`.
+async fn get_providers(State(state): State<AppState>) -> Json<Vec<OAuth2ClientDto>> {
     Json(
         state
             .config
@@ -707,6 +706,15 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let body = http_body_to_string(response).await;
         assert_eq!(body, "[]");
+    }
+
+    #[tokio::test]
+    async fn providers_permit_anonymous() {
+        let state = test_state(oauth2_config(vec![], false, true));
+        let app = test_app(&state);
+        let response = get(&app, "/api/v1/oauth2/providers").await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(http_body_to_string(response).await, "[]");
     }
 
     #[tokio::test]

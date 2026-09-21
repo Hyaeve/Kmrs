@@ -117,6 +117,7 @@ pub fn build_router(state: AppState) -> axum::Router {
     let routes = axum::Router::new()
         .merge(api::claim::router())
         .merge(api::login::router())
+        .merge(api::oauth2::router())
         .merge(api::users::router())
         .merge(api::libraries::router())
         .merge(api::referential::router())

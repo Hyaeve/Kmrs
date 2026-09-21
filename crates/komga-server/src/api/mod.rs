@@ -21,7 +21,6 @@ pub mod kobo;
 pub mod koreader;
 pub mod libraries;
 pub mod login;
-#[allow(dead_code)]
 pub mod oauth2;
 #[allow(dead_code)]
 pub mod opds_v1;

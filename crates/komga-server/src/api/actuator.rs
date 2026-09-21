@@ -1,5 +1,5 @@
-//! Spring Boot Actuator endpoint subset (`/actuator/**`): links, health, info, flyway, metrics,
-//! scheduledtasks, sessions, shutdown.
+//! Spring Boot Actuator endpoint subset (`/actuator/**`): links, health, info, flyway, logfile,
+//! metrics, scheduledtasks, sessions, shutdown.
 //!
 //! komga's `application.yml` sets `management.endpoints.web.exposure.include: "*"`, so Java
 //! exposes everything Spring can auto-configure. Endpoints and meters that only dump
@@ -13,7 +13,7 @@
 //!   (`management.endpoint.health.show-details: when_authorized`).
 //! - `/actuator/info`: permitAll (`management.info.java/os.enabled: true`).
 //! - `/actuator/shutdown`: anonymous (`management.endpoint.shutdown.access: unrestricted`).
-//! - everything else (flyway, metrics, scheduledtasks, sessions): ADMIN only
+//! - everything else (flyway, logfile, metrics, scheduledtasks, sessions): ADMIN only
 //!   (`requestMatchers(EndpointRequest.toAnyEndpoint()).hasRole(ADMIN)`).
 //!
 //! All responses carry Spring's actuator media type `application/vnd.spring-boot.actuator.v3+json`.
@@ -37,6 +37,7 @@ pub fn router() -> Router<AppState> {
         .route("/actuator/health", routing::get(get_health))
         .route("/actuator/info", routing::get(get_info))
         .route("/actuator/flyway", routing::get(get_flyway))
+        .route("/actuator/logfile", routing::get(get_logfile))
         .route("/actuator/metrics", routing::get(get_metric_names))
         .route("/actuator/metrics/{name}", routing::get(get_metric))
         .route("/actuator/shutdown", routing::post(post_shutdown))
@@ -76,6 +77,7 @@ async fn get_links(headers: axum::http::HeaderMap) -> Response {
         "health",
         "info",
         "flyway",
+        "logfile",
         "metrics",
         "scheduledtasks",
         "shutdown",
@@ -1005,6 +1007,17 @@ async fn post_shutdown(State(state): State<AppState>) -> Response {
 
 // endregion
 
+// region logfile
+
+/// Spring Boot's logfile endpoint (`text/plain`). kmrs logs to stderr and keeps no log file,
+/// so the body is always empty; the endpoint exists so the webui's download gets its 200.
+async fn get_logfile(auth: RequireAuth) -> Result<Response, ApiError> {
+    auth.0.require_admin()?;
+    Ok(([(CONTENT_TYPE, "text/plain")], "").into_response())
+}
+
+// endregion
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1270,6 +1283,24 @@ mod tests {
         assert!(first["installedOn"].as_str().unwrap().ends_with('Z'));
         assert!(first["description"].is_string());
         assert!(first["executionTime"].is_number());
+    }
+
+    #[tokio::test]
+    async fn logfile_admin_only_and_empty() {
+        let (state, _rx) = test_state();
+        seed_user(&state, "admin@komga.org", true, "k1");
+        seed_user(&state, "user@komga.org", false, "k2");
+        let app = test_router(state);
+
+        let (status, _headers, _bytes) = call(&app, "GET", "/actuator/logfile", Some("k2")).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        let (status, _headers, _bytes) = call(&app, "GET", "/actuator/logfile", None).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        let (status, headers, bytes) = call(&app, "GET", "/actuator/logfile", Some("k1")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(headers.get(CONTENT_TYPE).unwrap(), "text/plain");
+        assert!(bytes.is_empty());
     }
 
     #[tokio::test]
