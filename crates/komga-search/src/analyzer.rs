@@ -233,29 +233,47 @@ pub fn lowercase(tokens: Vec<String>) -> Vec<String> {
     tokens.into_iter().map(|t| t.to_lowercase()).collect()
 }
 
-/// Lucene `CJKBigramFilter`: sliding bigrams over the CJK character stream; a trailing lone
-/// CJK character is emitted as a unigram.
+/// Lucene `CJKBigramFilter` with one recall deviation: sliding bigrams over the CJK
+/// character stream; a trailing lone CJK character is emitted as a unigram, and the first
+/// character of a CJK run following a non-CJK token is emitted as a unigram too — without
+/// it a query like "3月" cannot match "3月的狮子", where 月 only exists inside the bigram 月的.
 pub fn cjk_bigram(tokens: Vec<String>) -> Vec<String> {
     let mut out = vec![];
-    let mut prev: Option<String> = None;
+    // pending CJK character awaiting a possible bigram; the flag marks it as already
+    // emitted via the left-boundary rule so a one-character run is not emitted twice
+    let mut prev: Option<(String, bool)> = None;
+    let mut after_non_cjk = false;
     for token in tokens {
         if token.chars().all(is_cjk_char) {
             for c in token.chars() {
                 let c = c.to_string();
-                if let Some(p) = prev.take() {
-                    out.push(format!("{p}{c}"));
-                }
-                prev = Some(c);
+                let next = match prev.take() {
+                    Some((p, _)) => {
+                        out.push(format!("{p}{c}"));
+                        (c, false)
+                    }
+                    None if after_non_cjk => {
+                        out.push(c.clone());
+                        (c, true)
+                    }
+                    None => (c, false),
+                };
+                prev = Some(next);
             }
         } else {
-            if let Some(p) = prev.take() {
-                out.push(p);
+            if let Some((p, emitted)) = prev.take() {
+                if !emitted {
+                    out.push(p);
+                }
             }
             out.push(token);
         }
+        after_non_cjk = prev.is_none();
     }
-    if let Some(p) = prev.take() {
-        out.push(p);
+    if let Some((p, emitted)) = prev.take() {
+        if !emitted {
+            out.push(p);
+        }
     }
     out
 }
@@ -448,10 +466,31 @@ mod tests {
             cjk_bigram(standard_tokenize("ひらがな")),
             vec!["ひら", "らが", "がな", "な"]
         );
-        // non-CJK tokens flush the pending character
+        // non-CJK tokens flush the pending character, and a run following one emits
+        // its first character as a boundary unigram
         assert_eq!(
             cjk_bigram(vec!["abc".into(), "東".into(), "京".into(), "def".into()]),
-            vec!["abc", "東京", "京", "def"]
+            vec!["abc", "東", "東京", "京", "def"]
+        );
+    }
+
+    #[test]
+    fn cjk_bigram_boundary_unigrams() {
+        // the left-boundary 月 is what lets the query "3月" match this title
+        assert_eq!(
+            search_analyze("3月的狮子"),
+            vec!["3", "月", "月的", "的狮", "狮子", "子"]
+        );
+        assert_eq!(search_analyze("3月"), vec!["3", "月"]);
+        // a run at the very start of the text gets no left-boundary unigram
+        assert_eq!(search_analyze("犬夜叉2"), vec!["犬夜", "夜叉", "叉", "2"]);
+        // a run sandwiched between non-CJK tokens emits both boundary unigrams
+        assert_eq!(search_analyze("A月的B"), vec!["a", "月", "月的", "的", "b"]);
+        // the rule looks at the token stream, so a run after a whitespace-separated
+        // Latin word gains the unigram too
+        assert_eq!(
+            search_analyze("Batman 東京"),
+            vec!["batman", "東", "東京", "京"]
         );
     }
 

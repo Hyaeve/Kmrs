@@ -25,11 +25,11 @@ const INDEX_VERSION_TYPE: &str = "index_version";
 const MAX_RESULTS: usize = 1000;
 // bumped together with ANALYZER_VERSION so an index built by another analyzer chain
 // can never be opened silently
-const INDEX_TOKENIZER: &str = "komga_index_v1";
+const INDEX_TOKENIZER: &str = "komga_index_v2";
 
 /// Version of the analyzer chain (tokenizer/filters), independent of the entity
 /// `index_version` document, which tracks the indexed *fields* like Java's marker.
-pub const ANALYZER_VERSION: u32 = 1;
+pub const ANALYZER_VERSION: u32 = 2;
 const ANALYZER_VERSION_FILE: &str = ".kmrs-search-analyzer-version";
 /// File names of a Java Lucene index, for detecting a data directory previously
 /// used by Java komga.
@@ -515,6 +515,30 @@ mod tests {
             .search_entity_ids(Some("クライシス"), LuceneEntity::Book)
             .unwrap();
         assert_eq!(ids, vec!["b3"]);
+    }
+
+    #[test]
+    fn search_cjk_boundary_unigram() {
+        let (_dir, index) = index();
+        index
+            .add_documents(vec![
+                book("b1", &[("title", "3月的狮子")]),
+                book("b2", &[("title", "狮子王")]),
+                book("b3", &[("title", "3月のライオン")]),
+            ])
+            .unwrap();
+        // digit-anchored query: matches via the left-boundary unigram 月
+        let mut ids = index
+            .search_entity_ids(Some("3月"), LuceneEntity::Book)
+            .unwrap();
+        ids.sort();
+        assert_eq!(ids, vec!["b1", "b3"]);
+        // single-character query: same unigram makes the run-initial 月 findable
+        let mut ids = index
+            .search_entity_ids(Some("月"), LuceneEntity::Book)
+            .unwrap();
+        ids.sort();
+        assert_eq!(ids, vec!["b1", "b3"]);
     }
 
     #[test]
