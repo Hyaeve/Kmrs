@@ -40,27 +40,42 @@ impl QueryExt for HashMap<String, Vec<String>> {
 }
 
 /// Parses Pageable from the query: `page` (0-based, default 0), `size` (default 20),
-/// `sort=property(,asc|desc)` (repeatable, direction defaults to asc), `unpaged=true`.
+/// `sort` (repeatable), `unpaged=true`.
+///
+/// Sort parsing mirrors Spring's `SortOrderParser`: each `sort` value is a
+/// comma-separated list of properties, optionally followed by one direction
+/// (`asc|desc`, default asc) that applies to every property in the list, and a
+/// trailing `ignorecase` token (consumed but dropped — komga's `toSortField`
+/// never applies it). So `sort=series,metadata.numberSort,asc` is two orders.
 pub fn pageable_from_query(params: &HashMap<String, Vec<String>>) -> Pageable {
-    let sort = params
-        .all("sort")
-        .iter()
-        .filter_map(|s| {
-            let mut parts = s.splitn(2, ',');
-            let property = parts.next()?.trim();
-            if property.is_empty() {
-                return None;
+    let mut sort = vec![];
+    for part in params.all("sort") {
+        // Spring drops segments that are blank or only dots
+        let mut elements: Vec<&str> = part
+            .split(',')
+            .filter(|s| s.chars().any(|c| c != '.' && !c.is_whitespace()))
+            .collect();
+        if elements
+            .last()
+            .is_some_and(|s| s.eq_ignore_ascii_case("ignorecase"))
+        {
+            elements.pop();
+        }
+        let descending = match elements.last() {
+            Some(d) if d.eq_ignore_ascii_case("asc") || d.eq_ignore_ascii_case("desc") => {
+                let desc = d.eq_ignore_ascii_case("desc");
+                elements.pop();
+                desc
             }
-            let descending = parts
-                .next()
-                .map(|d| d.trim().eq_ignore_ascii_case("desc"))
-                .unwrap_or(false);
-            Some(SortOrder {
+            _ => false,
+        };
+        for property in elements {
+            sort.push(SortOrder {
                 property: property.to_string(),
                 descending,
-            })
-        })
-        .collect();
+            });
+        }
+    }
     Pageable {
         page: params.first_u32("page").unwrap_or(0),
         size: params.first_u32("size").unwrap_or(20),
@@ -112,6 +127,45 @@ mod tests {
         assert!(p.sort[0].descending);
         assert!(!p.sort[1].descending);
         assert!(p.unpaged);
+    }
+
+    #[test]
+    fn sort_multiple_properties_one_direction() {
+        // Spring: a trailing direction applies to every property in the same sort value
+        let map = parse_query_multi("sort=series,metadata.numberSort,asc");
+        let p = pageable_from_query(&map);
+        assert_eq!(p.sort.len(), 2);
+        assert_eq!(p.sort[0].property, "series");
+        assert!(!p.sort[0].descending);
+        assert_eq!(p.sort[1].property, "metadata.numberSort");
+        assert!(!p.sort[1].descending);
+
+        let map = parse_query_multi("sort=series,metadata.numberSort,desc");
+        let p = pageable_from_query(&map);
+        assert_eq!(p.sort.len(), 2);
+        assert!(p.sort.iter().all(|o| o.descending));
+    }
+
+    #[test]
+    fn sort_spring_edge_cases() {
+        // direction with no property yields no order (Spring consumes "asc" as direction)
+        let p = pageable_from_query(&parse_query_multi("sort=asc"));
+        assert!(p.sort.is_empty());
+
+        // a trailing ignorecase token is consumed, not treated as a property
+        let p = pageable_from_query(&parse_query_multi("sort=name,ignorecase"));
+        assert_eq!(p.sort.len(), 1);
+        assert_eq!(p.sort[0].property, "name");
+        assert!(!p.sort[0].descending);
+
+        let p = pageable_from_query(&parse_query_multi("sort=name,desc,ignorecase"));
+        assert_eq!(p.sort.len(), 1);
+        assert!(p.sort[0].descending);
+
+        // blank and dots-only segments are dropped
+        let p = pageable_from_query(&parse_query_multi("sort=name,,...&sort="));
+        assert_eq!(p.sort.len(), 1);
+        assert_eq!(p.sort[0].property, "name");
     }
 
     #[test]
