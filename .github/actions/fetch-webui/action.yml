@@ -1,23 +1,23 @@
 name: fetch-webui
-description: Download the prebuilt komga-webui tarball from a kmworks/kmweb release and stage it at dist/webui.tar.gz
+description: Download the prebuilt kmweb tarball from a kmworks/kmweb release and stage it at dist/webui.tar.gz
 inputs:
-  komga-version:
-    # bump together with komga-sha256
-    description: komga-webui version to fetch; kmweb tags its releases komga-webui/v<version>
-    default: "1.27.0"
-  komga-sha256:
-    description: SHA-256 of komga-webui-v<version>.tar.gz, as noted on the kmweb release
-    default: "730a2869503000aab0776e3b9ec85fe723a0d87f70e05ab1e3b334e715b52357"
+  kmweb-version:
+    # bump together with kmweb-sha256
+    description: kmweb version to fetch; kmweb tags its releases v<version>
+    default: "0.2.0"
+  kmweb-sha256:
+    description: SHA-256 of kmweb-v<version>.tar.gz, as noted on the kmweb release
+    default: "a113f4a5c26e21e927a41e9d92a8efae1af7da1fcdea09a1381d17b295be9b47"
 runs:
   using: composite
   steps:
     - shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
-        KOMGA_VERSION: ${{ inputs.komga-version }}
-        KOMGA_SHA256: ${{ inputs.komga-sha256 }}
+        KMWEB_VERSION: ${{ inputs.kmweb-version }}
+        KMWEB_SHA256: ${{ inputs.kmweb-sha256 }}
       run: |
         mkdir -p "$GITHUB_WORKSPACE/dist"
-        gh release download "komga-webui/v$KOMGA_VERSION" -R kmworks/kmweb \
-          -p "komga-webui-v$KOMGA_VERSION.tar.gz" -O "$GITHUB_WORKSPACE/dist/webui.tar.gz"
-        echo "$KOMGA_SHA256  $GITHUB_WORKSPACE/dist/webui.tar.gz" | sha256sum -c -
+        gh release download "v$KMWEB_VERSION" -R kmworks/kmweb \
+          -p "kmweb-v$KMWEB_VERSION.tar.gz" -O "$GITHUB_WORKSPACE/dist/webui.tar.gz"
+        echo "$KMWEB_SHA256  $GITHUB_WORKSPACE/dist/webui.tar.gz" | sha256sum -c -

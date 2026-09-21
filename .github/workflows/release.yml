@@ -139,7 +139,7 @@ jobs:
       - uses: ./.github/actions/fetch-webui
       - uses: actions/upload-artifact@v7
         with:
-          name: komga-webui
+          name: webui
           path: dist/webui.tar.gz
 
   docker:
@@ -154,7 +154,7 @@ jobs:
           path: artifacts
       - uses: actions/download-artifact@v8
         with:
-          name: komga-webui
+          name: webui
           path: artifacts/webui
       - name: Stage binaries
         run: |
@@ -188,7 +188,7 @@ jobs:
             curl -sf http://localhost:25600/actuator/health > /dev/null && break || sleep 2
           done
           # the bundled web UI is served at /
-          curl -sf http://localhost:25600/ | grep -q "<title>Komga</title>"
+          curl -sf http://localhost:25600/ | grep -q "<title>KMReader</title>"
           # the API is up and the database answers: claim status on a fresh install
           curl -sf http://localhost:25600/api/v1/claim | grep -q '"isClaimed":false'
           echo "server is up: web UI and API verified"

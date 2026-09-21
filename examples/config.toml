@@ -71,5 +71,5 @@
 # user-name-attribute = "..."
 
 [webui]
-# serve a built komga-webui (npm run build -> dist/) at /; unmatched paths fall back to its index.html
-# dir = "/path/to/komga-webui/dist" # env: KOMGA_WEBUI_DIR
+# serve a built web UI (e.g. kmweb's dist/) at /; unmatched paths fall back to its index.html
+# dir = "/path/to/kmweb/dist" # env: KOMGA_WEBUI_DIR

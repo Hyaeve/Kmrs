@@ -79,6 +79,6 @@ jobs:
             curl -sf http://localhost:25600/actuator/health > /dev/null && break || sleep 2
           done
           # the bundled web UI is served at /
-          curl -sf http://localhost:25600/ | grep -q "<title>Komga</title>"
+          curl -sf http://localhost:25600/ | grep -q "<title>KMReader</title>"
           # the API is up and the database answers: claim status on a fresh install
           curl -sf http://localhost:25600/api/v1/claim | grep -q '"isClaimed":false'

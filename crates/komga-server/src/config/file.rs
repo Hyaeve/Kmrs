@@ -414,14 +414,14 @@ pub fn render(file: &FileConfig, config: &ServerConfig, source: Option<&Path>) -
 
     out.push_str("[webui]\n");
     out.push_str(
-        "# serve a built komga-webui (npm run build -> dist/) at /; unmatched paths fall back to its index.html\n",
+        "# serve a built web UI (e.g. kmweb's dist/) at /; unmatched paths fall back to its index.html\n",
     );
     match &config.webui_dir {
         Some(p) => out.push_str(&format!(
             "dir = {} # env: KOMGA_WEBUI_DIR\n",
             q(&p.display().to_string())
         )),
-        None => out.push_str("# dir = \"/path/to/komga-webui/dist\" # env: KOMGA_WEBUI_DIR\n"),
+        None => out.push_str("# dir = \"/path/to/kmweb/dist\" # env: KOMGA_WEBUI_DIR\n"),
     }
     out.push('\n');
     out

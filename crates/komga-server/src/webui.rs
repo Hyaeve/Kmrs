@@ -1,5 +1,5 @@
-//! Optional static hosting of a built komga-webui: `webui.dir` points at a
-//! `npm run build` dist directory. Unmatched paths outside the backend namespaces fall
+//! Optional static hosting of a built web UI (e.g. kmweb): `webui.dir` points at a
+//! build's dist directory. Unmatched paths outside the backend namespaces fall
 //! back to its index.html — the SPA history-mode equivalent of Java's
 //! `ResourceNotFoundController` forwarding to `/`.
 //!

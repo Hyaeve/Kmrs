@@ -1,17 +1,42 @@
-# Using the original Komga web UI with kmrs
+# Serving a web UI with kmrs
 
 kmrs does not embed a web UI in the binary (the release docker image bundles
 one — see below). If you run the bare binary and want a browser interface,
-build the official
-[komga-webui](https://github.com/gotson/komga) yourself — kmrs can serve it for you
-(option A), or you can host it behind a reverse proxy (option B). Both give you the
-full web UI: basic and OAuth2 login, the divina/EPUB readers, live updates over SSE,
-and the admin pages.
+point kmrs at a built single-page app and it serves it for you (option A), or
+host the files behind a reverse proxy (option B). Two UIs work this way:
 
-## Build the web UI
+- [kmweb](https://github.com/kmworks/kmweb) — the React UI built for kmrs:
+  dashboard, browsing with facet filters, full-text search, the comic reader,
+  account settings, live updates over SSE.
+- the original [komga-webui](https://github.com/gotson/komga) — feature parity
+  with the Java version: basic and OAuth2 login, the divina/EPUB readers, live
+  updates over SSE, and the admin pages.
 
-Either option starts with a build from the komga source at kmrs's compatibility
-target (komga 1.27.0; note the tags carry no `v` prefix):
+## Get the web UI files
+
+### kmweb
+
+Download the prebuilt bundle from a [kmweb release](https://github.com/kmworks/kmweb/releases)
+and unpack it:
+
+```sh
+gh release download v0.2.0 -R kmworks/kmweb -p 'kmweb-v0.2.0.tar.gz'
+mkdir kmweb && tar -xzf kmweb-v0.2.0.tar.gz -C kmweb
+```
+
+Or build from source (Node 24, pnpm):
+
+```sh
+git clone https://github.com/kmworks/kmweb.git
+cd kmweb
+pnpm install
+pnpm build              # outputs dist/
+```
+
+### Original komga-webui
+
+Build from the komga source at kmrs's compatibility target (komga 1.27.0;
+note the tags carry no `v` prefix):
 
 ```sh
 git clone https://github.com/gotson/komga.git
@@ -24,8 +49,8 @@ NODE_OPTIONS=--max-old-space-size=4096 npm run build   # outputs dist/
 
 ## Docker image
 
-The release image (`ghcr.io/kmworks/kmrs`) bundles the web UI at `/komga-webui`
-and presets `KOMGA_WEBUI_DIR` to it, so the UI works out of the box — options A
+The release image (`ghcr.io/kmworks/kmrs`) bundles kmweb at `/webui` and
+presets `KOMGA_WEBUI_DIR` to it, so the UI works out of the box — options A
 and B below are for running the bare binary. Run with an empty
 `KOMGA_WEBUI_DIR=` to disable the UI.
 
@@ -34,20 +59,20 @@ yourself — the Dockerfile only packages, it compiles nothing:
 
 ```sh
 mkdir -p dist
-# prebuilt bundle from kmworks/kmweb …
-gh release download komga-webui/v1.27.0 -R kmworks/kmweb \
-  -p 'komga-webui-*.tar.gz' -O dist/webui.tar.gz
+# prebuilt kmweb bundle …
+gh release download v0.2.0 -R kmworks/kmweb \
+  -p 'kmweb-v0.2.0.tar.gz' -O dist/webui.tar.gz
 # … or tar up your own build from the section above
-tar -czf dist/webui.tar.gz -C /path/to/komga-webui/dist .
+tar -czf dist/webui.tar.gz -C /path/to/kmweb/dist .
 ```
 
 ## Option A: let kmrs serve it (simplest)
 
-Point kmrs at the `dist/` directory — `webui.dir` in `<config-dir>/config.toml`, or
-the environment:
+Point kmrs at the unpacked bundle (or the `dist/` directory of a source
+build) — `webui.dir` in `<config-dir>/config.toml`, or the environment:
 
 ```sh
-KOMGA_WEBUI_DIR=/path/to/komga-webui/dist kmrs
+KOMGA_WEBUI_DIR=/path/to/kmweb kmrs
 ```
 
 That is all. kmrs serves the files at `/`, and paths that match no backend route
@@ -82,10 +107,10 @@ server {
 
 Use this when you want nginx to serve the static files (sendfile, its own caching
 rules) and only proxy the API. The web UI calls the API on its own origin, so nginx
-must route the API prefixes to kmrs and serve everything else from `dist/`:
+must route the API prefixes to kmrs and serve everything else from the bundle:
 
 ```nginx
-# kmrs + komga-webui — complete nginx example
+# kmrs + web UI — complete nginx example
 
 # 1) HTTP → HTTPS redirect
 server {
@@ -107,7 +132,7 @@ server {
     ssl_session_timeout 1d;
 
     # 3) the SPA from the build step
-    root /var/www/komga-webui;
+    root /var/www/webui;
     index index.html;
 
     # book import and thumbnail uploads can be large

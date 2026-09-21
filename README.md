@@ -8,7 +8,7 @@
 A drop-in, API-compatible reimplementation of the [Komga](https://komga.org) comic/manga server in Rust — a single static binary, no JVM required.
 
 > [!NOTE]
-> The docker image bundles the original Komga web UI, served at `/` out of the box. The standalone binary carries no UI — pair it with a Komga-compatible client — [KMReader](https://github.com/kmworks/kmreader) (iOS/macOS/tvOS), KOReader, Kobo, and [others](https://komga.org/docs/category/readers) — or let it serve a built webui (`webui.dir` / `KOMGA_WEBUI_DIR`), see [docs/webui.md](docs/webui.md).
+> The docker image bundles [kmweb](https://github.com/kmworks/kmweb), a React web UI built for kmrs, served at `/` out of the box. The standalone binary carries no UI — pair it with a Komga-compatible client — [KMReader](https://github.com/kmworks/kmreader) (iOS/macOS/tvOS), KOReader, Kobo, and [others](https://komga.org/docs/category/readers) — or let it serve a built webui (`webui.dir` / `KOMGA_WEBUI_DIR`), see [docs/webui.md](docs/webui.md).
 
 ## Features
 
@@ -42,7 +42,7 @@ docker run -d \
 
 An existing komga `/config` directory (with `database.sqlite` / `tasks.sqlite`) is picked up and upgraded in place.
 
-The image bundles the original Komga web UI at `/komga-webui` and serves it at `/`, so `http://<host>:25600/` works in a browser immediately — run with an empty `KOMGA_WEBUI_DIR=` to disable the UI.
+The image bundles the kmweb UI at `/webui` and serves it at `/`, so `http://<host>:25600/` works in a browser immediately — run with an empty `KOMGA_WEBUI_DIR=` to disable the UI.
 
 ### Prebuilt binaries
 
@@ -106,7 +106,7 @@ For local analysis, `cargo build --profile profiling --features profiling` produ
 
 ## Known limitations
 
-Places where kmrs deviates from the Java version. Scope exclusions are intentional and not listed: no web UI in the standalone binary (the docker image bundles the original Komga web UI), and no actuator endpoints or metrics that only expose JVM/Spring internals (beans, conditions, env, configprops, loggers, mappings, heapdump, threaddump, `jvm.*`/`system.*`/`http.server.requests` meters and the like).
+Places where kmrs deviates from the Java version. Scope exclusions are intentional and not listed: no web UI in the standalone binary (the docker image bundles the kmweb UI), and no actuator endpoints or metrics that only expose JVM/Spring internals (beans, conditions, env, configprops, loggers, mappings, heapdump, threaddump, `jvm.*`/`system.*`/`http.server.requests` meters and the like).
 
 ### Media formats
 

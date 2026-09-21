@@ -58,7 +58,7 @@ pub struct ServerConfig {
     /// configurationSource of the settings DTO
     pub server_context_path: Option<String>,
     pub oauth2: OAuth2Config,
-    /// built komga-webui (dist/) served at / with SPA fallback; None = no web UI (default)
+    /// built web UI (e.g. kmweb's dist/) served at / with SPA fallback; None = no web UI (default)
     pub webui_dir: Option<PathBuf>,
     /// substituted into the SQL migrations
     pub migration_placeholders: Placeholders,
