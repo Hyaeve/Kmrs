@@ -1,0 +1,22 @@
+name: build-webui
+description: Build komga-webui from the given upstream release and stage it at dist/webui
+inputs:
+  komga-tag:
+    description: komga release tag to build the web UI from (tags carry no v prefix)
+    default: "1.27.0"
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v6
+      with:
+        node-version: 22
+    - shell: bash
+      env:
+        KOMGA_TAG: ${{ inputs.komga-tag }}
+      run: |
+        git clone --depth 1 --branch "$KOMGA_TAG" https://github.com/gotson/komga.git /tmp/komga
+        cd /tmp/komga/komga-webui
+        npm ci
+        NODE_OPTIONS=--max-old-space-size=4096 npm run build
+        mkdir -p "$GITHUB_WORKSPACE/dist/webui"
+        cp -R dist/. "$GITHUB_WORKSPACE/dist/webui/"

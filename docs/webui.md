@@ -1,6 +1,8 @@
 # Using the original Komga web UI with kmrs
 
-kmrs does not bundle a web UI. If you want a browser interface, build the official
+kmrs does not embed a web UI in the binary (the release docker image bundles
+one — see below). If you run the bare binary and want a browser interface,
+build the official
 [komga-webui](https://github.com/gotson/komga) yourself — kmrs can serve it for you
 (option A), or you can host it behind a reverse proxy (option B). Both give you the
 full web UI: basic and OAuth2 login, the divina/EPUB readers, live updates over SSE,
@@ -9,15 +11,30 @@ and the admin pages.
 ## Build the web UI
 
 Either option starts with a build from the komga source at kmrs's compatibility
-target:
+target (komga 1.27.0; note the tags carry no `v` prefix):
 
 ```sh
 git clone https://github.com/gotson/komga.git
 cd komga
-git checkout v1.27.0
+git checkout 1.27.0
 cd komga-webui
-npm ci
-npm run build        # outputs dist/
+npm ci                   # Node 22, see .nvmrc
+NODE_OPTIONS=--max-old-space-size=4096 npm run build   # outputs dist/
+```
+
+## Docker image
+
+The release image (`ghcr.io/kmworks/kmrs`) bundles the web UI at `/komga-webui`
+and presets `KOMGA_WEBUI_DIR` to it, so the UI works out of the box — options A
+and B below are for running the bare binary. Run with an empty
+`KOMGA_WEBUI_DIR=` to disable the UI.
+
+For a local `docker build`, stage the build output next to the binaries
+yourself — the Dockerfile only packages, it compiles nothing:
+
+```sh
+mkdir -p dist/webui
+cp -R /path/to/komga-webui/dist/. dist/webui/
 ```
 
 ## Option A: let kmrs serve it (simplest)
@@ -178,6 +195,10 @@ this (kmrs routes internally); option B2 needs the ones you use.
 | `/debug/` | heap profiling endpoint | optional |
 
 ## Notes
+
+- The web UI's files and SPA routes are served without authentication — the
+  login page has to load anonymously. Authentication is enforced by the API,
+  same as the Java version (static resources are `permitAll` there too).
 
 - `/login` is a web UI route; only `/login/oauth2/` goes to kmrs. nginx matches the
   longest prefix, so the two `location` blocks coexist safely.

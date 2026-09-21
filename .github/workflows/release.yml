@@ -130,8 +130,22 @@ jobs:
           name: kmrs-${{ matrix.target }}
           path: dist/*
 
+  webui:
+    needs: version
+    if: needs.version.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/build-webui
+      - name: Package
+        run: tar -czf webui.tar.gz -C dist/webui .
+      - uses: actions/upload-artifact@v7
+        with:
+          name: komga-webui
+          path: webui.tar.gz
+
   docker:
-    needs: [version, build]
+    needs: [version, build, webui]
     if: needs.version.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
@@ -140,12 +154,17 @@ jobs:
         with:
           pattern: "*-unknown-linux-gnu"
           path: artifacts
+      - uses: actions/download-artifact@v8
+        with:
+          name: komga-webui
+          path: artifacts/webui
       - name: Stage binaries
         run: |
-          mkdir -p dist/amd64 dist/arm64
+          mkdir -p dist/amd64 dist/arm64 dist/webui
           tar -xzf artifacts/kmrs-x86_64-unknown-linux-gnu/*.tar.gz -C dist/amd64 --strip-components=1 --wildcards '*/kmrs'
           tar -xzf artifacts/kmrs-aarch64-unknown-linux-gnu/*.tar.gz -C dist/arm64 --strip-components=1 --wildcards '*/kmrs'
-          ls -l dist/amd64 dist/arm64
+          tar -xzf artifacts/webui/webui.tar.gz -C dist/webui
+          ls -l dist/amd64 dist/arm64 dist/webui
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
         with:
@@ -164,17 +183,17 @@ jobs:
         # the shipped artifact gets no other runtime validation; a glibc or
         # packaging regression must fail here, before anything is pushed
         run: |
+          trap 'docker logs kmrs' ERR
           docker buildx build --platform linux/amd64 --load -t kmrs:smoke .
           docker run -d --name kmrs --user 1000:1000 -p 25600:25600 kmrs:smoke
           for i in $(seq 1 30); do
-            if curl -sf http://localhost:25600/actuator/health > /dev/null; then
-              echo "server is up"
-              exit 0
-            fi
-            sleep 2
+            curl -sf http://localhost:25600/actuator/health > /dev/null && break || sleep 2
           done
-          docker logs kmrs
-          exit 1
+          # the bundled web UI is served at /
+          curl -sf http://localhost:25600/ | grep -q "<title>Komga</title>"
+          # the API is up and the database answers: claim status on a fresh install
+          curl -sf http://localhost:25600/api/v1/claim | grep -q '"isClaimed":false'
+          echo "server is up: web UI and API verified"
       - uses: docker/build-push-action@v7
         with:
           context: .

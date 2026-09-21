@@ -61,6 +61,7 @@ jobs:
           # hermetic liblzma regardless of runner image contents
           LZMA_API_STATIC: "1"
       - run: mkdir -p dist/amd64 && cp target/debug/kmrs dist/amd64/
+      - uses: ./.github/actions/build-webui
       - uses: docker/setup-buildx-action@v4
       - uses: docker/build-push-action@v7
         with:
@@ -72,13 +73,12 @@ jobs:
           cache-to: type=gha,mode=max
       - name: Smoke test
         run: |
+          trap 'docker logs kmrs' ERR
           docker run -d --name kmrs --user 1000:1000 -p 25600:25600 kmrs:test
           for i in $(seq 1 30); do
-            if curl -sf http://localhost:25600/actuator/health > /dev/null; then
-              echo "server is up"
-              exit 0
-            fi
-            sleep 2
+            curl -sf http://localhost:25600/actuator/health > /dev/null && break || sleep 2
           done
-          docker logs kmrs
-          exit 1
+          # the bundled web UI is served at /
+          curl -sf http://localhost:25600/ | grep -q "<title>Komga</title>"
+          # the API is up and the database answers: claim status on a fresh install
+          curl -sf http://localhost:25600/api/v1/claim | grep -q '"isClaimed":false'

@@ -8,7 +8,7 @@
 A drop-in, API-compatible reimplementation of the [Komga](https://komga.org) comic/manga server in Rust — a single static binary, no JVM required.
 
 > [!NOTE]
-> kmrs serves the API and OPDS feeds only — there is **no bundled web UI**. Pair it with a Komga-compatible client — [KMReader](https://github.com/kmworks/kmreader) (iOS/macOS/tvOS), KOReader, Kobo, and [others](https://komga.org/docs/category/readers). To use the original Komga web UI in a browser, let kmrs serve a built webui (`webui.dir` / `KOMGA_WEBUI_DIR`) or host it behind a reverse proxy — see [docs/webui.md](docs/webui.md).
+> The docker image bundles the original Komga web UI, served at `/` out of the box. The standalone binary carries no UI — pair it with a Komga-compatible client — [KMReader](https://github.com/kmworks/kmreader) (iOS/macOS/tvOS), KOReader, Kobo, and [others](https://komga.org/docs/category/readers) — or let it serve a built webui (`webui.dir` / `KOMGA_WEBUI_DIR`), see [docs/webui.md](docs/webui.md).
 
 ## Features
 
@@ -35,6 +35,8 @@ docker run -d \
 ```
 
 An existing komga `/config` directory (with `database.sqlite` / `tasks.sqlite`) is picked up and upgraded in place.
+
+The image bundles the original Komga web UI at `/komga-webui` and serves it at `/`, so `http://<host>:25600/` works in a browser immediately — run with an empty `KOMGA_WEBUI_DIR=` to disable the UI.
 
 ### Prebuilt binaries
 
@@ -72,7 +74,7 @@ cargo xtask dump-schema            # print the final migrated schema
 cargo xtask dump-checksums         # print Flyway CRC32 for all migrations
 ```
 
-`sync-migrations` looks for a `komga` source checkout next to this repo by default; `KOMGA_REPO_DIR` can be used to point elsewhere. The checkout should be at the compatibility target (`v1.27.0`).
+`sync-migrations` looks for a `komga` source checkout next to this repo by default; `KOMGA_REPO_DIR` can be used to point elsewhere. The checkout should be at the compatibility target (`1.27.0`).
 
 ### Profiling memory usage
 
@@ -98,7 +100,7 @@ For local analysis, `cargo build --profile profiling --features profiling` produ
 
 ## Known limitations
 
-Places where kmrs deviates from the Java version. Scope exclusions are intentional and not listed: no web UI, and no actuator endpoints or metrics that only expose JVM/Spring internals (beans, conditions, env, configprops, loggers, mappings, heapdump, threaddump, `jvm.*`/`system.*`/`http.server.requests` meters and the like).
+Places where kmrs deviates from the Java version. Scope exclusions are intentional and not listed: no web UI in the standalone binary (the docker image bundles the original Komga web UI), and no actuator endpoints or metrics that only expose JVM/Spring internals (beans, conditions, env, configprops, loggers, mappings, heapdump, threaddump, `jvm.*`/`system.*`/`http.server.requests` meters and the like).
 
 ### Media formats
 

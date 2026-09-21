@@ -4,6 +4,7 @@
 # as produced by the release workflow (or by hand for a local build):
 #   dist/amd64/kmrs   x86_64-unknown-linux-gnu build
 #   dist/arm64/kmrs   aarch64-unknown-linux-gnu build
+#   dist/webui/       komga-webui build output (see docs/webui.md)
 
 # Runs on the build platform, so no emulation is ever needed: downloads
 # libpdfium (a lazy runtime dependency for PDF support; kmrs looks it up next
@@ -31,15 +32,18 @@ ARG TARGETARCH
 RUN apt-get update && apt-get install -y --no-install-recommends curl \
  && rm -rf /var/lib/apt/lists/*
 LABEL org.opencontainers.image.source="https://github.com/kmworks/kmrs" \
-      org.opencontainers.image.description="Rust rewrite of the Komga server (API only, no UI)" \
+      org.opencontainers.image.description="Rust rewrite of the Komga server, with the original web UI bundled" \
       org.opencontainers.image.licenses="MIT"
 # Drop-in replacement for gotson/komga: same port, same /config and /data
 # mounts, same KOMGA_* env vars.
+# KOMGA_WEBUI_DIR points at the bundled web UI; run with an empty value to disable.
 ENV KOMGA_CONFIG_DIR=/config \
-    KOMGA_KOBO_KEPUBIFYPATH=/usr/local/bin/kepubify
+    KOMGA_KOBO_KEPUBIFYPATH=/usr/local/bin/kepubify \
+    KOMGA_WEBUI_DIR=/komga-webui
 COPY --chmod=755 "dist/$TARGETARCH/kmrs" /usr/local/bin/kmrs
 COPY --from=base /tmp/libpdfium.so /usr/local/bin/libpdfium.so
 COPY --chmod=755 --from=base /tmp/kepubify /usr/local/bin/kepubify
+COPY dist/webui /komga-webui
 # 777 so an arbitrary --user uid:gid can write when nothing is bind-mounted;
 # COPY of a directory preserves the modes set in the base stage
 COPY --from=base /staging /

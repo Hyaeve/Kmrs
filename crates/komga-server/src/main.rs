@@ -157,6 +157,9 @@ pub fn build_router(state: AppState) -> axum::Router {
         .layer(axum::middleware::from_fn(
             http::cache::cache_control_middleware,
         ))
+        .layer(axum::middleware::from_fn(
+            http::www_authenticate::strip_challenge_for_xhr,
+        ))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth::auth_middleware,

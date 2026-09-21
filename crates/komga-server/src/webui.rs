@@ -235,6 +235,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn xhr_401_has_no_basic_challenge() {
+        let state = test_state(None);
+        let app = crate::build_router(state);
+
+        // the web UI tags every API call with X-Requested-With: a bare 401
+        // keeps browsers out of their native sign-in dialog
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v2/users/me")
+                    .header("x-requested-with", "XMLHttpRequest")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert!(response.headers().get(header::WWW_AUTHENTICATE).is_none());
+
+        // the same request without the XHR tag keeps the Java challenge
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v2/users/me")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            response.headers().get(header::WWW_AUTHENTICATE).unwrap(),
+            "Basic realm=\"Realm\""
+        );
+    }
+
+    #[tokio::test]
     async fn disabled_by_default() {
         let state = test_state(None);
         let app = crate::build_router(state);

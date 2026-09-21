@@ -2236,5 +2236,13 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        // OPDS readers discover basic auth from the challenge
+        assert_eq!(
+            response
+                .headers()
+                .get(axum::http::header::WWW_AUTHENTICATE)
+                .unwrap(),
+            "Basic realm=\"Realm\""
+        );
     }
 }
