@@ -8,7 +8,7 @@ use axum::{routing, Json, Router};
 use serde::{Deserialize, Serialize};
 
 pub fn router() -> Router<AppState> {
-    router_with_base("https://api.github.com/repos/gotson/komga/releases")
+    router_with_base("https://api.github.com/repos/kmworks/kmrs/releases")
 }
 
 pub(crate) fn router_with_base(base_url: &'static str) -> Router<AppState> {
@@ -70,7 +70,13 @@ async fn get_releases(
         .iter()
         .enumerate()
         .map(|(index, gh)| ReleaseDto {
-            version: gh.tag_name.clone(),
+            // the webui's isLatestVersion compares version to build.version (CARGO_PKG_VERSION,
+            // no v prefix), while kmrs tags carry one — strip it so the comparison can match
+            version: gh
+                .tag_name
+                .strip_prefix('v')
+                .unwrap_or(&gh.tag_name)
+                .to_string(),
             release_date: gh.published_at,
             url: gh.html_url.clone(),
             latest: index == 0,
@@ -111,9 +117,9 @@ mod tests {
     use axum::http::StatusCode;
 
     const RELEASES: &str = r#"[
-        {"html_url": "https://github.com/gotson/komga/releases/tag/v1.9.0", "tag_name": "v1.9.0",
+        {"html_url": "https://github.com/kmworks/kmrs/releases/tag/v0.6.0", "tag_name": "v0.6.0",
          "published_at": "2023-12-15T00:00:00Z", "body": "new features", "prerelease": false},
-        {"html_url": "https://github.com/gotson/komga/releases/tag/v1.9.0-beta.1", "tag_name": "v1.9.0-beta.1",
+        {"html_url": "https://github.com/kmworks/kmrs/releases/tag/v0.6.0-beta.1", "tag_name": "v0.6.0-beta.1",
          "published_at": "2023-12-01T00:00:00Z", "body": "beta", "prerelease": true}
     ]"#;
 
@@ -170,7 +176,7 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         let items = json.as_array().unwrap();
         assert_eq!(items.len(), 2);
-        assert_eq!(items[0]["version"], "v1.9.0");
+        assert_eq!(items[0]["version"], "0.6.0");
         assert_eq!(items[0]["latest"], true);
         assert_eq!(items[0]["preRelease"], false);
         assert_eq!(items[0]["description"], "new features");
