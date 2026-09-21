@@ -30,7 +30,7 @@ ARG TARGETARCH
 # compose healthchecks shell out to curl (the Java image ships one); the slim base doesn't
 RUN apt-get update && apt-get install -y --no-install-recommends curl \
  && rm -rf /var/lib/apt/lists/*
-LABEL org.opencontainers.image.source="https://github.com/everpcpc/kmrs" \
+LABEL org.opencontainers.image.source="https://github.com/kmworks/kmrs" \
       org.opencontainers.image.description="Rust rewrite of the Komga server (API only, no UI)" \
       org.opencontainers.image.licenses="MIT"
 # Drop-in replacement for gotson/komga: same port, same /config and /data

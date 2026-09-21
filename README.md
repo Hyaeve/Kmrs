@@ -1,14 +1,14 @@
 # kmrs
 
-[![CI](https://github.com/everpcpc/kmrs/actions/workflows/ci.yml/badge.svg)](https://github.com/everpcpc/kmrs/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/everpcpc/kmrs)](https://github.com/everpcpc/kmrs/releases/latest)
-[![Docker image](https://img.shields.io/badge/ghcr.io-everpcpc%2Fkmrs-blue)](https://github.com/everpcpc/kmrs/pkgs/container/kmrs)
-[![License: MIT](https://img.shields.io/github/license/everpcpc/kmrs)](LICENSE)
+[![CI](https://github.com/kmworks/kmrs/actions/workflows/ci.yml/badge.svg)](https://github.com/kmworks/kmrs/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/kmworks/kmrs)](https://github.com/kmworks/kmrs/releases/latest)
+[![Docker image](https://img.shields.io/badge/ghcr.io-kmworks%2Fkmrs-blue)](https://github.com/kmworks/kmrs/pkgs/container/kmrs)
+[![License: MIT](https://img.shields.io/github/license/kmworks/kmrs)](LICENSE)
 
 A drop-in, API-compatible reimplementation of the [Komga](https://komga.org) comic/manga server in Rust — a single static binary, no JVM required.
 
 > [!NOTE]
-> kmrs serves the API and OPDS feeds only — there is **no web UI**. Pair it with a Komga-compatible client — [KMReader](https://github.com/everpcpc/KMReader) (iOS/macOS/tvOS), KOReader, Kobo, and [others](https://komga.org/docs/category/readers).
+> kmrs serves the API and OPDS feeds only — there is **no web UI**. Pair it with a Komga-compatible client — [KMReader](https://github.com/kmworks/kmreader) (iOS/macOS/tvOS), KOReader, Kobo, and [others](https://komga.org/docs/category/readers).
 
 ## Features
 
@@ -21,7 +21,7 @@ A drop-in, API-compatible reimplementation of the [Komga](https://komga.org) com
 
 ### Docker
 
-Every release publishes an image to `ghcr.io/everpcpc/kmrs` (tags: `latest`, `MAJOR.x`, `x.y.z`; platforms: `linux/amd64`, `linux/arm64`). The [official Komga Docker instructions](https://komga.org/docs/installation/docker) apply verbatim — just swap the image name:
+Every release publishes an image to `ghcr.io/kmworks/kmrs` (tags: `latest`, `MAJOR.x`, `x.y.z`; platforms: `linux/amd64`, `linux/arm64`). The [official Komga Docker instructions](https://komga.org/docs/installation/docker) apply verbatim — just swap the image name:
 
 ```sh
 docker run -d \
@@ -31,14 +31,14 @@ docker run -d \
   --mount type=bind,source=/path/to/config,target=/config \
   --mount type=bind,source=/path/to/data,target=/data \
   --restart unless-stopped \
-  ghcr.io/everpcpc/kmrs
+  ghcr.io/kmworks/kmrs
 ```
 
 An existing komga `/config` directory (with `database.sqlite` / `tasks.sqlite`) is picked up and upgraded in place.
 
 ### Prebuilt binaries
 
-Download the archive for your platform from the [latest release](https://github.com/everpcpc/kmrs/releases/latest) (Linux, macOS, Windows; x86_64 and aarch64).
+Download the archive for your platform from the [latest release](https://github.com/kmworks/kmrs/releases/latest) (Linux, macOS, Windows; x86_64 and aarch64).
 
 ### Build from source
 
