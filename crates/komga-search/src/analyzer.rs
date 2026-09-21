@@ -1,13 +1,26 @@
-//! Analysis chain aligned with komga's Lucene analyzers:
-//! - search side (`MultiLingualAnalyzer`): standard tokenize -> CJK width -> lowercase ->
+//! Analysis chain aligned with komga's Lucene analyzers (kmrs's recall extensions on top
+//! are documented in docs/search.md):
+//! - search side (`MultiLingualAnalyzer`): t2s -> standard tokenize -> CJK width -> lowercase ->
 //!   CJK bigram -> ASCII fold
 //! - index side (`MultiLingualNGramAnalyzer`): the same plus NGram(3, 10,
 //!   preserveOriginal = true) before folding
-//! - `MultiLingualAnalyzer.normalize` (used for prefix/wildcard query terms): CJK width ->
+//! - `MultiLingualAnalyzer.normalize` (used for prefix/wildcard query terms): t2s -> CJK width ->
 //!   lowercase -> ASCII fold, without bigramming
 
+use opencc_jieba_rs::OpenCC;
+use std::sync::OnceLock;
 use tantivy::tokenizer::{Token, TokenStream, Tokenizer};
 use unicode_normalization::UnicodeNormalization;
+
+/// Traditional→simplified conversion (OpenCC phrase dictionaries) mapping both index and
+/// query text to one canonical form, so simplified and traditional queries cross-match.
+/// Runs on the raw text because phrase-level rules (乾隆 stays 乾隆, but 乾燥 → 干燥)
+/// need character context that single-character tokens no longer have. The mapping is
+/// many-to-one (乾/幹 → 干), so a few titles can over-merge.
+pub fn t2s_str(text: &str) -> String {
+    static CONVERTER: OnceLock<OpenCC> = OnceLock::new();
+    CONVERTER.get_or_init(OpenCC::new).t2s(text, false)
+}
 
 /// Lucene `StandardTokenizer` (UAX#29 word segmentation, komga-relevant subset):
 /// Han/Hiragana characters are emitted one per token, katakana runs stay together, and
@@ -350,13 +363,15 @@ pub fn ascii_fold(tokens: Vec<String>) -> Vec<String> {
 
 /// Search-side chain (`MultiLingualAnalyzer`)
 pub fn search_analyze(text: &str) -> Vec<String> {
-    ascii_fold(cjk_bigram(lowercase(cjk_width(standard_tokenize(text)))))
+    ascii_fold(cjk_bigram(lowercase(cjk_width(standard_tokenize(
+        &t2s_str(text),
+    )))))
 }
 
 /// Index-side chain (`MultiLingualNGramAnalyzer` with minGram=3, maxGram=10, preserveOriginal)
 pub fn index_analyze(text: &str) -> Vec<String> {
     ascii_fold(ngram(
-        cjk_bigram(lowercase(cjk_width(standard_tokenize(text)))),
+        cjk_bigram(lowercase(cjk_width(standard_tokenize(&t2s_str(text))))),
         3,
         10,
         true,
@@ -365,7 +380,7 @@ pub fn index_analyze(text: &str) -> Vec<String> {
 
 /// `MultiLingualAnalyzer.normalize`, used for prefix/wildcard query terms
 pub fn normalize(text: &str) -> String {
-    ascii_fold_str(&cjk_width_str(text).to_lowercase())
+    ascii_fold_str(&cjk_width_str(&t2s_str(text)).to_lowercase())
 }
 
 /// Eager token stream over a precomputed token list.
@@ -490,8 +505,27 @@ mod tests {
         // Latin word gains the unigram too
         assert_eq!(
             search_analyze("Batman 東京"),
-            vec!["batman", "東", "東京", "京"]
+            vec!["batman", "东", "东京", "京"]
         );
+    }
+
+    #[test]
+    fn t2s_unifies_simplified_and_traditional() {
+        assert_eq!(t2s_str("名偵探柯南"), "名侦探柯南");
+        assert_eq!(t2s_str("名侦探柯南"), "名侦探柯南");
+        // phrase-level rules keep polyphonic characters intact
+        assert_eq!(t2s_str("乾隆"), "乾隆");
+        assert_eq!(t2s_str("乾燥"), "干燥");
+        // Japanese shinjitai collapses to the simplified form as well; kana is untouched
+        assert_eq!(t2s_str("東京タワー"), "东京タワー");
+        assert_eq!(t2s_str("3月的狮子"), "3月的狮子");
+    }
+
+    #[test]
+    fn chains_unify_simplified_and_traditional() {
+        assert_eq!(search_analyze("名偵探柯南"), search_analyze("名侦探柯南"));
+        assert_eq!(index_analyze("名偵探柯南"), index_analyze("名侦探柯南"));
+        assert_eq!(normalize("名偵探"), "名侦探");
     }
 
     #[test]
@@ -521,9 +555,10 @@ mod tests {
     #[test]
     fn search_chain() {
         assert_eq!(search_analyze("Ｈｅｌｌｏ"), vec!["hello"]);
+        // t2s runs first: the Japanese title is indexed under the simplified kanji forms
         assert_eq!(
             search_analyze("東京タワー"),
-            vec!["東京", "京タ", "タワ", "ワー", "ー"]
+            vec!["东京", "京タ", "タワ", "ワー", "ー"]
         );
     }
 
@@ -531,7 +566,7 @@ mod tests {
     fn normalize_chain() {
         assert_eq!(normalize("Ｈｅｌｌｏ"), "hello");
         // no bigramming for prefix/wildcard terms
-        assert_eq!(normalize("東京"), "東京");
+        assert_eq!(normalize("東京"), "东京");
     }
 
     #[test]

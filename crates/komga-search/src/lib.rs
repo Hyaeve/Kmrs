@@ -25,11 +25,11 @@ const INDEX_VERSION_TYPE: &str = "index_version";
 const MAX_RESULTS: usize = 1000;
 // bumped together with ANALYZER_VERSION so an index built by another analyzer chain
 // can never be opened silently
-const INDEX_TOKENIZER: &str = "komga_index_v2";
+const INDEX_TOKENIZER: &str = "komga_index_v3";
 
 /// Version of the analyzer chain (tokenizer/filters), independent of the entity
 /// `index_version` document, which tracks the indexed *fields* like Java's marker.
-pub const ANALYZER_VERSION: u32 = 2;
+pub const ANALYZER_VERSION: u32 = 3;
 const ANALYZER_VERSION_FILE: &str = ".kmrs-search-analyzer-version";
 /// File names of a Java Lucene index, for detecting a data directory previously
 /// used by Java komga.
@@ -539,6 +539,35 @@ mod tests {
             .unwrap();
         ids.sort();
         assert_eq!(ids, vec!["b1", "b3"]);
+    }
+
+    #[test]
+    fn search_cjk_simplified_traditional_cross_match() {
+        let (_dir, index) = index();
+        index
+            .add_documents(vec![
+                book("b1", &[("title", "名侦探柯南")]),
+                book("b2", &[("title", "名偵探柯南")]),
+                book("b3", &[("title", "海贼王")]),
+            ])
+            .unwrap();
+        // both scripts index to the same simplified form, so either script hits both titles
+        for term in ["名侦探柯南", "名偵探柯南"] {
+            let mut ids = index
+                .search_entity_ids(Some(term), LuceneEntity::Book)
+                .unwrap();
+            ids.sort();
+            assert_eq!(ids, vec!["b1", "b2"], "term {term}");
+        }
+        let ids = index
+            .search_entity_ids(Some("海賊王"), LuceneEntity::Book)
+            .unwrap();
+        assert_eq!(ids, vec!["b3"]);
+        // prefix/wildcard terms go through normalize, which converts too
+        let ids = index
+            .search_entity_ids(Some("海賊*"), LuceneEntity::Book)
+            .unwrap();
+        assert_eq!(ids, vec!["b3"]);
     }
 
     #[test]

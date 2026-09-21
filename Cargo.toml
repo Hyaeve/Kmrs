@@ -10,7 +10,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.6.2"
+version = "0.6.3"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/kmworks/kmrs"
@@ -63,6 +63,7 @@ scraper = "0.23"
 compress-tools = { version = "0.16", default-features = false, features = ["static"] }
 pdfium-render = "0.9"
 tantivy = "0.26.2"
+opencc-jieba-rs = "0.8"
 # opt-in heap profiling (komga-server `profiling` feature)
 tikv-jemallocator = { version = "0.6", features = ["profiling"] }
 tikv-jemalloc-ctl = { version = "0.6", features = ["profiling"] }

@@ -17,6 +17,12 @@ A drop-in, API-compatible reimplementation of the [Komga](https://komga.org) com
 - **API parity**: REST `/api/**`, OPDS v1.2/v2, SSE, Kobo sync, and KOReader progress sync — endpoints, DTOs, pagination, error shapes, and authentication behavior match the Java version
 - **Verified against the Java version**: byte-for-byte Flyway migrations, a differential test harness comparing ~105 endpoints against a live Java instance, and schema contract tests
 
+## Enhancements
+
+On top of drop-in compatibility, kmrs adds improvements the Java version does not have:
+
+- **Search**: simplified ↔ traditional Chinese cross-search and CJK boundary unigrams (e.g. `3月` matches `3月的狮子`) — see [docs/search.md](docs/search.md)
+
 ## Quick start
 
 ### Docker
