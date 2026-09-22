@@ -2,19 +2,13 @@
 
 kmrs does not embed a web UI in the binary (the release docker image bundles
 one — see below). If you run the bare binary and want a browser interface,
-point kmrs at a built single-page app and it serves it for you (option A), or
-host the files behind a reverse proxy (option B). Two UIs work this way:
-
-- [kmweb](https://github.com/kmworks/kmweb) — the React UI built for kmrs:
-  dashboard, browsing with facet filters, full-text search, the comic reader,
-  account settings, live updates over SSE.
-- the original [komga-webui](https://github.com/gotson/komga) — feature parity
-  with the Java version: basic and OAuth2 login, the divina/EPUB readers, live
-  updates over SSE, and the admin pages.
+point kmrs at a built [kmweb](https://github.com/kmworks/kmweb) bundle and it
+serves it for you (option A), or host the files behind a reverse proxy
+(option B). kmweb is the React UI built for kmrs: dashboard, browsing with
+facet filters, full-text search, the comic reader, account settings, live
+updates over SSE.
 
 ## Get the web UI files
-
-### kmweb
 
 Download the prebuilt bundle from a [kmweb release](https://github.com/kmworks/kmweb/releases)
 and unpack it:
@@ -31,20 +25,6 @@ git clone https://github.com/kmworks/kmweb.git
 cd kmweb
 pnpm install
 pnpm build              # outputs dist/
-```
-
-### Original komga-webui
-
-Build from the komga source at kmrs's compatibility target (komga 1.27.0;
-note the tags carry no `v` prefix):
-
-```sh
-git clone https://github.com/gotson/komga.git
-cd komga
-git checkout 1.27.0
-cd komga-webui
-npm ci                   # Node 22, see .nvmrc
-NODE_OPTIONS=--max-old-space-size=4096 npm run build   # outputs dist/
 ```
 
 ## Docker image
@@ -91,8 +71,8 @@ up on the next page load (`index.html` is never cached).
   image, hand-staged bundle without `kmweb.version`), the updater installs the
   latest release once even if it turns out identical.
 - `KOMGA_WEBUI_DIR=` (empty) disables the UI entirely, and the updater with it.
-- Auto-update tracks the kmweb bundle — don't enable it when `webui.dir`
-  points at a different UI (e.g. the original komga-webui).
+- Auto-update tracks the kmweb bundle: with it on, whatever `webui.dir` points
+  at is replaced by the latest kmweb release.
 - Air-gapped hosts: leave it off and keep pointing `webui.dir` at a bundle you
   stage yourself (option A).
 
@@ -107,10 +87,9 @@ KOMGA_WEBUI_DIR=/path/to/kmweb kmrs
 
 That is all. kmrs serves the files at `/`, and paths that match no backend route
 (e.g. `/login`, `/libraries/<id>`) fall back to `index.html`, so the UI's
-history-mode routing works on refresh. Cache headers mirror the Java version:
-content-hashed assets (`css/`, `fonts/`, `img/`, `js/`, `assets/`) are cached for a
-year, entry files are `no-store`. Misses under backend prefixes (`/api/`, `/opds/`,
-`/sse/`, …) stay 404.
+history-mode routing works on refresh. Cache headers: content-hashed assets
+under `assets/` are cached for a year, everything else is `no-store`. Misses
+under backend prefixes (`/api/`, `/opds/`, `/sse/`, …) stay 404.
 
 kmrs speaks plain HTTP. If you need HTTPS, put any TLS-terminating proxy in front —
 with option A it can be a dumb pipe, since kmrs tells the SPA and the API apart
@@ -217,19 +196,16 @@ server {
     location = /v3/api-docs { proxy_pass http://127.0.0.1:25600; }  # OpenAPI document
     # location /debug/ { proxy_pass http://127.0.0.1:25600; }  # pprof heap (ADMIN-only)
 
-    # 9) static files — mirrors komga's WebMvcConfiguration:
-    #    content-hashed assets cache for a year, entry files never cached
-    location ~* ^/(css|fonts|img|js|assets)/ {
+    # 9) static files — mirrors kmrs: content-hashed assets cache for a year,
+    #    everything else (index.html included) is never cached
+    location ~* ^/assets/ {
         add_header Cache-Control "public, max-age=31536000";
-        try_files $uri =404;
-    }
-    location ~* ^/(index\.html|favicon.*|manifest\.json|mstile-.*|apple-touch-icon.*|android-chrome-.*)$ {
-        add_header Cache-Control "no-store";
         try_files $uri =404;
     }
 
     # 10) everything else is the SPA; history-mode routes fall back to index.html
     location / {
+        add_header Cache-Control "no-store";
         try_files $uri $uri/ /index.html;
     }
 }
@@ -237,8 +213,8 @@ server {
 
 ## Prefix reference
 
-kmrs listens on the following top-level prefixes. Options A and B1 need none of
-this (kmrs routes internally); option B2 needs the ones you use.
+kmrs listens on the following top-level prefixes. Option A needs none of
+this (kmrs routes internally); option B needs the ones you use.
 
 | Prefix | Purpose | Needed by |
 | --- | --- | --- |

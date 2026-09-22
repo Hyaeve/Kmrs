@@ -1,11 +1,11 @@
-//! Optional static hosting of a built web UI (e.g. kmweb): `webui.dir` points at a
-//! build's dist directory. Unmatched paths outside the backend namespaces fall
-//! back to its index.html — the SPA history-mode equivalent of Java's
+//! Optional static hosting of the kmweb build: `webui.dir` points at its dist
+//! directory. Unmatched paths outside the backend namespaces fall back to its
+//! index.html — the SPA history-mode equivalent of Java's
 //! `ResourceNotFoundController` forwarding to `/`.
 //!
-//! Cache headers mirror `WebMvcConfiguration`: content-hashed build output
-//! (css/fonts/img/js/assets) is cached for a year, entry files (index.html, favicon
-//! variants, manifest.json) are no-store.
+//! Cache headers split like Java's `WebMvcConfiguration`: content-hashed build
+//! output (Vite emits it under assets/) is cached for a year, everything else —
+//! index.html, favicon — is no-store.
 
 use crate::state::AppState;
 use axum::extract::{Request, State};
@@ -44,8 +44,9 @@ const BACKEND_SEGMENTS: &[&str] = &[
     "api", "opds", "sse", "oauth2", "actuator", "kobo", "koreader", "v3", "debug",
 ];
 
-/// Content-hashed build output, safe to cache long-term like Java's resource handler.
-const LONG_CACHE_SEGMENTS: &[&str] = &["css", "fonts", "img", "js", "assets"];
+/// Content-hashed build output (Vite emits everything under assets/), safe to
+/// cache long-term.
+const LONG_CACHE_SEGMENTS: &[&str] = &["assets"];
 
 pub async fn fallback(State(state): State<AppState>, request: Request) -> Response {
     let Some(dir) = state.webui_dir.get() else {
@@ -157,9 +158,9 @@ mod tests {
     fn dist() -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("index.html"), "<html>spa</html>").unwrap();
-        std::fs::create_dir(dir.path().join("js")).unwrap();
-        std::fs::write(dir.path().join("js/app.abc123.js"), "console.log(1)").unwrap();
-        std::fs::write(dir.path().join("manifest.json"), "{}").unwrap();
+        std::fs::create_dir(dir.path().join("assets")).unwrap();
+        std::fs::write(dir.path().join("assets/app.abc123.js"), "console.log(1)").unwrap();
+        std::fs::write(dir.path().join("favicon.svg"), "<svg/>").unwrap();
         dir
     }
 
@@ -184,7 +185,7 @@ mod tests {
     use axum::http::HeaderMap;
 
     #[tokio::test]
-    async fn serves_index_and_assets_with_java_cache_policy() {
+    async fn serves_index_and_assets_with_cache_policy() {
         let dir = dist();
         let state = test_state(Some(dir.path().to_path_buf()));
         let app = crate::build_router(state);
@@ -194,7 +195,7 @@ mod tests {
         assert_eq!(headers.get(header::CACHE_CONTROL).unwrap(), "no-store");
         assert_eq!(body, "<html>spa</html>");
 
-        let (status, headers, body) = get(&app, "/js/app.abc123.js").await;
+        let (status, headers, body) = get(&app, "/assets/app.abc123.js").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(
             headers.get(header::CACHE_CONTROL).unwrap(),
@@ -208,7 +209,7 @@ mod tests {
             .contains("javascript"));
         assert_eq!(body, "console.log(1)");
 
-        let (status, headers, _) = get(&app, "/manifest.json").await;
+        let (status, headers, _) = get(&app, "/favicon.svg").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(headers.get(header::CACHE_CONTROL).unwrap(), "no-store");
     }

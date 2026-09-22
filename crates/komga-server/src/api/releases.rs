@@ -70,8 +70,9 @@ async fn get_releases(
         .iter()
         .enumerate()
         .map(|(index, gh)| ReleaseDto {
-            // the webui's isLatestVersion compares version to build.version (CARGO_PKG_VERSION,
-            // no v prefix), while kmrs tags carry one — strip it so the comparison can match
+            // the web UI flags the running release by comparing version to
+            // build.version (CARGO_PKG_VERSION, no v prefix), while kmrs tags
+            // carry one — strip it so the comparison can match
             version: gh
                 .tag_name
                 .strip_prefix('v')
