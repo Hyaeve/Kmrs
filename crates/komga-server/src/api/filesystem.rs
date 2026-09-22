@@ -45,11 +45,9 @@ async fn get_directory_listing(
     let request = body.map(|b| b.0).unwrap_or_default();
 
     if request.path.is_empty() {
-        // Java's `FileSystems.getDefault().getRootDirectories()` on Unix: just `/`
-        let root = Path::new("/");
         return Ok(Json(DirectoryListingDto {
             parent: None,
-            directories: vec![path_dto(root)],
+            directories: root_directories().iter().map(|p| path_dto(p)).collect(),
             files: vec![],
         }));
     }
@@ -88,6 +86,21 @@ async fn get_directory_listing(
         directories,
         files,
     }))
+}
+
+/// Java's `FileSystems.getDefault().getRootDirectories()` on Unix: just `/`
+#[cfg(unix)]
+fn root_directories() -> Vec<PathBuf> {
+    vec![PathBuf::from("/")]
+}
+
+/// std exposes no drive enumeration on Windows; probe A:–Z: for mounted drives
+#[cfg(windows)]
+fn root_directories() -> Vec<PathBuf> {
+    (b'A'..=b'Z')
+        .map(|c| PathBuf::from(format!("{}:\\", c as char)))
+        .filter(|p| p.is_dir())
+        .collect()
 }
 
 fn is_hidden(path: &Path) -> bool {
@@ -148,16 +161,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn root_directories() {
+    async fn root_listing() {
         let state = test_state();
         let key = seed_admin(&state);
         let (status, json) = post(&state, &key, serde_json::json!({})).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(json["files"].as_array().unwrap().len(), 0);
         let dirs = json["directories"].as_array().unwrap();
-        assert_eq!(dirs.len(), 1);
-        assert_eq!(dirs[0]["type"], "directory");
-        assert_eq!(dirs[0]["path"], "/");
+        #[cfg(unix)]
+        {
+            assert_eq!(dirs.len(), 1);
+            assert_eq!(dirs[0]["type"], "directory");
+            assert_eq!(dirs[0]["path"], "/");
+        }
+        #[cfg(windows)]
+        {
+            assert!(!dirs.is_empty());
+            assert!(dirs
+                .iter()
+                .all(|d| d["path"].as_str().unwrap().ends_with(":\\")));
+        }
     }
 
     #[tokio::test]
