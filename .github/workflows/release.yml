@@ -68,11 +68,6 @@ jobs:
             target: x86_64-apple-darwin
             builder: cargo
             heapprof: true
-          # jemalloc has no MSVC support; the feature is inert here
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            builder: cargo
-            heapprof: false
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -107,8 +102,7 @@ jobs:
           SCCACHE_GHA_ENABLED: "true"
           CARGO_INCREMENTAL: "0"
           CARGO_PROFILE_RELEASE_STRIP: ${{ matrix.heapprof && 'debuginfo' || 'symbols' }}
-      - name: Package (unix)
-        if: runner.os != 'Windows'
+      - name: Package
         shell: bash
         run: |
           stage="kmrs_${{ needs.version.outputs.version }}_${{ matrix.target }}"
@@ -116,15 +110,6 @@ jobs:
           cp "target/${{ matrix.target }}/release/kmrs" "$stage/"
           cp LICENSE README.md "$stage/"
           tar -czf "dist/${stage}.tar.gz" "$stage"
-      - name: Package (windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $stage = "kmrs_${{ needs.version.outputs.version }}_${{ matrix.target }}"
-          New-Item -ItemType Directory -Force -Path $stage, dist | Out-Null
-          Copy-Item "target\${{ matrix.target }}\release\kmrs.exe" $stage
-          Copy-Item LICENSE, README.md $stage
-          Compress-Archive -Path $stage -DestinationPath "dist\${stage}.zip"
       - uses: actions/upload-artifact@v7
         with:
           name: kmrs-${{ matrix.target }}

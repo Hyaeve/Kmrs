@@ -46,7 +46,7 @@ The image bundles the kmweb UI at `/webui` and serves it at `/`, so `http://<hos
 
 ### Prebuilt binaries
 
-Download the archive for your platform from the [latest release](https://github.com/kmworks/kmrs/releases/latest) (Linux, macOS, Windows; x86_64 and aarch64).
+Download the archive for your platform from the [latest release](https://github.com/kmworks/kmrs/releases/latest) (Linux, macOS; x86_64 and aarch64).
 
 ### Build from source
 
