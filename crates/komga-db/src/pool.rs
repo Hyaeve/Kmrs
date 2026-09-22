@@ -49,7 +49,7 @@ pub struct DatabaseConfig {
     pub file: PathBuf,
     /// Read pool size; None = min(CPU cores, max_pool_size)
     pub pool_size: Option<u32>,
-    /// Upper bound of pool_size, default 1 (same as komga)
+    /// Upper bound of pool_size, default 4; komga's default 1 serializes concurrent reads
     pub max_pool_size: u32,
     pub journal_mode: JournalMode,
     /// Busy timeout for each connection; `None` falls back to 30s. SQLite's own
@@ -66,7 +66,7 @@ impl Default for DatabaseConfig {
         Self {
             file: PathBuf::new(),
             pool_size: None,
-            max_pool_size: 1,
+            max_pool_size: 4,
             journal_mode: JournalMode::Wal,
             busy_timeout: None,
             pragmas: Vec::new(),

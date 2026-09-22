@@ -21,7 +21,7 @@
 [database]
 # file = "<config-dir>/database.sqlite" # env: KOMGA_DATABASE_FILE
 # pool-size = 4 # read pool size; default min(CPU cores, max-pool-size). env: KOMGA_DATABASE_POOLSIZE
-# max-pool-size = 1 # env: KOMGA_DATABASE_MAXPOOLSIZE
+# max-pool-size = 4 # env: KOMGA_DATABASE_MAXPOOLSIZE
 # journal-mode = "WAL" # WAL/DELETE/TRUNCATE/PERSIST/MEMORY/OFF; env: KOMGA_DATABASE_JOURNALMODE
 # busy-timeout = "30s" # default 30s when unset; env: KOMGA_DATABASE_BUSYTIMEOUT
 # Task execution (library scan / analysis / hashing / conversion / maintenance)

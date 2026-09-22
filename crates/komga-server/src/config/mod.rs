@@ -354,7 +354,7 @@ fn merge_database(
             .or_else(|| file.and_then(|d| d.pool_size)),
         max_pool_size: env_u32(env, &format!("{env_prefix}_MAXPOOLSIZE"))
             .or_else(|| file.and_then(|d| d.max_pool_size))
-            .unwrap_or(1),
+            .unwrap_or(4),
         journal_mode,
         busy_timeout: env_duration(env, &format!("{env_prefix}_BUSYTIMEOUT"))
             .transpose()?
@@ -603,7 +603,7 @@ mod tests {
         assert!(config.oauth2.oidc_email_verification);
         assert!(config.migration_placeholders.library_file_hashing);
         assert!(!config.migration_placeholders.library_scan_startup);
-        assert_eq!(config.database.max_pool_size, 1);
+        assert_eq!(config.database.max_pool_size, 4);
         assert!(matches!(config.database.journal_mode, JournalMode::Wal));
         let home = default_config_dir();
         assert_eq!(config.database.file, home.join("database.sqlite"));
