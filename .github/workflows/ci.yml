@@ -42,6 +42,29 @@ jobs:
       - uses: mozilla-actions/sccache-action@v0.0.11
       - run: cargo nextest run --workspace
 
+  build:
+    # compile-only gate on the platforms the release workflow ships;
+    # tests stay on ubuntu
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+      CARGO_INCREMENTAL: "0"
+      # hermetic liblzma regardless of runner image contents
+      LZMA_API_STATIC: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: "false"
+      - uses: mozilla-actions/sccache-action@v0.0.11
+      - run: cargo build --workspace --all-targets
+
   docker:
     # build glibc (2.39) must not exceed the debian:trixie-slim runtime's (2.41)
     runs-on: ubuntu-24.04
