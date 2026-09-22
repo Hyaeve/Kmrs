@@ -25,11 +25,11 @@ const INDEX_VERSION_TYPE: &str = "index_version";
 const MAX_RESULTS: usize = 1000;
 // bumped together with ANALYZER_VERSION so an index built by another analyzer chain
 // can never be opened silently
-const INDEX_TOKENIZER: &str = "komga_index_v3";
+const INDEX_TOKENIZER: &str = "komga_index_v4";
 
 /// Version of the analyzer chain (tokenizer/filters), independent of the entity
 /// `index_version` document, which tracks the indexed *fields* like Java's marker.
-pub const ANALYZER_VERSION: u32 = 3;
+pub const ANALYZER_VERSION: u32 = 4;
 const ANALYZER_VERSION_FILE: &str = ".kmrs-search-analyzer-version";
 /// File names of a Java Lucene index, for detecting a data directory previously
 /// used by Java komga.
@@ -505,16 +505,33 @@ mod tests {
     fn search_cjk() {
         let (_dir, index) = index();
         seed(&index);
-        // the trailing unigram of the bigram chain becomes an AND operand and is not
-        // indexed, so single-word CJK queries do not match — same as Lucene
-        assert!(index
+        // every CJK character is indexed as a unigram, so the query's trailing unigram
+        // (ANDed into the query) resolves — unlike the Java version, which cannot match
+        // a mid-run query like this one
+        let ids = index
             .search_entity_ids(Some("東京"), LuceneEntity::Book)
-            .unwrap()
-            .is_empty());
+            .unwrap();
+        assert_eq!(ids, vec!["b3"]);
         let ids = index
             .search_entity_ids(Some("クライシス"), LuceneEntity::Book)
             .unwrap();
         assert_eq!(ids, vec!["b3"]);
+    }
+
+    #[test]
+    fn search_cjk_mid_run_substrings() {
+        let (_dir, index) = index();
+        index
+            .add_documents(vec![book("b1", &[("title", "我的可愛對黑岩目高不管用")])])
+            .unwrap();
+        // substrings cut from the middle of the CJK run: the query's trailing unigram
+        // (可愛→爱, 我的→的, 黑岩→岩) is indexed like every other character
+        for term in ["可愛", "可爱", "我的", "黑岩", "目高", "我"] {
+            let ids = index
+                .search_entity_ids(Some(term), LuceneEntity::Book)
+                .unwrap();
+            assert_eq!(ids, vec!["b1"], "term {term}");
+        }
     }
 
     #[test]

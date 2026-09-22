@@ -10,7 +10,7 @@ Both the index side and the query side share one pipeline (komga's `MultiLingual
 2. **standard tokenize** — UAX#29 word segmentation: Han/Hiragana characters one per token, katakana runs stay together, Latin/digit runs
 3. **CJK width** — fullwidth ASCII → ASCII, halfwidth katakana → fullwidth
 4. **lowercase**
-5. **CJK bigram** — sliding bigrams over CJK runs, with boundary unigrams (kmrs extension, see below)
+5. **CJK bigram** — sliding bigrams over CJK runs; the index side also emits every CJK character as a unigram (kmrs extension, see below)
 6. **ASCII fold** — accents stripped (`café` → `cafe`)
 
 Prefix and wildcard query terms skip the bigram step, like Java's `MultiLingualAnalyzer.normalize`.
@@ -19,9 +19,11 @@ Prefix and wildcard query terms skip the bigram step, like Java's `MultiLingualA
 
 These change recall only: the index format is versioned (see below), and nothing in the data directory or the API is affected.
 
-### CJK boundary unigrams
+### CJK unigrams
 
-Java's `CJKBigramFilter` indexes a CJK run as sliding bigrams plus a trailing unigram, so a character that only ever appears inside a bigram cannot be searched for. `3月` therefore cannot match `3月的狮子` in the Java version: 月 exists in the index only inside the bigram 月的. kmrs additionally emits the first character of a CJK run that follows a non-CJK token as a unigram, so `3月` matches `3月的狮子`, and single-character queries like `王` find `狮子王` via the trailing unigram.
+Java's `CJKBigramFilter` indexes a CJK run as sliding bigrams plus a trailing unigram, so a character that only ever appears inside a bigram cannot be searched for. A query term's analyzed tokens are all ANDed (komga's `defaultOperator = AND`), and the query's trailing unigram has no index entry when that character sits in the middle of a run: `可爱` analyzes to `+可爱 +爱`, but 爱 exists in the Java index only inside the bigrams 可爱/爱对, so `可爱` cannot match `我的可愛對黑岩目高不管用` — only substrings aligned with a run boundary match at all.
+
+kmrs indexes every CJK character as a unigram (Lucene's `outputUnigrams` mode), so every token the search side emits resolves in the index: `可爱` and `我的` match mid-run, `3月` matches `3月的狮子`, and single-character queries like `王` work anywhere in a run. The added unigrams take positions that keep the bigrams' relative spacing intact (the run-initial unigram takes the run's first position, each mid-run unigram shares the position of the bigram it starts, the trailing unigram keeps its own position), so phrase queries behave as before.
 
 ### Simplified ↔ traditional cross-search
 

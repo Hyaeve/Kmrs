@@ -4,10 +4,10 @@ inputs:
   kmweb-version:
     # bump together with kmweb-sha256
     description: kmweb version to fetch; kmweb tags its releases v<version>
-    default: "0.3.0"
+    default: "0.3.2"
   kmweb-sha256:
     description: SHA-256 of kmweb-v<version>.tar.gz, as noted on the kmweb release
-    default: "c1317e4b8f948431efdfb473cd1d88ea430da31a4391e98479113a55df2f0d70"
+    default: "06577901e7e08d05d91dba7dfebb42eb2f9cbcc6d31bf7bca4283faf82d3ca6b"
 outputs:
   version:
     description: kmweb version that was fetched (without the v prefix)

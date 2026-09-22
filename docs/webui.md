@@ -14,8 +14,8 @@ Download the prebuilt bundle from a [kmweb release](https://github.com/kmworks/k
 and unpack it:
 
 ```sh
-gh release download v0.3.0 -R kmworks/kmweb -p 'kmweb-v0.3.0.tar.gz'
-mkdir kmweb && tar -xzf kmweb-v0.3.0.tar.gz -C kmweb
+gh release download v0.3.2 -R kmworks/kmweb -p 'kmweb-v0.3.2.tar.gz'
+mkdir kmweb && tar -xzf kmweb-v0.3.2.tar.gz -C kmweb
 ```
 
 Or build from source (Node 24, pnpm):
@@ -42,8 +42,8 @@ yourself — the Dockerfile only packages, it compiles nothing:
 ```sh
 mkdir -p dist
 # prebuilt kmweb bundle …
-gh release download v0.3.0 -R kmworks/kmweb \
-  -p 'kmweb-v0.3.0.tar.gz' -O dist/webui.tar.gz
+gh release download v0.3.2 -R kmworks/kmweb \
+  -p 'kmweb-v0.3.2.tar.gz' -O dist/webui.tar.gz
 # … or tar up your own build from the section above
 tar -czf dist/webui.tar.gz -C /path/to/kmweb/dist .
 ```

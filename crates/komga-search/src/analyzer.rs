@@ -2,8 +2,8 @@
 //! are documented in docs/search.md):
 //! - search side (`MultiLingualAnalyzer`): t2s -> standard tokenize -> CJK width -> lowercase ->
 //!   CJK bigram -> ASCII fold
-//! - index side (`MultiLingualNGramAnalyzer`): the same plus NGram(3, 10,
-//!   preserveOriginal = true) before folding
+//! - index side (`MultiLingualNGramAnalyzer`): the same, with every CJK character also emitted
+//!   as a unigram (kmrs extension), plus NGram(3, 10, preserveOriginal = true) before folding
 //! - `MultiLingualAnalyzer.normalize` (used for prefix/wildcard query terms): t2s -> CJK width ->
 //!   lowercase -> ASCII fold, without bigramming
 
@@ -246,10 +246,11 @@ pub fn lowercase(tokens: Vec<String>) -> Vec<String> {
     tokens.into_iter().map(|t| t.to_lowercase()).collect()
 }
 
-/// Lucene `CJKBigramFilter` with one recall deviation: sliding bigrams over the CJK
-/// character stream; a trailing lone CJK character is emitted as a unigram, and the first
-/// character of a CJK run following a non-CJK token is emitted as a unigram too — without
-/// it a query like "3月" cannot match "3月的狮子", where 月 only exists inside the bigram 月的.
+/// Search-side bigram chain: sliding bigrams over the CJK character stream; a trailing
+/// lone CJK character is emitted as a unigram, and the first character of a CJK run
+/// following a non-CJK token is emitted as a unigram too (kmrs's boundary extension).
+/// Every emitted token becomes an ANDed query clause, and all of them resolve against
+/// the index because the index side (`cjk_bigram_index`) indexes every CJK character.
 pub fn cjk_bigram(tokens: Vec<String>) -> Vec<String> {
     let mut out = vec![];
     // pending CJK character awaiting a possible bigram; the flag marks it as already
@@ -288,6 +289,70 @@ pub fn cjk_bigram(tokens: Vec<String>) -> Vec<String> {
             out.push(p);
         }
     }
+    out
+}
+
+/// Index-side bigram chain: like `cjk_bigram`, but every CJK character is also indexed as
+/// a unigram (Lucene's `outputUnigrams` mode). A query term's analyzed tokens are all ANDed,
+/// and a mid-run character otherwise exists only inside bigrams — without its unigram, a
+/// substring cut from the middle of a CJK run ("可爱" out of "我的可爱对黑岩目高不管用",
+/// analyzed to `+可爱 +爱`) matches nothing.
+///
+/// Tokens are returned with explicit positions: bigrams keep the sequential spacing they
+/// have in `cjk_bigram` (the run-initial unigram takes the position the boundary unigram
+/// had there, each mid-run unigram shares the position of the bigram it starts, and the
+/// trailing unigram keeps its own position), so phrase alignment is unchanged.
+pub fn cjk_bigram_index(tokens: Vec<String>) -> Vec<(String, usize)> {
+    let mut out = vec![];
+    let mut pos = 0usize;
+    // pending CJK character: (text, position of the run's first character, 1-based run index)
+    let mut prev: Option<(String, usize, usize)> = None;
+    // the run's last character gets its own position one past the last bigram; a
+    // one-character run was already emitted at its start. Returns the next free position.
+    fn flush_run(
+        out: &mut Vec<(String, usize)>,
+        prev: &mut Option<(String, usize, usize)>,
+        pos: usize,
+    ) -> usize {
+        match prev.take() {
+            Some((p, base, i)) => {
+                if i >= 2 {
+                    out.push((p, base + i));
+                    base + i + 1
+                } else {
+                    base + 1
+                }
+            }
+            None => pos,
+        }
+    }
+    for token in tokens {
+        if token.chars().all(is_cjk_char) {
+            for c in token.chars() {
+                let c = c.to_string();
+                match prev.take() {
+                    Some((p, base, i)) => {
+                        if i >= 2 {
+                            // p sits mid-run: its unigram shares the position of the
+                            // bigram it starts
+                            out.push((p.clone(), base + i));
+                        }
+                        out.push((format!("{p}{c}"), base + i));
+                        prev = Some((c, base, i + 1));
+                    }
+                    None => {
+                        out.push((c.clone(), pos));
+                        prev = Some((c, pos, 1));
+                    }
+                }
+            }
+        } else {
+            pos = flush_run(&mut out, &mut prev, pos);
+            out.push((token, pos));
+            pos += 1;
+        }
+    }
+    flush_run(&mut out, &mut prev, pos);
     out
 }
 
@@ -368,14 +433,27 @@ pub fn search_analyze(text: &str) -> Vec<String> {
     )))))
 }
 
-/// Index-side chain (`MultiLingualNGramAnalyzer` with minGram=3, maxGram=10, preserveOriginal)
-pub fn index_analyze(text: &str) -> Vec<String> {
-    ascii_fold(ngram(
-        cjk_bigram(lowercase(cjk_width(standard_tokenize(&t2s_str(text))))),
-        3,
-        10,
-        true,
-    ))
+/// Index-side chain (`MultiLingualNGramAnalyzer` with minGram=3, maxGram=10,
+/// preserveOriginal, plus the unigram extension of `cjk_bigram_index`).
+///
+/// Each token carries its position. N-gram expansion keeps Lucene's semantics of one
+/// position per emitted gram: `drift` accumulates the extra positions consumed by the
+/// grams of preceding tokens, so tokens left untouched by the filter (all CJK bigrams
+/// and unigrams, which are shorter than minGram) keep the positions `cjk_bigram_index`
+/// assigned to them.
+pub fn index_analyze(text: &str) -> Vec<(String, usize)> {
+    let tokens = cjk_bigram_index(lowercase(cjk_width(standard_tokenize(&t2s_str(text)))));
+    let mut out = vec![];
+    let mut drift = 0usize;
+    for (token, pos) in tokens {
+        let grams = ngram(vec![token], 3, 10, true);
+        for (i, gram) in grams.iter().enumerate() {
+            out.push((ascii_fold_str(gram), pos + drift + i));
+        }
+        // preserve_original guarantees at least one gram per token
+        drift += grams.len() - 1;
+    }
+    out
 }
 
 /// `MultiLingualAnalyzer.normalize`, used for prefix/wildcard query terms
@@ -390,11 +468,10 @@ pub struct VecTokenStream {
 }
 
 impl VecTokenStream {
-    pub fn new(tokens: Vec<String>) -> Self {
+    pub fn new(tokens: Vec<(String, usize)>) -> Self {
         let tokens = tokens
             .into_iter()
-            .enumerate()
-            .map(|(position, text)| Token {
+            .map(|(text, position)| Token {
                 position,
                 text,
                 ..Default::default()
@@ -507,6 +584,65 @@ mod tests {
             search_analyze("Batman 東京"),
             vec!["batman", "东", "东京", "京"]
         );
+    }
+
+    #[test]
+    fn cjk_bigram_index_unigrams_and_positions() {
+        // every character is indexed as a unigram; bigrams keep their sequential spacing,
+        // each mid-run unigram shares the position of the bigram it starts, and the
+        // trailing unigram keeps its own position
+        assert_eq!(
+            cjk_bigram_index(standard_tokenize("東京タワー")),
+            vec![
+                ("東".to_string(), 0),
+                ("東京".to_string(), 1),
+                ("京".to_string(), 2),
+                ("京タ".to_string(), 2),
+                ("タ".to_string(), 3),
+                ("タワ".to_string(), 3),
+                ("ワ".to_string(), 4),
+                ("ワー".to_string(), 4),
+                ("ー".to_string(), 5),
+            ]
+        );
+        // a run after a non-CJK token keeps the boundary-unigram positions of `cjk_bigram`
+        assert_eq!(
+            cjk_bigram_index(vec!["abc".into(), "東".into(), "京".into(), "def".into()]),
+            vec![
+                ("abc".to_string(), 0),
+                ("東".to_string(), 1),
+                ("東京".to_string(), 2),
+                ("京".to_string(), 3),
+                ("def".to_string(), 4),
+            ]
+        );
+        // a one-character run is emitted once
+        assert_eq!(
+            cjk_bigram_index(vec!["a".into(), "月".into(), "b".into()]),
+            vec![
+                ("a".to_string(), 0),
+                ("月".to_string(), 1),
+                ("b".to_string(), 2),
+            ]
+        );
+    }
+
+    #[test]
+    fn index_chain_unigrams_and_ngram_positions() {
+        // the query side analyzes "可爱" to [可爱, 爱]; both must exist in the index
+        let toks = index_analyze("我的可愛對黑岩目高不管用");
+        assert!(toks.contains(&("可爱".to_string(), 3)));
+        assert!(toks.contains(&("爱".to_string(), 4)));
+        assert!(toks.contains(&("我".to_string(), 0)));
+        assert!(toks.contains(&("用".to_string(), 12)));
+        // Latin tokens still get one position per emitted n-gram ("berserk" expands to
+        // 15 grams plus the preserved original at 15, and the CJK tokens shift by that)
+        let toks = index_analyze("Berserk 東京");
+        assert!(toks.contains(&("ber".to_string(), 0)));
+        assert!(toks.contains(&("berserk".to_string(), 15)));
+        assert!(toks.contains(&("东".to_string(), 16)));
+        assert!(toks.contains(&("东京".to_string(), 17)));
+        assert!(toks.contains(&("京".to_string(), 18)));
     }
 
     #[test]
