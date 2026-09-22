@@ -149,12 +149,7 @@ impl ServerConfig {
     }
 
     fn load_with(cli: &Cli, env: &Env) -> anyhow::Result<Self> {
-        let config_dir = cli
-            .config_dir
-            .clone()
-            .or_else(|| env_path(env, "KOMGA_CONFIG_DIR"))
-            .or_else(|| env_path(env, "KOMGA_CONFIGDIR"))
-            .unwrap_or_else(default_config_dir);
+        let config_dir = resolve_config_dir(cli, env);
         let path = config_dir.join("config.toml");
         let file = if path.exists() {
             let text = std::fs::read_to_string(&path)
@@ -197,12 +192,7 @@ impl ServerConfig {
     fn resolve(file: Option<&FileConfig>, cli: &Cli, env: &Env) -> anyhow::Result<Self> {
         let server = file.and_then(|f| f.server.as_ref());
 
-        let config_dir = cli
-            .config_dir
-            .clone()
-            .or_else(|| env_path(env, "KOMGA_CONFIG_DIR"))
-            .or_else(|| env_path(env, "KOMGA_CONFIGDIR"))
-            .unwrap_or_else(default_config_dir);
+        let config_dir = resolve_config_dir(cli, env);
 
         let database = merge_database(
             file.and_then(|f| f.database.as_ref()),
@@ -554,6 +544,21 @@ fn default_config_dir() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("."))
         .join(".komga")
+}
+
+/// Config dir from CLI/env/defaults without reading any config file. File logging
+/// needs it before `ServerConfig::load`, which itself logs during Java migration.
+pub fn config_dir(cli: &Cli) -> PathBuf {
+    let env: Vec<(String, String)> = std::env::vars().collect();
+    resolve_config_dir(cli, &env)
+}
+
+fn resolve_config_dir(cli: &Cli, env: &Env) -> PathBuf {
+    cli.config_dir
+        .clone()
+        .or_else(|| env_path(env, "KOMGA_CONFIG_DIR"))
+        .or_else(|| env_path(env, "KOMGA_CONFIGDIR"))
+        .unwrap_or_else(default_config_dir)
 }
 
 fn env_path(env: &Env, key: &str) -> Option<PathBuf> {

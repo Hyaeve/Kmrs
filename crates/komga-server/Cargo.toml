@@ -30,6 +30,7 @@ thiserror.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+tracing-appender.workspace = true
 time.workspace = true
 bcrypt.workspace = true
 sha2.workspace = true

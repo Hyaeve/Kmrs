@@ -22,12 +22,14 @@ use crate::auth::{MaybeAuth, RequireAuth};
 use crate::error::ApiError;
 use crate::http::pagination::QueryExt;
 use crate::state::AppState;
+use axum::body::Body;
 use axum::extract::{Path, State};
-use axum::http::header::CONTENT_TYPE;
+use axum::http::header::{CONTENT_LENGTH, CONTENT_TYPE};
 use axum::response::{IntoResponse, Response};
 use axum::{routing, Json, Router};
 use serde::Serialize;
 use std::sync::OnceLock;
+use tokio_util::io::ReaderStream;
 
 const ACTUATOR_JSON: &str = "application/vnd.spring-boot.actuator.v3+json";
 
@@ -1009,11 +1011,43 @@ async fn post_shutdown(State(state): State<AppState>) -> Response {
 
 // region logfile
 
-/// Spring Boot's logfile endpoint (`text/plain`). kmrs logs to stderr and keeps no log file,
-/// so the body is always empty; the endpoint exists so the webui's download gets its 200.
-async fn get_logfile(auth: RequireAuth) -> Result<Response, ApiError> {
+/// Spring Boot's logfile endpoint (`text/plain`): serves the current file from
+/// `<config-dir>/logs`. Falls back to an empty 200 when file logging failed to
+/// initialize, so the webui's download still gets a response.
+async fn get_logfile(
+    auth: RequireAuth,
+    State(state): State<AppState>,
+) -> Result<Response, ApiError> {
     auth.0.require_admin()?;
-    Ok(([(CONTENT_TYPE, "text/plain")], "").into_response())
+    let logs_dir = state.config.config_dir.join("logs");
+    let Some(path) = latest_log_file(&logs_dir) else {
+        return Ok(([(CONTENT_TYPE, "text/plain")], "").into_response());
+    };
+    let file = tokio::fs::File::open(&path)
+        .await
+        .map_err(|e| ApiError::Internal(format!("open {}: {e}", path.display())))?;
+    let content_length = file.metadata().await.ok().map(|m| m.len().to_string());
+    let body = Body::from_stream(ReaderStream::new(file));
+    let mut response = ([(CONTENT_TYPE, "text/plain")], body).into_response();
+    if let Some(len) = content_length {
+        response
+            .headers_mut()
+            .insert(CONTENT_LENGTH, len.parse().unwrap());
+    }
+    Ok(response)
+}
+
+// Daily-rotated names (`kmrs.YYYY-MM-DD.log`) sort by date, so the lexicographic
+// max is the file currently being written.
+fn latest_log_file(logs_dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    std::fs::read_dir(logs_dir)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name())
+        .filter_map(|name| name.into_string().ok())
+        .filter(|name| name.starts_with("kmrs.") && name.ends_with(".log"))
+        .max()
+        .map(|name| logs_dir.join(name))
 }
 
 // endregion
@@ -1287,11 +1321,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn logfile_admin_only_and_empty() {
+    async fn logfile_admin_only_and_empty_without_file_logging() {
         let (state, _rx) = test_state();
         seed_user(&state, "admin@komga.org", true, "k1");
         seed_user(&state, "user@komga.org", false, "k2");
-        let app = test_router(state);
+        // point at an empty config dir so the host's real logs can't leak into the test
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = (*state.config).clone();
+        config.config_dir = dir.path().to_path_buf();
+        let app = test_router(AppState {
+            config: Arc::new(config),
+            ..state
+        });
 
         let (status, _headers, _bytes) = call(&app, "GET", "/actuator/logfile", Some("k2")).await;
         assert_eq!(status, StatusCode::FORBIDDEN);
@@ -1302,6 +1343,29 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(headers.get(CONTENT_TYPE).unwrap(), "text/plain");
         assert!(bytes.is_empty());
+    }
+
+    #[tokio::test]
+    async fn logfile_serves_latest_rotated_file() {
+        let (state, _rx) = test_state();
+        seed_user(&state, "admin@komga.org", true, "k1");
+        let dir = tempfile::tempdir().unwrap();
+        let logs = dir.path().join("logs");
+        std::fs::create_dir_all(&logs).unwrap();
+        std::fs::write(logs.join("kmrs.2026-09-21.log"), "old log").unwrap();
+        std::fs::write(logs.join("kmrs.2026-09-22.log"), "current log").unwrap();
+        std::fs::write(logs.join("unrelated.txt"), "noise").unwrap();
+        let mut config = (*state.config).clone();
+        config.config_dir = dir.path().to_path_buf();
+        let app = test_router(AppState {
+            config: Arc::new(config),
+            ..state
+        });
+
+        let (status, headers, bytes) = call(&app, "GET", "/actuator/logfile", Some("k1")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(headers.get(CONTENT_TYPE).unwrap(), "text/plain");
+        assert_eq!(bytes, b"current log");
     }
 
     #[tokio::test]

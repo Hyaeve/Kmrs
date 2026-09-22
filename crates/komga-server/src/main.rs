@@ -5,6 +5,7 @@ mod dto;
 mod error;
 mod events;
 mod http;
+mod logging;
 #[cfg(all(feature = "profiling", unix))]
 mod profiling;
 mod search_index;
@@ -27,17 +28,12 @@ use tower_http::trace::TraceLayer;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "warn,kmrs=info,komga=info".into()),
-        )
-        .init();
+    let cli = config::Cli::parse();
+    let _log_guard = logging::init(&config::config_dir(&cli).join("logs"));
 
     #[cfg(all(feature = "profiling", unix))]
     profiling::spawn_heap_dump_listener();
 
-    let cli = config::Cli::parse();
     let config = config::ServerConfig::load(&cli)?;
     std::fs::create_dir_all(&config.config_dir).context("create config dir")?;
 
