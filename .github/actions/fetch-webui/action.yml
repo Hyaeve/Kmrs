@@ -8,6 +8,10 @@ inputs:
   kmweb-sha256:
     description: SHA-256 of kmweb-v<version>.tar.gz, as noted on the kmweb release
     default: "a113f4a5c26e21e927a41e9d92a8efae1af7da1fcdea09a1381d17b295be9b47"
+outputs:
+  version:
+    description: kmweb version that was fetched (without the v prefix)
+    value: ${{ inputs.kmweb-version }}
 runs:
   using: composite
   steps:

@@ -134,9 +134,12 @@ jobs:
     needs: version
     if: needs.version.outputs.skip != 'true'
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.fetch.outputs.version }}
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/fetch-webui
+        id: fetch
       - uses: actions/upload-artifact@v7
         with:
           name: webui
@@ -182,13 +185,15 @@ jobs:
         # packaging regression must fail here, before anything is pushed
         run: |
           trap 'docker logs kmrs' ERR
-          docker buildx build --platform linux/amd64 --load -t kmrs:smoke .
+          docker buildx build --platform linux/amd64 --load -t kmrs:smoke \
+            --build-arg KMWEB_VERSION=${{ needs.webui.outputs.version }} .
           docker run -d --name kmrs --user 1000:1000 -p 25600:25600 kmrs:smoke
           for i in $(seq 1 30); do
             curl -sf http://localhost:25600/actuator/health > /dev/null && break || sleep 2
           done
-          # the bundled web UI is served at /
+          # the bundled web UI is served at /, stamped with its kmweb version
           curl -sf http://localhost:25600/ | grep -q "<title>KMReader</title>"
+          grep -qx "${{ needs.webui.outputs.version }}" <(curl -sf http://localhost:25600/kmweb.version)
           # the API is up and the database answers: claim status on a fresh install
           curl -sf http://localhost:25600/api/v1/claim | grep -q '"isClaimed":false'
           echo "server is up: web UI and API verified"
@@ -199,6 +204,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: KMWEB_VERSION=${{ needs.webui.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
         env:

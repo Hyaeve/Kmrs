@@ -52,7 +52,9 @@ NODE_OPTIONS=--max-old-space-size=4096 npm run build   # outputs dist/
 The release image (`ghcr.io/kmworks/kmrs`) bundles kmweb at `/webui` and
 presets `KOMGA_WEBUI_DIR` to it, so the UI works out of the box — options A
 and B below are for running the bare binary. Run with an empty
-`KOMGA_WEBUI_DIR=` to disable the UI.
+`KOMGA_WEBUI_DIR=` to disable the UI. The bundled bundle is stamped with its
+kmweb version in `/webui/kmweb.version`, which the auto-updater below uses to
+tell whether an update is needed.
 
 For a local `docker build`, stage the webui bundle next to the binaries
 yourself — the Dockerfile only packages, it compiles nothing:
@@ -65,6 +67,34 @@ gh release download v0.2.0 -R kmworks/kmweb \
 # … or tar up your own build from the section above
 tar -czf dist/webui.tar.gz -C /path/to/kmweb/dist .
 ```
+
+## Automatic updates
+
+The bundled UI is only a baseline — kmrs can track new kmweb releases at
+runtime, with no container rebuild or restart. Off by default; enable it in
+`<config-dir>/config.toml` or via the environment:
+
+```sh
+KOMGA_WEBUI_AUTOUPDATE=true
+KOMGA_WEBUI_UPDATEINTERVAL=6h   # how often to check, default 1d
+```
+
+With auto-update on and a web UI enabled, kmrs checks the latest kmweb release
+on startup and then on the interval, downloads the bundle, verifies it against
+the sha256 published with the release, and swaps the served directory
+atomically. The managed copy lives under `<config-dir>/webui` (`/config/webui`
+in the container), so it survives image upgrades; browsers pick the new version
+up on the next page load (`index.html` is never cached).
+
+- A fresh or offline install always has a working UI: as long as no managed
+  copy exists, the bundled one is served. If its version is unknown (older
+  image, hand-staged bundle without `kmweb.version`), the updater installs the
+  latest release once even if it turns out identical.
+- `KOMGA_WEBUI_DIR=` (empty) disables the UI entirely, and the updater with it.
+- Auto-update tracks the kmweb bundle — don't enable it when `webui.dir`
+  points at a different UI (e.g. the original komga-webui).
+- Air-gapped hosts: leave it off and keep pointing `webui.dir` at a bundle you
+  stage yourself (option A).
 
 ## Option A: let kmrs serve it (simplest)
 

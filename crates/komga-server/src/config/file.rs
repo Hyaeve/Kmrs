@@ -28,6 +28,8 @@ pub struct FileConfig {
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct FileWebui {
     pub dir: Option<PathBuf>,
+    pub auto_update: Option<bool>,
+    pub update_interval: Option<ConfigDuration>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -423,6 +425,23 @@ pub fn render(file: &FileConfig, config: &ServerConfig, source: Option<&Path>) -
         )),
         None => out.push_str("# dir = \"/path/to/kmweb/dist\" # env: KOMGA_WEBUI_DIR\n"),
     }
+    let fwebui = file.webui.as_ref();
+    push_line(
+        &mut out,
+        fwebui.and_then(|w| w.auto_update).is_some(),
+        format!(
+            "auto-update = {} # track the latest kmweb release into <config-dir>/webui; env: KOMGA_WEBUI_AUTOUPDATE",
+            config.webui_auto_update
+        ),
+    );
+    push_line(
+        &mut out,
+        fwebui.and_then(|w| w.update_interval).is_some(),
+        format!(
+            "update-interval = {} # env: KOMGA_WEBUI_UPDATEINTERVAL",
+            q(&format_duration(config.webui_update_interval))
+        ),
+    );
     out.push('\n');
     out
 }

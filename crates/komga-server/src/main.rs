@@ -88,6 +88,7 @@ async fn main() -> anyhow::Result<()> {
         search_index: search_index.clone(),
         kepub: service::kepub::KepubConverter::new(service::kepub::default_tmp_dir()),
         kobo_proxy: service::kobo_proxy::KoboProxy::new(),
+        webui_dir: webui::WebuiDir::new(service::webui_updater::initial_dir(&config)),
         shutdown_tx,
         db,
         tasks_db,
@@ -97,6 +98,9 @@ async fn main() -> anyhow::Result<()> {
     service::processor::TaskProcessor::start(state.clone(), task_notify);
     service::scheduler::ScanScheduler::start(state.clone());
     service::scheduler::ScanScheduler::start_auth_activity_cleanup(state.clone());
+    if config.webui_auto_update && config.webui_dir.is_some() {
+        service::webui_updater::WebuiUpdater::start(state.clone());
+    }
     search_index::check_on_startup(&state, search_rebuild);
     search_index::consume_events(state.clone());
 

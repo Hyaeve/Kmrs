@@ -28,6 +28,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
 
 FROM debian:trixie-slim
 ARG TARGETARCH
+# stamped into /webui/kmweb.version so the runtime auto-updater can tell the
+# bundled baseline's version; empty for local builds = "unknown"
+ARG KMWEB_VERSION=""
 # compose healthchecks shell out to curl (the Java image ships one); the slim base doesn't
 RUN apt-get update && apt-get install -y --no-install-recommends curl \
  && rm -rf /var/lib/apt/lists/*
@@ -45,6 +48,7 @@ COPY --from=base /tmp/libpdfium.so /usr/local/bin/libpdfium.so
 COPY --chmod=755 --from=base /tmp/kepubify /usr/local/bin/kepubify
 # ADD auto-extracts the tarball into /webui
 ADD dist/webui.tar.gz /webui
+RUN if [ -n "$KMWEB_VERSION" ]; then printf '%s' "$KMWEB_VERSION" > /webui/kmweb.version; fi
 # 777 so an arbitrary --user uid:gid can write when nothing is bind-mounted;
 # COPY of a directory preserves the modes set in the base stage
 COPY --from=base /staging /

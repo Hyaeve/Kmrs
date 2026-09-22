@@ -11,8 +11,30 @@ use crate::state::AppState;
 use axum::extract::{Request, State};
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
+use std::path::PathBuf;
 use tower::ServiceExt;
 use tower_http::services::{ServeDir, ServeFile};
+
+/// The directory currently served as the web UI: initially the configured `webui.dir`
+/// (or the updater's managed copy under `<config-dir>/webui`), swapped by the updater
+/// when a new kmweb release lands. ServeDir is built per request, so the next request
+/// picks the swap up without a restart.
+#[derive(Clone, Default)]
+pub struct WebuiDir(std::sync::Arc<std::sync::RwLock<Option<PathBuf>>>);
+
+impl WebuiDir {
+    pub fn new(dir: Option<PathBuf>) -> Self {
+        Self(std::sync::Arc::new(std::sync::RwLock::new(dir)))
+    }
+
+    pub fn get(&self) -> Option<PathBuf> {
+        self.0.read().unwrap().clone()
+    }
+
+    pub fn set(&self, dir: Option<PathBuf>) {
+        *self.0.write().unwrap() = dir;
+    }
+}
 
 /// First path segments owned by the backend: misses inside them stay 404 instead of
 /// falling through to the SPA (Java's forward excludes /api, /opds, /sse the same way).
@@ -26,7 +48,7 @@ const BACKEND_SEGMENTS: &[&str] = &[
 const LONG_CACHE_SEGMENTS: &[&str] = &["css", "fonts", "img", "js", "assets"];
 
 pub async fn fallback(State(state): State<AppState>, request: Request) -> Response {
-    let Some(dir) = state.config.webui_dir.clone() else {
+    let Some(dir) = state.webui_dir.get() else {
         return StatusCode::NOT_FOUND.into_response();
     };
     let path = request.uri().path().to_string();
@@ -107,7 +129,9 @@ mod tests {
             server_context_path: None,
             migration_placeholders: Default::default(),
             oauth2: Default::default(),
-            webui_dir,
+            webui_dir: webui_dir.clone(),
+            webui_auto_update: false,
+            webui_update_interval: std::time::Duration::from_secs(24 * 3600),
         };
         AppState {
             sessions: auth::SessionStore::new(config.session_timeout),
@@ -121,6 +145,7 @@ mod tests {
             )),
             db,
             tasks_db,
+            webui_dir: WebuiDir::new(webui_dir),
             config: Arc::new(config),
             search_index: crate::state::test_search_index(),
             kepub: crate::service::kepub::KepubConverter::new(tempfile::tempdir().unwrap().keep()),
@@ -201,6 +226,23 @@ mod tests {
             assert_eq!(headers.get(header::CACHE_CONTROL).unwrap(), "no-store");
             assert_eq!(body, "<html>spa</html>", "{uri}");
         }
+    }
+
+    #[tokio::test]
+    async fn swapped_dir_is_served_on_the_next_request() {
+        let dir = dist();
+        let newer = tempfile::tempdir().unwrap();
+        std::fs::write(newer.path().join("index.html"), "<html>v2</html>").unwrap();
+        let state = test_state(Some(dir.path().to_path_buf()));
+        let app = crate::build_router(state.clone());
+
+        let (_, _, body) = get(&app, "/").await;
+        assert_eq!(body, "<html>spa</html>");
+
+        state.webui_dir.set(Some(newer.path().to_path_buf()));
+        let (status, _, body) = get(&app, "/").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, "<html>v2</html>");
     }
 
     #[tokio::test]

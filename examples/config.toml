@@ -73,3 +73,5 @@
 [webui]
 # serve a built web UI (e.g. kmweb's dist/) at /; unmatched paths fall back to its index.html
 # dir = "/path/to/kmweb/dist" # env: KOMGA_WEBUI_DIR
+# auto-update = false # track the latest kmweb release into <config-dir>/webui; env: KOMGA_WEBUI_AUTOUPDATE
+# update-interval = "1d" # env: KOMGA_WEBUI_UPDATEINTERVAL
