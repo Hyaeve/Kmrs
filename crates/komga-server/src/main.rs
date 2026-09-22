@@ -169,6 +169,7 @@ pub fn build_router(state: AppState) -> axum::Router {
             auth::auth_middleware,
         ))
         .layer(TraceLayer::new_for_http())
+        .layer(axum::middleware::from_fn(http::offload::offload_middleware))
         .with_state(state)
 }
 
