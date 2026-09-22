@@ -395,7 +395,7 @@ impl BookDtoDao {
                WHERE READ_PROGRESS.COMPLETED IS NULL \
                  AND BOOK.SERIES_ID IN (SELECT ID FROM cte_series) \
              ) \
-             {SELECT_CLAUSE} FROM cte_series \
+             {SELECT_CLAUSE}, COUNT(*) OVER () AS total_count FROM cte_series \
              INNER JOIN cte_books AS b1 ON (cte_series.ID = b1.cte_books_series_id) \
              INNER JOIN BOOK ON (b1.cte_books_book_id = BOOK.ID) \
              INNER JOIN MEDIA ON (BOOK.ID = MEDIA.BOOK_ID) \
@@ -409,20 +409,34 @@ impl BookDtoDao {
         params.extend(cte_conditions.params);
         params.push(Value::Text(user_id.to_string()));
 
-        let total: i64 = conn.query_row(
-            &format!("SELECT COUNT(*) FROM ({query}) AS \"count\""),
-            params_from_iter(&params),
-            |r| r.get(0),
-        )?;
-
-        let mut sql = query;
+        let mut page_params = params.clone();
+        let mut sql = query.clone();
         sql.push_str(" ORDER BY cte_series.MOST_RECENT_READ_DATE DESC");
         if !page.unpaged {
             sql.push_str(" LIMIT ? OFFSET ?");
-            params.push(Value::Integer(page.size as i64));
-            params.push(Value::Integer(page.offset() as i64));
+            page_params.push(Value::Integer(page.size as i64));
+            page_params.push(Value::Integer(page.offset() as i64));
         }
-        let items = fetch_and_map(&conn, &sql, params)?;
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_from_iter(&page_params), |row| {
+            Ok((row_to_dto(row)?, row.get::<_, i64>("total_count")?))
+        })?;
+        let mut total: i64 = 0;
+        let mut items = Vec::new();
+        for row in rows {
+            let (dto, count) = row?;
+            total = count;
+            items.push(dto);
+        }
+        fill_children(&conn, &mut items)?;
+        if items.is_empty() && page.offset() > 0 {
+            // an out-of-range page returns no row to read the windowed total from
+            total = conn.query_row(
+                &format!("SELECT COUNT(*) FROM ({query}) AS \"count\""),
+                params_from_iter(&params),
+                |r| r.get(0),
+            )?;
+        }
         // the Kotlin PageImpl is built with Sort.unsorted() for on-deck
         Ok(DtoPage {
             items,
@@ -1855,6 +1869,60 @@ mod tests {
             .unwrap();
         assert_eq!(page.total, 2);
         assert_eq!(ids(&page), ["b11", "b5"]);
+    }
+
+    #[test]
+    fn on_deck_out_of_range_page_keeps_total() {
+        let db = base_db();
+        let page = dao(&db)
+            .find_all_on_deck(
+                "u1",
+                None,
+                &ContentRestrictions::default(),
+                &PageRequest {
+                    page: 5,
+                    size: 20,
+                    unpaged: false,
+                    sort: vec![],
+                },
+            )
+            .unwrap();
+        assert!(page.items.is_empty());
+        assert_eq!(page.total, 1);
+    }
+
+    #[test]
+    fn on_deck_paged_total_exceeds_page_size() {
+        let db = base_db();
+        let conn = db.rw();
+        insert_series(&conn, "s4", "l1", 2, false);
+        insert_series_metadata(&conn, "s4", "Delta", "P1", None);
+        insert_book(&conn, "b7", "s4", "l1", 50, "h4", false, false);
+        insert_book(&conn, "b8", "s4", "l1", 60, "h5", false, false);
+        insert_media(&conn, "b7", "READY", "application/zip", 1);
+        insert_media(&conn, "b8", "READY", "application/zip", 1);
+        insert_book_metadata(&conn, "b7", "Book Seven", 1.0, None);
+        insert_book_metadata(&conn, "b8", "Book Eight", 2.0, None);
+        insert_read_progress(&conn, "b7", "u1", 1, true);
+        insert_read_progress_series(&conn, "s4", "u1", 1, 0, Some("2022-01-01 00:00:00.0"));
+        drop(conn);
+
+        let paged = |page: u32| PageRequest {
+            page,
+            size: 1,
+            unpaged: false,
+            sort: vec![],
+        };
+        let d = dao(&db);
+        let none = ContentRestrictions::default();
+        // two on-deck series, one book per page: total must reflect the full
+        // filtered result, not the page size
+        let first = d.find_all_on_deck("u1", None, &none, &paged(0)).unwrap();
+        assert_eq!(first.total, 2);
+        assert_eq!(ids(&first), ["b8"]);
+        let second = d.find_all_on_deck("u1", None, &none, &paged(1)).unwrap();
+        assert_eq!(second.total, 2);
+        assert_eq!(ids(&second), ["b5"]);
     }
 
     #[test]
