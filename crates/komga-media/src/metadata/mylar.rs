@@ -132,7 +132,9 @@ impl SeriesMetadataProvider for MylarSeriesProvider {
             age_rating: metadata.age_rating.map(MylarAgeRating::age_rating),
             language: None,
             genres: None,
-            total_book_count: Some(metadata.total_issues),
+            // Ignore zero total_issues from mylar series.json: 0 is a placeholder for
+            // "unknown" (e.g. still-running series), not a real count.
+            total_book_count: (metadata.total_issues > 0).then_some(metadata.total_issues),
             collections: BTreeSet::new(),
         })
     }
@@ -223,6 +225,16 @@ mod tests {
         assert_eq!(patch.total_book_count, Some(41));
         assert!(patch.collections.is_empty());
         assert!(patch.language.is_none() && patch.genres.is_none());
+    }
+
+    #[test]
+    fn zero_total_issues_is_ignored() {
+        let dir = std::env::temp_dir().join("kmrs-mylar-zero");
+        std::fs::create_dir_all(&dir).unwrap();
+        write_series_json(&dir, &series_json(Some(1)).replace("41", "0"));
+        let patch = provider().get_series_metadata(&dir, false).unwrap();
+        assert_eq!(patch.title.as_deref(), Some("Berserk"));
+        assert_eq!(patch.total_book_count, None, "totalIssues == 0 is ignored");
     }
 
     #[test]
