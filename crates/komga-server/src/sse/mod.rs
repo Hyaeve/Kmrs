@@ -430,6 +430,8 @@ mod tests {
             .migrate(&db.rw())
             .unwrap();
         let tasks_db = Database::open_in_memory(false).unwrap();
+        // dedicated task pools reuse the same in-memory database: task execution and assertions stay in sync
+        let task_db = db.clone();
         Migrator::new(&komga_db::tasks_migrations(), Placeholders::default())
             .migrate(&tasks_db.rw())
             .unwrap();
@@ -437,6 +439,7 @@ mod tests {
         AppState {
             config: Arc::new(config.clone()),
             db: db.clone(),
+            task_db: task_db.clone(),
             tasks_db: tasks_db.clone(),
             sessions: auth::SessionStore::new(Duration::from_secs(3600)),
             settings: Arc::new(SettingsProvider::load(db.clone())),

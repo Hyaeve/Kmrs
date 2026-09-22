@@ -38,6 +38,9 @@ async fn main() -> anyhow::Result<()> {
     std::fs::create_dir_all(&config.config_dir).context("create config dir")?;
 
     let db = Database::open(&config.database).context("open main database")?;
+    // Dedicated pools over the same file for background task execution; task
+    // reads/writes never share pool slots with HTTP/API requests.
+    let task_db = Database::open(&config.database).context("open task database pools")?;
     let tasks_db = Database::open(&config.tasks_db).context("open tasks database")?;
 
     {
@@ -87,6 +90,7 @@ async fn main() -> anyhow::Result<()> {
         webui_dir: webui::WebuiDir::new(service::webui_updater::initial_dir(&config)),
         shutdown_tx,
         db,
+        task_db,
         tasks_db,
         config: Arc::new(config.clone()),
     };

@@ -1042,6 +1042,8 @@ mod tests {
             .migrate(&db.rw())
             .unwrap();
         let tasks_db = Database::open_in_memory(false).unwrap();
+        // dedicated task pools reuse the same in-memory database: task execution and assertions stay in sync
+        let task_db = db.clone();
         let tasks_migrations = komga_db::tasks_migrations();
         Migrator::new(&tasks_migrations, Placeholders::default())
             .migrate(&tasks_db.rw())
@@ -1083,6 +1085,7 @@ mod tests {
                 std::sync::Arc::new(tokio::sync::Notify::new()),
             )),
             db,
+            task_db,
             tasks_db,
             config: Arc::new(config),
             search_index: test_search_index(),

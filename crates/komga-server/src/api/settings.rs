@@ -232,6 +232,8 @@ mod tests {
         json["kepubifyPath"].clone()
     }
 
+    // chmod-based script setup is POSIX-only; skipped on Windows
+    #[cfg(unix)]
     #[tokio::test]
     async fn kepubify_effective_value_resolves_db_then_configuration() {
         let dir = tempfile::tempdir().unwrap();

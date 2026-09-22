@@ -81,8 +81,13 @@ async fn process_one(state: &AppState, worker: u32) {
     };
     let st = state.clone();
     let task_for_blocking = task.clone();
-    // lifecycle work is synchronous and can run for minutes; keep it off the async threads
-    let result = tokio::task::spawn_blocking(move || handle_task(&st, &task_for_blocking)).await;
+    // lifecycle work is synchronous and can run for minutes; keep it off the async threads,
+    // and run it against the dedicated task pools so it never contends with API connections
+    let result = tokio::task::spawn_blocking(move || {
+        let st = st.task_context();
+        handle_task(&st, &task_for_blocking)
+    })
+    .await;
     if let Err(e) = result {
         tracing::error!("Task {} execution panicked: {e}", task.describe());
         crate::service::metrics::record_task_execution(

@@ -649,6 +649,8 @@ pub(crate) mod tests {
     pub(crate) fn test_state() -> AppState {
         let db = Database::open_in_memory(true).unwrap();
         let tasks_db = Database::open_in_memory(false).unwrap();
+        // dedicated task pools reuse the same in-memory database: task execution and assertions stay in sync
+        let task_db = db.clone();
         let migrations = komga_db::main_migrations();
         Migrator::new(&migrations, Placeholders::default())
             .migrate(&db.rw())
@@ -669,6 +671,7 @@ pub(crate) mod tests {
                 std::sync::Arc::new(tokio::sync::Notify::new()),
             )),
             db,
+            task_db,
             tasks_db,
             search_index: test_search_index(),
             kepub: crate::service::kepub::KepubConverter::new(tempfile::tempdir().unwrap().keep()),

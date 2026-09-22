@@ -2,9 +2,15 @@
 //! - Read/write separation under WAL: the RW pool is always 1, the RO pool is
 //!   poolSize ?: min(CPU cores, maxPoolSize).
 //! - Without WAL (or for an in-memory database): RO and RW share the same pool.
-//! - Per connection: `PRAGMA foreign_keys=ON`, busy_timeout, journal_mode, and
-//!   extra pragmas; main-database connections also register UDFs/collations (see
+//! - Per connection: `PRAGMA foreign_keys=ON`, busy_timeout (default 30s), journal_mode,
+//!   and extra pragmas; main-database connections also register UDFs/collations (see
 //!   the `udf` module), tasks-database connections do not.
+//! - Background task execution (library scan / analysis / hashing / conversion /
+//!   maintenance) runs against a dedicated `Database` over the same file, opened
+//!   with [`Database::open`]; under WAL its reads and writes never contend with
+//!   API connections for pool slots. The task write pool is a second writer on
+//!   the file, hence the default busy timeout. (Without WAL, RO and RW share one
+//!   pool inside each `Database`; the task/API split still holds.)
 
 use crate::udf;
 use r2d2_sqlite::SqliteConnectionManager;
@@ -46,6 +52,9 @@ pub struct DatabaseConfig {
     /// Upper bound of pool_size, default 1 (same as komga)
     pub max_pool_size: u32,
     pub journal_mode: JournalMode,
+    /// Busy timeout for each connection; `None` falls back to 30s. SQLite's own
+    /// default is 0 (fail immediately), which breaks the moment the main database
+    /// and the task pools both carry a write connection.
     pub busy_timeout: Option<Duration>,
     pub pragmas: Vec<(String, String)>,
     /// true for the main database: register REGEXP/UDF_STRIP_ACCENTS/COLLATION_UNICODE_*
@@ -85,16 +94,18 @@ pub struct Database {
 
 impl Database {
     pub fn open(config: &DatabaseConfig) -> Result<Self, r2d2::Error> {
+        // SQLite's default busy_timeout is 0 (fail immediately). The API write
+        // pool and the task write pool are separate writers on the same file, so
+        // concurrent writes are expected and must wait rather than error out.
+        let busy_timeout = config.busy_timeout.unwrap_or(Duration::from_secs(30));
         let make_manager = || {
             let config = config.clone();
             SqliteConnectionManager::file(&config.file).with_init(move |conn| {
                 conn.execute_batch(&format!(
-                    "PRAGMA journal_mode={}; PRAGMA foreign_keys=ON;",
-                    config.journal_mode.as_str()
+                    "PRAGMA journal_mode={}; PRAGMA foreign_keys=ON; PRAGMA busy_timeout={};",
+                    config.journal_mode.as_str(),
+                    busy_timeout.as_millis()
                 ))?;
-                if let Some(timeout) = config.busy_timeout {
-                    conn.execute_batch(&format!("PRAGMA busy_timeout={};", timeout.as_millis()))?;
-                }
                 for (key, value) in &config.pragmas {
                     conn.execute_batch(&format!("PRAGMA {key}={value};"))?;
                 }

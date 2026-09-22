@@ -641,6 +641,9 @@ pub(crate) mod tests {
         Migrator::new(&tasks_migrations, Placeholders::default())
             .migrate(&tasks_db.rw())
             .unwrap();
+        // in-memory databases share a single connection, so the task pools reuse
+        // the same database: task execution and test assertions stay in sync
+        let task_db = db.clone();
         let db_config = |register_udfs| DatabaseConfig {
             file: std::env::temp_dir(),
             register_udfs,
@@ -678,6 +681,7 @@ pub(crate) mod tests {
                 Arc::new(tokio::sync::Notify::new()),
             )),
             db,
+            task_db,
             tasks_db,
             config: Arc::new(config),
             search_index: test_search_index(),

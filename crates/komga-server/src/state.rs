@@ -11,6 +11,9 @@ use std::sync::Arc;
 pub struct AppState {
     pub config: Arc<ServerConfig>,
     pub db: Database,
+    /// Dedicated connection pools over the same `database.sqlite` file, used only
+    /// by background task execution so it never contends with API connections.
+    pub task_db: Database,
     pub tasks_db: Database,
     pub sessions: SessionStore,
     pub settings: Arc<SettingsProvider>,
@@ -35,6 +38,21 @@ pub(crate) fn test_search_index() -> Arc<komga_search::SearchIndex> {
 }
 
 impl AppState {
+    /// A clone of the state whose `db` points at the dedicated task pools.
+    /// Background task execution (scan / analyze / hash / convert / maintenance)
+    /// runs against this context, so its reads and writes never share pool slots
+    /// with HTTP/API requests. The task emitter is re-pointed at the task pools
+    /// as well — its follow-up candidate queries (e.g. `analyze_unknown_and_outdated_books`,
+    /// `hash_books_without_hash`) are the heaviest scan-time reads. The task queue
+    /// (`tasks_db`), event bus and settings are shared unchanged.
+    pub fn task_context(&self) -> Self {
+        Self {
+            db: self.task_db.clone(),
+            task_emitter: Arc::new(self.task_emitter.with_db(self.task_db.clone())),
+            ..self.clone()
+        }
+    }
+
     /// Records authentication activity (success/failure); persisted asynchronously without blocking the request.
     pub async fn record_activity(
         &self,

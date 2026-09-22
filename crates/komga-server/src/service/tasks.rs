@@ -30,6 +30,19 @@ impl TaskEmitter {
         }
     }
 
+    /// A copy of this emitter whose follow-up candidate queries
+    /// (`analyze_unknown_and_outdated_books`, `hash_books_without_hash*`) read
+    /// through `db` instead of the API database. `task_context()` re-points the
+    /// emitter at the task pools, so scan-time candidate scans never occupy API
+    /// RO pool slots.
+    pub fn with_db(&self, db: Database) -> Self {
+        Self {
+            db,
+            tasks_db: self.tasks_db.clone(),
+            notify: self.notify.clone(),
+        }
+    }
+
     pub fn submit(&self, task: Task) -> komga_db::Result<()> {
         tracing::info!("Sending task: {}", task.describe());
         TasksDao::new(self.tasks_db.clone()).save(&task)?;

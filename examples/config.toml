@@ -23,7 +23,12 @@
 # pool-size = 4 # read pool size; default min(CPU cores, max-pool-size). env: KOMGA_DATABASE_POOLSIZE
 # max-pool-size = 1 # env: KOMGA_DATABASE_MAXPOOLSIZE
 # journal-mode = "WAL" # WAL/DELETE/TRUNCATE/PERSIST/MEMORY/OFF; env: KOMGA_DATABASE_JOURNALMODE
-# busy-timeout = "30s" # env: KOMGA_DATABASE_BUSYTIMEOUT
+# busy-timeout = "30s" # default 30s when unset; env: KOMGA_DATABASE_BUSYTIMEOUT
+# Task execution (library scan / analysis / hashing / conversion / maintenance)
+# uses a dedicated read/write pool over the same database file, so background
+# tasks never contend with HTTP/API connections for pool slots. The task write
+# pool is a second writer on the file; keep a busy timeout (default 30s) so
+# concurrent writes wait instead of failing.
 # [database.pragmas] # extra SQLite pragmas, TOML only
 # synchronous = "NORMAL"
 

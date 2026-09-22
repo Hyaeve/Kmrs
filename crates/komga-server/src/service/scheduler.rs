@@ -118,7 +118,8 @@ impl ScanScheduler {
                     "Remove authentication activity older than {}",
                     komga_core::time_codec::format_datetime(cutoff)
                 );
-                match komga_db::dao::user::UserDao::new(state.db.clone())
+                // authentication-activity cleanup runs on the task write pool
+                match komga_db::dao::user::UserDao::new(state.task_db.clone())
                     .delete_activity_older_than(cutoff)
                 {
                     Ok(n) if n > 0 => tracing::info!("Removed {n} old authentication activities"),
