@@ -373,8 +373,6 @@ impl BookDtoDao {
             cte_conditions =
                 cte_conditions.and(id_in_or_no_condition("SERIES.LIBRARY_ID", Some(ids)));
         }
-        // the self-join on cte_books keeps, per series, the row with no smaller
-        // (number_sort, book_id) sibling: the first unread book
         let query = format!(
             "WITH cte_series AS MATERIALIZED ( \
                SELECT SERIES.ID, READ_PROGRESS_SERIES.MOST_RECENT_READ_DATE FROM SERIES \
@@ -385,7 +383,11 @@ impl BookDtoDao {
              ), \
              cte_books AS MATERIALIZED ( \
                SELECT BOOK.ID AS cte_books_book_id, BOOK.SERIES_ID AS cte_books_series_id, \
-                      BOOK_METADATA.NUMBER_SORT AS cte_books_number_sort \
+                      BOOK_METADATA.NUMBER_SORT AS cte_books_number_sort, \
+                      ROW_NUMBER() OVER ( \
+                        PARTITION BY BOOK.SERIES_ID \
+                        ORDER BY BOOK_METADATA.NUMBER_SORT, BOOK.ID \
+                      ) AS cte_books_rn \
                FROM BOOK \
                INNER JOIN BOOK_METADATA ON (BOOK.ID = BOOK_METADATA.BOOK_ID) \
                LEFT JOIN READ_PROGRESS \
@@ -395,17 +397,12 @@ impl BookDtoDao {
              ) \
              {SELECT_CLAUSE} FROM cte_series \
              INNER JOIN cte_books AS b1 ON (cte_series.ID = b1.cte_books_series_id) \
-             LEFT OUTER JOIN cte_books AS b2 \
-               ON (b1.cte_books_series_id = b2.cte_books_series_id \
-                   AND (b1.cte_books_number_sort > b2.cte_books_number_sort \
-                        OR (b1.cte_books_number_sort = b2.cte_books_number_sort \
-                            AND b1.cte_books_book_id > b2.cte_books_book_id))) \
              INNER JOIN BOOK ON (b1.cte_books_book_id = BOOK.ID) \
              INNER JOIN MEDIA ON (BOOK.ID = MEDIA.BOOK_ID) \
              INNER JOIN BOOK_METADATA ON (BOOK.ID = BOOK_METADATA.BOOK_ID) \
              INNER JOIN SERIES_METADATA ON (BOOK.SERIES_ID = SERIES_METADATA.SERIES_ID) \
              LEFT OUTER JOIN READ_PROGRESS ON (1 = 0) \
-             WHERE b2.cte_books_book_id IS NULL",
+             WHERE b1.cte_books_rn = 1",
             cte_conditions.sql
         );
         let mut params = vec![Value::Text(user_id.to_string())];
@@ -1829,6 +1826,35 @@ mod tests {
             .find_all_on_deck("u1", Some(&set(&["l2"])), &none, &unpaged())
             .unwrap();
         assert!(page.items.is_empty());
+    }
+
+    #[test]
+    fn on_deck_picks_lowest_number_sort_then_book_id() {
+        let db = base_db();
+        // s5 has three unread books: b10 sorts last; b11 and b12 tie on number_sort,
+        // so the smaller book id must win
+        let conn = db.rw();
+        insert_series(&conn, "s5", "l1", 4, false);
+        insert_series_metadata(&conn, "s5", "Echo", "P1", None);
+        for (id, size, hash, sort) in [
+            ("b9", 70, "h6", 1.0),
+            ("b10", 71, "h7", 2.0),
+            ("b11", 72, "h8", 1.0),
+            ("b12", 73, "h9", 1.0),
+        ] {
+            insert_book(&conn, id, "s5", "l1", size, hash, false, false);
+            insert_media(&conn, id, "READY", "application/zip", 1);
+            insert_book_metadata(&conn, id, &format!("Book {id}"), sort, None);
+        }
+        insert_read_progress(&conn, "b9", "u1", 1, true);
+        insert_read_progress_series(&conn, "s5", "u1", 1, 0, Some("2023-01-01 00:00:00.0"));
+        drop(conn);
+
+        let page = dao(&db)
+            .find_all_on_deck("u1", None, &ContentRestrictions::default(), &unpaged())
+            .unwrap();
+        assert_eq!(page.total, 2);
+        assert_eq!(ids(&page), ["b11", "b5"]);
     }
 
     #[test]
