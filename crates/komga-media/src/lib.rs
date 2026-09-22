@@ -13,5 +13,8 @@ pub mod rar;
 pub mod scanner;
 pub mod zip;
 
+#[cfg(test)]
+mod net_mount_sim;
+
 pub use container::PageContent;
 pub use error::{MediaError, Result};

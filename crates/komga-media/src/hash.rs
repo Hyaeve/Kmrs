@@ -7,7 +7,8 @@ use std::path::Path;
 pub fn compute_hash(path: &Path) -> std::io::Result<String> {
     let mut file = std::fs::File::open(path)?;
     let mut hasher = xxhash_rust::xxh3::Xxh3::with_seed(0);
-    let mut buffer = [0u8; 8192];
+    // network mounts charge per read() call; an 8 KiB buffer collapses throughput there
+    let mut buffer = vec![0u8; 1 << 20];
     loop {
         let len = file.read(&mut buffer)?;
         if len == 0 {

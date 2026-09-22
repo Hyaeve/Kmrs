@@ -597,10 +597,10 @@ fn read_full(reader: &mut impl Read, buf: &mut [u8]) -> Result<usize> {
 // region divina entries
 
 /// `MediaContainerEntry.kt`
-struct ContainerEntry {
-    name: String,
+pub(crate) struct ContainerEntry {
+    pub(crate) name: String,
     media_type: Option<String>,
-    dimension: Option<(i32, i32)>,
+    pub(crate) dimension: Option<(i32, i32)>,
     file_size: Option<i64>,
 }
 
@@ -625,8 +625,17 @@ fn get_divina_entries(
 fn get_zip_entries(book_path: &Path, analyze_dimensions: bool) -> Result<Vec<ContainerEntry>> {
     let file = open_book_file(book_path)?;
     // an unopenable archive is a generic getEntries failure (ERR_1008), not a coded UNSUPPORTED
-    let mut archive = zip::ZipArchive::new(file)
+    let archive = zip::ZipArchive::new(file)
         .map_err(|e| MediaError::Other(anyhow::anyhow!("could not open zip archive: {e}")))?;
+    zip_entries_from(archive, analyze_dimensions)
+}
+
+/// Entry loop of `get_zip_entries`, split from file opening so tests can drive it with
+/// instrumented readers.
+pub(crate) fn zip_entries_from<R: std::io::Read + std::io::Seek>(
+    mut archive: zip::ZipArchive<R>,
+    analyze_dimensions: bool,
+) -> Result<Vec<ContainerEntry>> {
     let mut entries = Vec::new();
     for i in 0..archive.len() {
         let mut entry = archive
@@ -659,18 +668,17 @@ fn get_zip_entries(book_path: &Path, analyze_dimensions: bool) -> Result<Vec<Con
         };
         let media_type = detect::detect_media_type(&head);
         let dimension = if analyze_dimensions && detect::is_image(&media_type) {
-            // some formats need more than the head for their dimensions
-            let mut bytes = head.clone();
-            if (file_size as usize) > head.len() {
-                let mut rest = Vec::with_capacity(file_size as usize - head.len());
-                match entry.read_to_end(&mut rest) {
-                    Ok(_) => {
-                        bytes.extend_from_slice(&rest);
-                    }
-                    Err(_) => bytes = head.clone(),
+            // dimensions live in the image header for the common formats, which the sniffed
+            // head already covers; only headers spanning the window (e.g. JPEG with a huge
+            // EXIF) justify reading the whole entry — on network mounts every byte costs
+            let dimension = image::get_dimension(&head).or_else(|| {
+                let mut bytes = head.clone();
+                if (file_size as usize) > head.len() && entry.read_to_end(&mut bytes).is_err() {
+                    bytes = head.clone();
                 }
-            }
-            image::get_dimension(&bytes).map(|(w, h)| (w as i32, h as i32))
+                image::get_dimension(&bytes)
+            });
+            dimension.map(|(w, h)| (w as i32, h as i32))
         } else {
             None
         };
@@ -891,6 +899,14 @@ impl EpubPackage {
         let mut entry = self.archive.by_name(name).ok()?;
         let mut buf = Vec::with_capacity(entry.size() as usize);
         entry.read_to_end(&mut buf).ok()?;
+        Some(buf)
+    }
+
+    fn read_entry_head(&mut self, name: &str, max: usize) -> Option<Vec<u8>> {
+        let mut entry = self.archive.by_name(name).ok()?;
+        let mut buf = vec![0u8; max.min(entry.size() as usize)];
+        let n = read_full(&mut entry, &mut buf).ok()?;
+        buf.truncate(n);
         Some(buf)
     }
 }
@@ -1151,10 +1167,17 @@ fn get_divina_pages(
             return Err(MediaError::EntryNotFound(image_path.clone()));
         };
         let dimension = if analyze_dimensions {
-            let bytes = pkg
-                .read_entry_bytes(image_path)
+            // same head-first strategy as the zip path: full read only when the header
+            // spans the sniff window
+            let head = pkg
+                .read_entry_head(image_path, 65536)
                 .ok_or_else(|| MediaError::EntryNotFound(image_path.clone()))?;
-            image::get_dimension(&bytes).map(|(w, h)| (w as i32, h as i32))
+            image::get_dimension(&head)
+                .or_else(|| {
+                    pkg.read_entry_bytes(image_path)
+                        .and_then(|bytes| image::get_dimension(&bytes))
+                })
+                .map(|(w, h)| (w as i32, h as i32))
         } else {
             None
         };
@@ -1919,6 +1942,93 @@ mod tests {
             .media;
         assert_eq!(media.pages[0].width, Some(48));
         assert_eq!(media.pages[0].height, Some(48));
+    }
+
+    #[test]
+    fn analyze_zip_with_dimensions_beyond_sniff_head() {
+        let dir = tmpdir("dims-beyond-head");
+        let book = dir.join("big-exif.zip");
+        // an APP1 segment just large enough to push the SOF past the 64 KiB sniff window:
+        // dimensions must come from the fallback full read
+        let jpeg = make_jpeg(48, 32);
+        let app1_len: u16 = u16::MAX - 2; // segment length includes its own 2 bytes
+        let mut padded = vec![0xFF, 0xD8, 0xFF, 0xE1];
+        padded.extend_from_slice(&app1_len.to_be_bytes());
+        padded.extend(std::iter::repeat_n(0u8, app1_len as usize - 2));
+        padded.extend_from_slice(&jpeg[2..]);
+        write_zip(&book, &[("p1.jpg", &padded)]);
+
+        let media = analyzer().analyze(&book, true).media;
+        assert_eq!(media.status, MediaStatus::Ready);
+        assert_eq!(media.pages[0].width, Some(48));
+        assert_eq!(media.pages[0].height, Some(32));
+    }
+
+    /// Guards the head-first dimension reads: analyzing a big entry must not pull the whole
+    /// entry through the reader (kmworks/kmrs#40 — full reads collapse on network mounts)
+    #[test]
+    fn analyze_zip_dimensions_do_not_read_full_entries() {
+        use std::cell::Cell;
+        use std::io::{Cursor, Seek, SeekFrom};
+        use std::rc::Rc;
+
+        struct CountingCursor {
+            inner: Cursor<Vec<u8>>,
+            bytes: Rc<Cell<usize>>,
+        }
+        impl Read for CountingCursor {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                let n = self.inner.read(buf)?;
+                self.bytes.set(self.bytes.get() + n);
+                Ok(n)
+            }
+        }
+        impl Seek for CountingCursor {
+            fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+                self.inner.seek(pos)
+            }
+        }
+
+        // noise compresses badly, keeping the entry well over the 64 KiB sniff window
+        let mut img = ::image::RgbImage::new(800, 600);
+        let mut state = 0x9e3779b97f4a7c15u64;
+        for px in img.pixels_mut() {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            let v = (state >> 33) as u8;
+            *px = ::image::Rgb([v, v, v]);
+        }
+        let mut jpeg = Cursor::new(Vec::new());
+        ::image::DynamicImage::ImageRgb8(img)
+            .write_to(&mut jpeg, ::image::ImageFormat::Jpeg)
+            .unwrap();
+        let jpeg = jpeg.into_inner();
+        assert!(jpeg.len() > 65536, "entry must exceed the sniff window");
+
+        let mut zip_buf = Cursor::new(Vec::new());
+        {
+            let mut writer = zip::ZipWriter::new(&mut zip_buf);
+            writer
+                .start_file("p1.jpg", zip::write::SimpleFileOptions::default())
+                .unwrap();
+            std::io::Write::write_all(&mut writer, &jpeg).unwrap();
+            writer.finish().unwrap();
+        }
+        let zip_bytes = zip_buf.into_inner();
+
+        let read_bytes = Rc::new(Cell::new(0usize));
+        let archive = zip::ZipArchive::new(CountingCursor {
+            inner: Cursor::new(zip_bytes),
+            bytes: read_bytes.clone(),
+        })
+        .unwrap();
+        let entries = zip_entries_from(archive, true).unwrap();
+        assert_eq!(entries[0].dimension, Some((800, 600)));
+        assert!(
+            read_bytes.get() < jpeg.len(),
+            "dimension analysis pulled {} bytes for a {} byte entry",
+            read_bytes.get(),
+            jpeg.len()
+        );
     }
 
     #[test]
