@@ -48,7 +48,11 @@ async fn get_server_settings(
                 .as_ref()
                 .map(|p| p.display().to_string()),
             database_source: s.kepubify_path.clone(),
-            effective_value: s.kepubify_path.clone(),
+            // Java reports the resolved path (DB first, configuration fallback, probed)
+            effective_value: state
+                .kepub
+                .kepubify_path(&s, config)
+                .map(|p| p.display().to_string()),
         }),
         max_upload_file_size_bytes: Some(DEFAULT_MAX_FILE_SIZE_BYTES),
     };
@@ -217,6 +221,58 @@ mod tests {
         assert!(json.get("taskPoolSize").is_none());
         assert!(json.get("serverPort").is_none());
         assert!(json.get("deleteEmptyCollections").is_none());
+    }
+
+    async fn get_kepubify(state: &AppState, key: &str) -> serde_json::Value {
+        let (status, json) = {
+            let (s, _, b) = call(state, router(), get("/api/v1/settings", key)).await;
+            (s, serde_json::from_slice::<serde_json::Value>(&b).unwrap())
+        };
+        assert_eq!(status, StatusCode::OK);
+        json["kepubifyPath"].clone()
+    }
+
+    #[tokio::test]
+    async fn kepubify_effective_value_resolves_db_then_configuration() {
+        let dir = tempfile::tempdir().unwrap();
+        let make_script = |name: &str| {
+            let script = dir.path().join(name);
+            std::fs::write(&script, "#!/bin/sh\n").unwrap();
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+            script
+        };
+        let config_script = make_script("kepubify-config");
+        let db_script = make_script("kepubify-db");
+        let config_str = config_script.to_str().unwrap().to_string();
+
+        let mut state = test_state();
+        let mut config = (*state.config).clone();
+        config.kepubify_path = Some(config_script);
+        state.config = std::sync::Arc::new(config);
+        let key = seed_admin(&state);
+
+        // no DB value: the configuration value becomes effective (the docker image case)
+        let kepubify = get_kepubify(&state, &key).await;
+        assert_eq!(kepubify["configurationSource"], config_str);
+        assert_eq!(kepubify["databaseSource"], serde_json::Value::Null);
+        assert_eq!(kepubify["effectiveValue"], config_str);
+
+        // a valid DB value wins
+        let dao = SettingsDao::new(state.db.clone());
+        dao.save_setting("KEPUBIFY_PATH", db_script.to_str().unwrap())
+            .unwrap();
+        state.settings.reload();
+        let kepubify = get_kepubify(&state, &key).await;
+        assert_eq!(kepubify["databaseSource"], db_script.to_str().unwrap());
+        assert_eq!(kepubify["effectiveValue"], db_script.to_str().unwrap());
+
+        // an invalid DB value falls back to configuration
+        dao.save_setting("KEPUBIFY_PATH", "/nonexistent/kepubify")
+            .unwrap();
+        state.settings.reload();
+        let kepubify = get_kepubify(&state, &key).await;
+        assert_eq!(kepubify["effectiveValue"], config_str);
     }
 
     #[tokio::test]

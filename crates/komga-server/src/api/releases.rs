@@ -40,7 +40,13 @@ impl ReleasesClient {
         if let Some(releases) = self.cache.get("releases") {
             return Some(releases);
         }
-        let releases = self.fetch().await.ok()?;
+        let releases = match self.fetch().await {
+            Ok(releases) => releases,
+            Err(e) => {
+                tracing::warn!("failed to fetch releases from GitHub: {e}");
+                return None;
+            }
+        };
         self.cache.insert("releases".to_string(), releases.clone());
         Some(releases)
     }
