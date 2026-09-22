@@ -29,7 +29,11 @@ impl ReleasesClient {
     fn new(base_url: &'static str) -> Self {
         Self {
             base_url,
-            http: reqwest::Client::new(),
+            // GitHub 403s requests without a User-Agent
+            http: reqwest::Client::builder()
+                .user_agent(concat!("kmrs/", env!("CARGO_PKG_VERSION")))
+                .build()
+                .expect("reqwest client"),
             cache: moka::sync::Cache::builder()
                 .time_to_idle(std::time::Duration::from_secs(3600))
                 .build(),
@@ -138,12 +142,30 @@ mod tests {
                 let (socket, _) = listener.accept().await.unwrap();
                 let body = body.to_string();
                 tokio::spawn(async move {
-                    use tokio::io::AsyncWriteExt;
+                    use tokio::io::{AsyncReadExt, AsyncWriteExt};
                     let mut socket = socket;
+                    let mut request = Vec::new();
+                    let mut chunk = [0u8; 1024];
+                    loop {
+                        let n = socket.read(&mut chunk).await.unwrap_or(0);
+                        if n == 0 {
+                            break;
+                        }
+                        request.extend_from_slice(&chunk[..n]);
+                        if request.windows(4).any(|w| w == b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+                    // GitHub rejects requests without a User-Agent with 403
+                    let request = String::from_utf8_lossy(&request).to_lowercase();
+                    let (status, body) = if request.contains("user-agent: kmrs/") {
+                        ("200 OK", body)
+                    } else {
+                        ("403 Forbidden", "Forbidden".to_string())
+                    };
                     let response = format!(
-                        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
-                        body.len(),
-                        body
+                        "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        body.len()
                     );
                     let _ = socket.write_all(response.as_bytes()).await;
                 });
