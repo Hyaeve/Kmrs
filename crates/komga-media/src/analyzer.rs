@@ -1105,8 +1105,6 @@ fn get_divina_pages(
             pages_with_images.push(vec![]);
             continue;
         };
-        // single streaming pass over the page: text threshold + image collection in one
-        // scan, no DOM tree (divina_image_source pattern)
         match scan_divina_page(&content, &page_path, analyzer.letter_count_threshold) {
             Ok(Some(images)) => pages_with_images.push(images),
             Ok(None) => return Ok(vec![]),
@@ -1197,9 +1195,9 @@ fn get_divina_pages(
     Ok(divina_pages)
 }
 
-/// Single streaming pass over one spine page: mirrors the DOM-based `body_text_len` +
-/// image collection without building a tree. Counts non-whitespace UTF-16 units of body
-/// text and collects `img@src` anywhere plus `image@href`/`*:href` whose parent is `svg`.
+/// Single streaming pass over one spine page: counts body text in jsoup
+/// `body().text()` semantics and collects `img@src` anywhere plus `image@href`/`*:href`
+/// whose parent is `svg`, keeping the upstream all-`img`-then-`svg` order.
 /// `Ok(None)` means the page text exceeds the threshold (book not divina compatible).
 fn scan_divina_page(
     content: &str,
@@ -1218,6 +1216,7 @@ fn scan_divina_page(
     let mut word_count = 0usize;
     let mut non_ws_units = 0usize;
     let mut images: Vec<String> = vec![];
+    let mut svg_images: Vec<String> = vec![];
 
     loop {
         match reader.read_event_into(&mut buffer) {
@@ -1229,7 +1228,7 @@ fn scan_divina_page(
                 } else if name == "img" {
                     push_image_attr(e.attributes().flatten(), b"src", page_path, &mut images);
                 } else if name == "image" && stack.last().map(|p| p == "svg").unwrap_or(false) {
-                    push_image_href(e.attributes().flatten(), page_path, &mut images);
+                    push_image_href(e.attributes().flatten(), page_path, &mut svg_images);
                 }
                 stack.push(name.to_string());
             }
@@ -1239,7 +1238,7 @@ fn scan_divina_page(
                 if name == "img" {
                     push_image_attr(e.attributes().flatten(), b"src", page_path, &mut images);
                 } else if name == "image" && stack.last().map(|p| p == "svg").unwrap_or(false) {
-                    push_image_href(e.attributes().flatten(), page_path, &mut images);
+                    push_image_href(e.attributes().flatten(), page_path, &mut svg_images);
                 }
             }
             Ok(quick_xml::events::Event::End(e)) => {
@@ -1282,6 +1281,8 @@ fn scan_divina_page(
     if text_len > letter_count_threshold {
         return Ok(None);
     }
+    // upstream collects every img before every svg image; a single pass must bucket them
+    images.extend(svg_images);
     Ok(Some(images))
 }
 
@@ -3281,6 +3282,60 @@ mod tests {
         assert_eq!(spans[0].0, "kobo.1.1");
         assert_eq!(spans[1].0, "kobo.2.1");
         assert!(spans[0].1 > 0.0 && spans[0].1 < spans[1].1 && spans[1].1 <= 1.0);
+    }
+
+    #[test]
+    fn kobo_span_requires_class_token() {
+        assert!(contains_kobo_span_class(
+            b"<html><body><span class=\"koboSpan\"/></body></html>"
+        ));
+        assert!(contains_kobo_span_class(
+            b"<html><body><span class=\"other koboSpan\"/></body></html>"
+        ));
+        assert!(!contains_kobo_span_class(
+            b"<html><head><style>.koboSpan{}</style></head></html>"
+        ));
+        assert!(!contains_kobo_span_class(
+            b"<html><body><span class=\"koboSpan2\"/></body></html>"
+        ));
+        assert!(!contains_kobo_span_class(
+            b"<html><body><p>koboSpan</p></body></html>"
+        ));
+    }
+
+    #[test]
+    fn divina_text_counts_normalized_whitespace() {
+        // jsoup parity: a whitespace run counts as one space, also across chunk
+        // boundaries ("aaaa" + "  " + "bbbb" -> "aaaa bbbb" = 9 units)
+        let html = r#"<html><body><p>aaaa</p>  <p>bbbb</p><img src="i.png"/></body></html>"#;
+        assert!(matches!(scan_divina_page(html, "page.xhtml", 8), Ok(None)));
+        assert!(matches!(
+            scan_divina_page(html, "page.xhtml", 9),
+            Ok(Some(_))
+        ));
+    }
+
+    #[test]
+    fn divina_text_unescape_failure_counts_raw_chunk() {
+        // `&nbsp;` is not a predefined XML entity: the raw chunk still counts
+        // ("a&nbsp;b" = 8 units) instead of being dropped
+        let html = r"<html><body><p>a&nbsp;b</p></body></html>";
+        assert!(matches!(scan_divina_page(html, "page.xhtml", 5), Ok(None)));
+    }
+
+    #[test]
+    fn divina_image_src_is_xml_unescaped() {
+        let html = r#"<html><body><img src="a&amp;b.png"/></body></html>"#;
+        let images = scan_divina_page(html, "page.xhtml", 100).unwrap().unwrap();
+        assert_eq!(images, vec!["a&b.png"]);
+    }
+
+    #[test]
+    fn divina_images_keep_img_then_svg_order() {
+        let html =
+            r#"<html><body><svg><image xlink:href="s.png"/></svg><img src="i.png"/></body></html>"#;
+        let images = scan_divina_page(html, "page.xhtml", 100).unwrap().unwrap();
+        assert_eq!(images, vec!["i.png", "s.png"]);
     }
 
     // endregion
