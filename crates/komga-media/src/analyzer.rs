@@ -853,6 +853,7 @@ struct EpubPackage {
     /// manifest items in document order (Kotlin's LinkedHashMap)
     manifest: Vec<ManifestItem>,
     manifest_by_id: HashMap<String, usize>,
+    entry_metas_cache: Option<Vec<ZipEntryMeta>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -863,6 +864,7 @@ struct ManifestItem {
     properties: BTreeSet<String>,
 }
 
+#[derive(Clone)]
 struct ZipEntryMeta {
     name: String,
     size: i64,
@@ -874,7 +876,12 @@ impl EpubPackage {
         self.manifest_by_id.get(id).map(|&i| &self.manifest[i])
     }
 
+    /// One lazy full-directory scan, cached for the whole analysis (a scan walks every
+    /// entry and touches each local header, so it should happen at most once per book).
     fn entry_metas(&mut self) -> Vec<ZipEntryMeta> {
+        if let Some(cache) = &self.entry_metas_cache {
+            return cache.clone();
+        }
         let mut out = vec![];
         for i in 0..self.archive.len() {
             if let Ok(e) = self.archive.by_index(i) {
@@ -885,21 +892,32 @@ impl EpubPackage {
                 });
             }
         }
+        self.entry_metas_cache = Some(out.clone());
         out
     }
 
     fn read_entry_string(&mut self, name: &str) -> Option<String> {
-        let mut entry = self.archive.by_name(name).ok()?;
-        let mut content = String::new();
-        entry.read_to_string(&mut content).ok()?;
-        Some(content)
+        let trimmed = name.trim_start_matches('/');
+        for candidate in std::iter::once(name).chain((trimmed != name).then_some(trimmed)) {
+            if let Ok(mut entry) = self.archive.by_name(candidate) {
+                let mut content = String::new();
+                entry.read_to_string(&mut content).ok()?;
+                return Some(content);
+            }
+        }
+        None
     }
 
     fn read_entry_bytes(&mut self, name: &str) -> Option<Vec<u8>> {
-        let mut entry = self.archive.by_name(name).ok()?;
-        let mut buf = Vec::with_capacity(entry.size() as usize);
-        entry.read_to_end(&mut buf).ok()?;
-        Some(buf)
+        let trimmed = name.trim_start_matches('/');
+        for candidate in std::iter::once(name).chain((trimmed != name).then_some(trimmed)) {
+            if let Ok(mut entry) = self.archive.by_name(candidate) {
+                let mut buf = Vec::with_capacity(entry.size() as usize);
+                entry.read_to_end(&mut buf).ok()?;
+                return Some(buf);
+            }
+        }
+        None
     }
 
     fn read_entry_head(&mut self, name: &str, max: usize) -> Option<Vec<u8>> {
@@ -958,6 +976,7 @@ fn open_epub(book_path: &Path) -> Result<EpubPackage> {
         opf_dir,
         manifest,
         manifest_by_id,
+        entry_metas_cache: None,
     })
 }
 
@@ -978,12 +997,7 @@ fn parse_manifest(opf_content: &str) -> Result<(Vec<ManifestItem>, HashMap<Strin
         let id = item.attribute("id").unwrap_or_default().to_string();
         let properties = item
             .attribute("properties")
-            .map(|p| {
-                p.split(' ')
-                    .filter(|s| !s.is_empty())
-                    .map(|s| s.to_string())
-                    .collect()
-            })
+            .map(|p| p.split_ascii_whitespace().map(|s| s.to_string()).collect())
             .unwrap_or_default();
         by_id.insert(id.clone(), manifest.len());
         manifest.push(ManifestItem {
@@ -1022,7 +1036,7 @@ fn get_resources(pkg: &mut EpubPackage) -> Vec<MediaFile> {
     let pages: Vec<MediaFile> = spine_items
         .iter()
         .map(|item| MediaFile {
-            file_name: normalize_href(pkg.opf_dir.as_deref(), &percent_decode(&item.href)),
+            file_name: normalize_href(pkg.opf_dir.as_deref(), &item.href),
             media_type: Some(item.media_type.clone()),
             sub_type: Some(MediaFileSubType::EpubPage),
             file_size: None,
@@ -1033,7 +1047,7 @@ fn get_resources(pkg: &mut EpubPackage) -> Vec<MediaFile> {
         .iter()
         .filter(|item| !spine_items.contains(item))
         .map(|item| MediaFile {
-            file_name: normalize_href(pkg.opf_dir.as_deref(), &percent_decode(&item.href)),
+            file_name: normalize_href(pkg.opf_dir.as_deref(), &item.href),
             media_type: Some(item.media_type.clone()),
             sub_type: Some(MediaFileSubType::EpubAsset),
             file_size: None,
@@ -1048,7 +1062,10 @@ fn get_resources(pkg: &mut EpubPackage) -> Vec<MediaFile> {
         .into_iter()
         .chain(assets)
         .map(|mut r| {
-            r.file_size = sizes.get(&r.file_name).copied();
+            r.file_size = sizes
+                .get(&r.file_name)
+                .or_else(|| sizes.get(r.file_name.trim_start_matches('/')))
+                .copied();
             r
         })
         .collect()
@@ -1071,7 +1088,7 @@ fn get_divina_pages(
     let entry_names: BTreeSet<String> = pkg.entry_metas().into_iter().map(|m| m.name).collect();
     let page_count = entry_names
         .iter()
-        .filter(|n| spine_paths.contains(n))
+        .filter(|n| spine_paths.iter().any(|p| entry_matches(p, n)))
         .count();
 
     let mut pages_with_images: Vec<Vec<String>> = vec![];
@@ -1088,38 +1105,13 @@ fn get_divina_pages(
             pages_with_images.push(vec![]);
             continue;
         };
-        let doc = parse_xml(&content).map_err(|e| MediaError::Other(anyhow::anyhow!(e)))?;
-        // a page with text over the threshold makes the whole book not divina compatible
-        if body_text_len(&doc) > analyzer.letter_count_threshold {
-            return Ok(vec![]);
+        // single streaming pass over the page: text threshold + image collection in one
+        // scan, no DOM tree (divina_image_source pattern)
+        match scan_divina_page(&content, &page_path, analyzer.letter_count_threshold) {
+            Ok(Some(images)) => pages_with_images.push(images),
+            Ok(None) => return Ok(vec![]),
+            Err(e) => return Err(e),
         }
-        let mut images: Vec<String> = vec![];
-        for img in doc
-            .descendants()
-            .filter(|n| n.is_element() && n.tag_name().name() == "img")
-        {
-            if let Some(src) = img.attribute("src") {
-                images.push(resolve_relative(&page_path, src));
-            }
-        }
-        for svg in doc
-            .descendants()
-            .filter(|n| n.is_element() && n.tag_name().name() == "svg")
-        {
-            for img in svg
-                .children()
-                .filter(|c| c.is_element() && c.tag_name().name() == "image")
-            {
-                if let Some(href) = img
-                    .attributes()
-                    .find(|a| a.name() == "href")
-                    .map(|a| a.value())
-                {
-                    images.push(resolve_relative(&page_path, href));
-                }
-            }
-        }
-        pages_with_images.push(images);
     }
 
     if pages_with_images.len() != page_count {
@@ -1149,11 +1141,17 @@ fn get_divina_pages(
     }
 
     let mut divina_pages: Vec<BookPage> = vec![];
+    let metas = pkg.entry_metas();
     for image_path in &images_path {
         let Some(media_type) = pkg
             .manifest
             .iter()
-            .find(|item| normalize_href(pkg.opf_dir.as_deref(), &item.href) == *image_path)
+            .find(|item| {
+                entry_matches(
+                    &normalize_href(pkg.opf_dir.as_deref(), &item.href),
+                    image_path,
+                )
+            })
             .map(|item| item.media_type.clone())
         else {
             return Ok(vec![]);
@@ -1161,8 +1159,7 @@ fn get_divina_pages(
         if !detect::is_image(&media_type) {
             return Ok(vec![]);
         }
-        let metas = pkg.entry_metas();
-        let Some(meta) = metas.iter().find(|m| m.name == *image_path) else {
+        let Some(meta) = metas.iter().find(|m| entry_matches(image_path, &m.name)) else {
             // Kotlin NPEs here, which the caller reports as ERR_1038
             return Err(MediaError::EntryNotFound(image_path.clone()));
         };
@@ -1200,38 +1197,205 @@ fn get_divina_pages(
     Ok(divina_pages)
 }
 
-/// jsoup `body().text()`: all text under the first body element, whitespace-normalized,
-/// counted in UTF-16 code units like a Java String
-fn body_text_len(doc: &roxmltree::Document) -> usize {
-    let Some(body) = doc
-        .descendants()
-        .find(|n| n.is_element() && n.tag_name().name() == "body")
-    else {
-        return 0;
-    };
-    let text: String = body
-        .descendants()
-        .filter(|n| n.is_text())
-        .map(|n| n.text().unwrap_or(""))
-        .collect();
-    let normalized: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    normalized.encode_utf16().count()
+/// Single streaming pass over one spine page: mirrors the DOM-based `body_text_len` +
+/// image collection without building a tree. Counts non-whitespace UTF-16 units of body
+/// text and collects `img@src` anywhere plus `image@href`/`*:href` whose parent is `svg`.
+/// `Ok(None)` means the page text exceeds the threshold (book not divina compatible).
+fn scan_divina_page(
+    content: &str,
+    page_path: &str,
+    letter_count_threshold: usize,
+) -> Result<Option<Vec<String>>> {
+    let mut reader = quick_xml::Reader::from_reader(content.as_bytes());
+    reader.config_mut().trim_text(false);
+    let mut buffer = Vec::new();
+    // ancestor element local names; lets us detect `image` whose parent is `svg`
+    let mut stack: Vec<String> = Vec::new();
+    let mut inside_body = false;
+    // jsoup `body().text()` parity: non-whitespace UTF-16 units accumulate and each
+    // whitespace run closing a word counts as the single normalized space jsoup inserts
+    let mut in_word = false;
+    let mut word_count = 0usize;
+    let mut non_ws_units = 0usize;
+    let mut images: Vec<String> = vec![];
+
+    loop {
+        match reader.read_event_into(&mut buffer) {
+            Ok(quick_xml::events::Event::Start(e)) => {
+                let qname = e.name();
+                let name = xml_local_name(qname.as_ref());
+                if name == "body" {
+                    inside_body = true;
+                } else if name == "img" {
+                    push_image_attr(e.attributes().flatten(), b"src", page_path, &mut images);
+                } else if name == "image" && stack.last().map(|p| p == "svg").unwrap_or(false) {
+                    push_image_href(e.attributes().flatten(), page_path, &mut images);
+                }
+                stack.push(name.to_string());
+            }
+            Ok(quick_xml::events::Event::Empty(e)) => {
+                let qname = e.name();
+                let name = xml_local_name(qname.as_ref());
+                if name == "img" {
+                    push_image_attr(e.attributes().flatten(), b"src", page_path, &mut images);
+                } else if name == "image" && stack.last().map(|p| p == "svg").unwrap_or(false) {
+                    push_image_href(e.attributes().flatten(), page_path, &mut images);
+                }
+            }
+            Ok(quick_xml::events::Event::End(e)) => {
+                let qname = e.name();
+                let name = xml_local_name(qname.as_ref());
+                if name == "body" {
+                    inside_body = false;
+                }
+                if stack.last().map(|p| p == name).unwrap_or(false) {
+                    stack.pop();
+                }
+            }
+            Ok(quick_xml::events::Event::Text(t)) if inside_body => {
+                // unescape failures (e.g. XHTML's &nbsp;) fall back to the raw chunk
+                // instead of silently dropping it
+                add_body_text(
+                    t.unescape()
+                        .map(|cow| cow.into_owned())
+                        .unwrap_or_else(|_| String::from_utf8_lossy(t.as_ref()).into_owned())
+                        .as_bytes(),
+                    &mut in_word,
+                    &mut word_count,
+                    &mut non_ws_units,
+                );
+            }
+            Ok(quick_xml::events::Event::CData(t)) if inside_body => {
+                add_body_text(t.as_ref(), &mut in_word, &mut word_count, &mut non_ws_units);
+            }
+            Ok(quick_xml::events::Event::Eof) => break,
+            Err(e) => return Err(MediaError::Other(anyhow::anyhow!(e))),
+            _ => {}
+        }
+        buffer.clear();
+    }
+
+    if in_word {
+        word_count += 1;
+    }
+    let text_len = non_ws_units + word_count.saturating_sub(1);
+    if text_len > letter_count_threshold {
+        return Ok(None);
+    }
+    Ok(Some(images))
 }
 
-/// `EpubExtractor.isKepub`: any spine page containing an element with class koboSpan
+/// XML local name: `xhtml:body` -> `body`
+fn xml_local_name(name: &[u8]) -> &str {
+    let s = std::str::from_utf8(name).unwrap_or("");
+    s.rsplit(':').next().unwrap_or(s)
+}
+
+/// One character chunk of body text, in jsoup `body().text()` semantics: non-whitespace
+/// UTF-16 units accumulate, and each whitespace run that closes a word counts as the
+/// single normalized space jsoup would insert between words.
+fn add_body_text(
+    chunk: &[u8],
+    in_word: &mut bool,
+    word_count: &mut usize,
+    non_ws_units: &mut usize,
+) {
+    for c in std::str::from_utf8(chunk).unwrap_or("").chars() {
+        if c.is_whitespace() {
+            if *in_word {
+                *word_count += 1;
+                *in_word = false;
+            }
+        } else {
+            *in_word = true;
+            *non_ws_units += c.len_utf16();
+        }
+    }
+}
+
+/// XML-unescaped attribute value (`&amp;` -> `&`), raw bytes on unescape failure.
+fn attr_value(attr: &quick_xml::events::attributes::Attribute<'_>) -> String {
+    std::str::from_utf8(&attr.value)
+        .ok()
+        .and_then(|raw| quick_xml::escape::unescape(raw).ok())
+        .map(|cow| cow.into_owned())
+        .unwrap_or_else(|| String::from_utf8_lossy(&attr.value).into_owned())
+}
+
+/// Push the value of the exact-named attribute (e.g. `src` on `img`) into `images`.
+fn push_image_attr<'a>(
+    attrs: impl Iterator<Item = quick_xml::events::attributes::Attribute<'a>>,
+    key: &'static [u8],
+    page_path: &str,
+    images: &mut Vec<String>,
+) {
+    for attr in attrs {
+        if attr.key.as_ref() == key {
+            images.push(resolve_relative(
+                page_path,
+                &percent_decode(&attr_value(&attr)),
+            ));
+        }
+    }
+}
+
+/// Push `href` or namespaced `xlink:href` values into `images` (svg:image).
+fn push_image_href<'a>(
+    attrs: impl Iterator<Item = quick_xml::events::attributes::Attribute<'a>>,
+    page_path: &str,
+    images: &mut Vec<String>,
+) {
+    for attr in attrs {
+        let key = attr.key.as_ref();
+        if key == b"href" || key.ends_with(b":href") {
+            images.push(resolve_relative(
+                page_path,
+                &percent_decode(&attr_value(&attr)),
+            ));
+        }
+    }
+}
+
+/// `EpubExtractor.isKepub`: any spine page whose class list contains the koboSpan token.
+/// A cheap byte pre-filter skips most pages; hits then reuse the same class-token check as
+/// `scan_kobo_spans` (no full HTML parse, and no false positives from stylesheets,
+/// `koboSpan2` classes or prose mentions).
 fn is_kepub(pkg: &mut EpubPackage, resources: &[MediaFile]) -> bool {
-    let selector = scraper::Selector::parse(".koboSpan").expect("valid selector");
     for file in resources
         .iter()
         .filter(|r| r.sub_type == Some(MediaFileSubType::EpubPage))
     {
-        let Some(content) = pkg.read_entry_string(&file.file_name) else {
+        let Some(content) = pkg.read_entry_bytes(&file.file_name) else {
             continue;
         };
-        let doc = scraper::Html::parse_document(&content);
-        if doc.select(&selector).next().is_some() {
+        if contains_kobo_span_class(&content) {
             return true;
         }
+    }
+    false
+}
+
+/// Precise koboSpan detection: element `class` attribute whose whitespace-separated token
+/// list contains `koboSpan` (same rule as `scan_kobo_spans`), over all elements.
+fn contains_kobo_span_class(content: &[u8]) -> bool {
+    if find_subslice(content, b"koboSpan", 0).is_none() {
+        return false;
+    }
+    let html = String::from_utf8_lossy(content);
+    let hay = html.as_bytes();
+    let mut search_from = 0;
+    while let Some(start) = find_subslice(hay, b"<", search_from) {
+        let Some(tag_end) = find_subslice(hay, b">", start) else {
+            break;
+        };
+        let tag = &html[start..=tag_end];
+        if extract_attr(tag, "class")
+            .map(|c| c.split_whitespace().any(|c| c == "koboSpan"))
+            .unwrap_or(false)
+        {
+            return true;
+        }
+        search_from = tag_end + 1;
     }
     false
 }
@@ -1247,39 +1411,49 @@ fn compute_page_count(pkg: &mut EpubPackage) -> i32 {
         .collect();
     pkg.entry_metas()
         .into_iter()
-        .filter(|m| spine_paths.contains(&m.name))
+        .filter(|m| spine_paths.iter().any(|p| entry_matches(p, &m.name)))
         .map(|m| (m.compressed_size as f64 / 1024.0).ceil() as i64)
         .sum::<i64>() as i32
 }
 
 /// `EpubExtractor.isFixedLayout`
+///
+/// Attribute values and meta text are compared
+/// case-insensitively and whitespace-trimmed, and both the EPUB 3 text form
+/// (`<meta property="rendition:layout">pre-paginated</meta>`) and the
+/// non-standard self-closing attribute form
+/// (`<meta property="rendition:layout" content="pre-paginated"/>`) are accepted,
+/// in addition to the EPUB 2 form (`<meta name="fixed-layout" content="true"/>`).
 fn is_fixed_layout(pkg: &EpubPackage) -> bool {
     let Ok(doc) = parse_xml(&pkg.opf_content) else {
         return false;
     };
-    let meta = |name: &str, value: &str| {
-        doc.descendants()
-            .filter(|n| n.is_element() && n.tag_name().name() == "metadata")
-            .flat_map(|m| m.children())
-            .find(|c| {
-                c.is_element() && c.tag_name().name() == "meta" && c.attribute(name) == Some(value)
-            })
-            .map(|c| c.attribute("content").map(|s| s.to_string()))
-    };
-    let rendition = doc
-        .descendants()
+    doc.descendants()
         .filter(|n| n.is_element() && n.tag_name().name() == "metadata")
         .flat_map(|m| m.children())
-        .find(|c| {
-            c.is_element()
-                && c.tag_name().name() == "meta"
-                && c.attribute("property") == Some("rendition:layout")
+        .filter(|c| c.is_element() && c.tag_name().name() == "meta")
+        .any(|meta| {
+            let attr = |name: &str| {
+                meta.attributes()
+                    .find(|a| a.name() == name)
+                    .map(|a| a.value().trim())
+            };
+            // EPUB 3: rendition:layout, either as element text or as a content attribute
+            if attr("property").is_some_and(|v| v.eq_ignore_ascii_case("rendition:layout")) {
+                let by_content =
+                    attr("content").is_some_and(|v| v.eq_ignore_ascii_case("pre-paginated"));
+                let by_text = meta
+                    .text()
+                    .map(|t| t.trim().eq_ignore_ascii_case("pre-paginated"))
+                    .unwrap_or(false);
+                return by_content || by_text;
+            }
+            // EPUB 2: <meta name="fixed-layout" content="true"/>
+            if attr("name").is_some_and(|v| v.eq_ignore_ascii_case("fixed-layout")) {
+                return attr("content").is_some_and(|v| v.eq_ignore_ascii_case("true"));
+            }
+            false
         })
-        .map(|c| c.text().unwrap_or(""));
-    if rendition == Some("pre-paginated") {
-        return true;
-    }
-    meta("name", "fixed-layout").flatten().as_deref() == Some("true")
 }
 
 /// `EpubExtractor.computePositions`
@@ -1614,7 +1788,7 @@ fn nav_li_to_toc_entry(
         .children()
         .find(|c| c.is_element() && c.tag_name().name() == "a")
         .and_then(|a| a.attribute("href"))
-        .map(|h| normalize_href(nav_dir, &percent_decode(h)));
+        .map(|h| normalize_href(nav_dir, h));
     let children = li
         .children()
         .find(|c| c.is_element() && c.tag_name().name() == "ol")
@@ -1676,7 +1850,7 @@ fn ncx_el_to_toc_entry(
         .children()
         .find(|c| c.is_element() && c.tag_name().name() == "content")
         .and_then(|c| c.attribute("src"))
-        .map(|s| normalize_href(ncx_dir, &percent_decode(s)));
+        .map(|s| normalize_href(ncx_dir, s));
     let children = el
         .children()
         .filter(|c| c.is_element() && c.tag_name().name() == level2)
@@ -1708,7 +1882,7 @@ fn process_opf_guide(pkg: &EpubPackage) -> Vec<EpubTocEntry> {
             href: r
                 .attribute("href")
                 .filter(|h| !h.is_empty())
-                .map(|h| normalize_href(pkg.opf_dir.as_deref(), &percent_decode(h))),
+                .map(|h| normalize_href(pkg.opf_dir.as_deref(), h)),
             children: vec![],
         })
         .collect()
@@ -1728,58 +1902,166 @@ fn text_content(node: &roxmltree::Node<'_, '_>) -> String {
 
 // region epub cover
 
-/// `EpubExtractor.getCover`: EPUB 3 `cover-image` property → EPUB 2 `meta[name=cover]` →
-/// `id="cover-image"`
+/// `EpubExtractor.getCover` with a multi-stage fallback:
+/// EPUB 3 `cover-image` property (case-insensitive) → EPUB 2 `meta[name=cover]` →
+/// `id="cover-image"` → guide cover (with in-page image extraction for XHTML/HTML) →
+/// id containing "cover" → href containing "cover". Candidates are tried in order and
+/// the first one that reads from the archive wins.
 fn get_cover(book_path: &Path) -> Option<PageContent> {
     let mut pkg = open_epub(book_path).ok()?;
-    let cover_item = pkg
+    let cover_image_property = pkg
         .manifest
         .iter()
-        .find(|item| item.properties.contains("cover-image"))
-        .or_else(|| {
-            let doc = parse_xml(&pkg.opf_content).ok()?;
-            let meta_cover = doc
-                .descendants()
-                .filter(|n| n.is_element() && n.tag_name().name() == "metadata")
-                .flat_map(|m| m.children())
-                .find(|c| {
-                    c.is_element()
-                        && c.tag_name().name() == "meta"
-                        && c.attribute("name") == Some("cover")
-                })
-                .and_then(|m| m.attribute("content"))
-                .filter(|c| !c.is_empty());
-            meta_cover.and_then(|id| pkg.manifest_item(id))
+        .find(|item| {
+            item.properties
+                .iter()
+                .any(|p| p.eq_ignore_ascii_case("cover-image"))
         })
-        .or_else(|| pkg.manifest.iter().find(|item| item.id == "cover-image"));
-    let item = cover_item?.clone();
-    let cover_path = normalize_href(pkg.opf_dir.as_deref(), &percent_decode(&item.href));
-    let bytes = pkg.read_entry_bytes(&cover_path)?;
-    Some(PageContent {
-        bytes,
-        media_type: item.media_type,
-    })
+        .cloned();
+    let metadata_cover_item = {
+        let doc = parse_xml(&pkg.opf_content).ok()?;
+        let meta_cover = doc
+            .descendants()
+            .filter(|n| n.is_element() && n.tag_name().name() == "metadata")
+            .flat_map(|m| m.children())
+            .find(|c| {
+                c.is_element()
+                    && c.tag_name().name() == "meta"
+                    && c.attribute("name")
+                        .is_some_and(|v| v.eq_ignore_ascii_case("cover"))
+            })
+            .and_then(|m| m.attribute("content"))
+            .filter(|c| !c.trim().is_empty());
+        meta_cover.and_then(|id| pkg.manifest_item(id.trim()).cloned())
+    };
+    let id_cover_image = pkg
+        .manifest
+        .iter()
+        .find(|item| item.id == "cover-image")
+        .cloned();
+    let guide_cover_item = guide_cover_item(&mut pkg);
+    let id_cover_heuristic = pkg
+        .manifest
+        .iter()
+        .filter(|item| {
+            item.id.to_lowercase().contains("cover") && item.media_type.starts_with("image/")
+        })
+        .min_by(|a, b| {
+            a.id.to_lowercase()
+                .cmp(&b.id.to_lowercase())
+                .then_with(|| a.href.cmp(&b.href))
+        })
+        .cloned();
+    let href_cover_heuristic = pkg
+        .manifest
+        .iter()
+        .filter(|item| {
+            item.href.to_lowercase().contains("cover") && item.media_type.starts_with("image/")
+        })
+        .min_by(|a, b| {
+            a.href
+                .to_lowercase()
+                .cmp(&b.href.to_lowercase())
+                .then_with(|| a.id.cmp(&b.id))
+        })
+        .cloned();
+
+    for item in [
+        cover_image_property,
+        metadata_cover_item,
+        id_cover_image,
+        guide_cover_item,
+        id_cover_heuristic,
+        href_cover_heuristic,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let cover_path = normalize_href(pkg.opf_dir.as_deref(), &item.href);
+        let Some(bytes) = pkg.read_entry_bytes(&cover_path) else {
+            continue;
+        };
+        return Some(PageContent {
+            bytes,
+            media_type: item.media_type,
+        });
+    }
+    None
+}
+
+/// Guide cover fallback: `<guide><reference type="cover">`. XHTML/HTML targets
+/// have their first in-page image extracted (`img@src`, `svg:image@xlink:href`,
+/// `image@xlink:href`, `image@href`), then resolved back into the manifest.
+fn guide_cover_item(pkg: &mut EpubPackage) -> Option<ManifestItem> {
+    let guide_href = {
+        let doc = parse_xml(&pkg.opf_content).ok()?;
+        doc.descendants()
+            .find(|n| n.is_element() && n.tag_name().name() == "guide")?
+            .children()
+            .find(|c| {
+                c.is_element()
+                    && c.tag_name().name() == "reference"
+                    && c.attribute("type")
+                        .is_some_and(|t| t.eq_ignore_ascii_case("cover"))
+            })?
+            .attribute("href")
+            .filter(|h| !h.trim().is_empty())
+            .map(str::to_string)?
+    };
+    let normalized_href = normalize_href(pkg.opf_dir.as_deref(), &guide_href);
+    if normalized_href.to_lowercase().ends_with(".xhtml")
+        || normalized_href.to_lowercase().ends_with(".html")
+    {
+        let content = pkg.read_entry_string(&normalized_href)?;
+        let doc = parse_xml(&content).ok()?;
+        let img_href = doc
+            .descendants()
+            .filter(|n| n.is_element() && n.tag_name().name() == "img")
+            .find_map(|img| img.attribute("src"))
+            .or_else(|| {
+                doc.descendants()
+                    .filter(|n| n.is_element() && n.tag_name().name() == "image")
+                    .find_map(|img| {
+                        img.attributes()
+                            .find(|a| a.name() == "href" || a.name().ends_with(":href"))
+                            .map(|a| a.value())
+                    })
+            })?;
+        let resolved = resolve_relative(&normalized_href, &percent_decode(img_href));
+        pkg.manifest
+            .iter()
+            .find(|item| normalize_href(pkg.opf_dir.as_deref(), &item.href) == resolved)
+            .cloned()
+    } else {
+        pkg.manifest
+            .iter()
+            .find(|item| normalize_href(pkg.opf_dir.as_deref(), &item.href) == normalized_href)
+            .cloned()
+    }
 }
 
 // endregion
 
 // region path helpers
 
-/// `Opf.kt#normalizeHref`: resolves `href` against `opf_dir`, keeping the fragment
+/// `Opf.kt#normalizeHref` decoding semantics: the fragment is split off
+/// FIRST, then base and fragment are percent-decoded separately (`%23` in the path stays
+/// a path character), and the base is resolved against `opf_dir` keeping the fragment.
 fn normalize_href(opf_dir: Option<&str>, href: &str) -> String {
-    let (base, anchor) = match href.rfind('#') {
+    let (base, anchor) = match href.find('#') {
         Some(i) => (&href[..i], &href[i + 1..]),
         None => (href, ""),
     };
+    let base = percent_decode(base);
     let resolved = match opf_dir {
-        Some(dir) => normalize_zip_path(&join_path(dir, base)),
+        Some(dir) => normalize_zip_path(&join_path(dir, &base)),
         // Kotlin does not normalize when opfDir is null (root-level OPF)
-        None => base.to_string(),
+        None => base,
     };
     if anchor.is_empty() {
         resolved
     } else {
-        format!("{resolved}#{anchor}")
+        format!("{resolved}#{}", percent_decode(anchor))
     }
 }
 
@@ -1794,6 +2076,7 @@ fn join_path(dir: &str, base: &str) -> String {
 
 /// Java `Path.normalize` over forward-slash zip paths
 fn normalize_zip_path(path: &str) -> String {
+    let path = path.replace('\\', "/");
     let mut segments: Vec<&str> = vec![];
     for seg in path.split('/') {
         match seg {
@@ -1809,6 +2092,12 @@ fn normalize_zip_path(path: &str) -> String {
         }
     }
     segments.join("/")
+}
+
+/// Normalized hrefs may carry a leading '/' (root-level OPF with an
+/// absolute href) while zip entry names never do; compare leading-slash-insensitively.
+fn entry_matches(href: &str, entry_name: &str) -> bool {
+    href == entry_name || href.trim_start_matches('/') == entry_name
 }
 
 /// `(Path(pagePath).parent ?: Path("")).resolve(src).normalize()` in Kotlin terms
@@ -1832,7 +2121,9 @@ fn parent_dir(path: &str) -> Option<String> {
     }
 }
 
-/// `URLDecoder.decode(s, UTF_8)`: `%XX` → byte, `+` → space; invalid sequences are kept as-is
+/// `percent_decode` semantics: `%XX` → byte, `+` stays a literal path
+/// character (IRI, not form encoding); if the decoded bytes are not valid UTF-8 the
+/// original string is returned unchanged.
 fn percent_decode(s: &str) -> String {
     let bytes = s.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
@@ -1853,14 +2144,10 @@ fn percent_decode(s: &str) -> String {
                 continue;
             }
         }
-        if bytes[i] == b'+' {
-            out.push(b' ');
-        } else {
-            out.push(bytes[i]);
-        }
+        out.push(bytes[i]);
         i += 1;
     }
-    String::from_utf8_lossy(&out).into_owned()
+    String::from_utf8(out).unwrap_or_else(|_| s.to_string())
 }
 
 // endregion
@@ -2234,6 +2521,392 @@ mod tests {
         assert_eq!(p1.locations.as_ref().unwrap().position, Some(2));
         assert_eq!(p1.locations.as_ref().unwrap().total_progression, Some(1.0));
     }
+
+    // region epub fixed-layout detection
+    fn write_epub(
+        dir: &Path,
+        name: &str,
+        opf: &str,
+        entries: &[(&str, &[u8])],
+    ) -> std::path::PathBuf {
+        let path = dir.join(name);
+        let mimetype: &[u8] = b"application/epub+zip";
+        let container: &[u8] = br#"<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>"#;
+        let mut refs: Vec<(&str, &[u8])> = vec![
+            ("mimetype", mimetype),
+            ("META-INF/container.xml", container),
+            ("content.opf", opf.as_bytes()),
+        ];
+        refs.extend_from_slice(entries);
+        write_zip(&path, &refs);
+        path
+    }
+
+    fn write_minimal_epub(dir: &Path, name: &str, metadata_xml: &str) -> std::path::PathBuf {
+        let opf = format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+  <metadata>{metadata_xml}</metadata>
+  <manifest/>
+  <spine/>
+</package>"#
+        );
+        write_epub(dir, name, &opf, &[])
+    }
+
+    #[test]
+    fn epub_fixed_layout_detection_variants() {
+        let dir = tmpdir("fixed-layout-variants");
+
+        // EPUB 3 text form
+        let prop_text = write_minimal_epub(
+            &dir,
+            "prop-text.epub",
+            r#"<meta property="rendition:layout">pre-paginated</meta>"#,
+        );
+        assert!(is_fixed_layout(&open_epub(&prop_text).unwrap()));
+
+        // whitespace and casing around the rendition value
+        let prop_text_loose = write_minimal_epub(
+            &dir,
+            "prop-text-loose.epub",
+            r#"<meta property="rendition:layout"> Pre-Paginated </meta>"#,
+        );
+        assert!(is_fixed_layout(&open_epub(&prop_text_loose).unwrap()));
+
+        // non-standard self-closing attribute form
+        let prop_attr = write_minimal_epub(
+            &dir,
+            "prop-attr.epub",
+            r#"<meta property="rendition:layout" content="pre-paginated"/>"#,
+        );
+        assert!(is_fixed_layout(&open_epub(&prop_attr).unwrap()));
+
+        // EPUB 2 name form with case-insensitive content value
+        let name_form = write_minimal_epub(
+            &dir,
+            "name-form.epub",
+            r#"<meta name="fixed-layout" content="TRUE"/>"#,
+        );
+        assert!(is_fixed_layout(&open_epub(&name_form).unwrap()));
+
+        // reflowable must not be fixed
+        let reflowable = write_minimal_epub(
+            &dir,
+            "reflowable.epub",
+            r#"<meta property="rendition:layout">reflowable</meta>"#,
+        );
+        assert!(!is_fixed_layout(&open_epub(&reflowable).unwrap()));
+
+        // unrelated metadata is ignored
+        let unrelated = write_minimal_epub(
+            &dir,
+            "unrelated.epub",
+            r#"<meta name="cover" content="cover.png"/>"#,
+        );
+        assert!(!is_fixed_layout(&open_epub(&unrelated).unwrap()));
+    }
+
+    #[test]
+    fn analyze_epub_divina_svg_xlink_href() {
+        let dir = tmpdir("divina-xlink-href");
+        let path = dir.join("svg-xlink.epub");
+        let mimetype: &[u8] = b"application/epub+zip";
+        let container: &[u8] = br#"<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>"#;
+        let opf: &[u8] = br#"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+  <metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">t</dc:title></metadata>
+  <manifest>
+    <item id="page" href="page.xhtml" media-type="application/xhtml+xml"/>
+    <item id="img" href="page.png" media-type="image/png"/>
+  </manifest>
+  <spine><itemref idref="page"/></spine>
+</package>"#;
+        let page: &[u8] = br#"<html xmlns="http://www.w3.org/1999/xhtml" xmlns:xlink="http://www.w3.org/1999/xlink">
+<head><title>page</title></head>
+<body><svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800"><image xlink:href="page.png" width="1200" height="800"/></svg></body>
+</html>"#;
+        write_zip(
+            &path,
+            &[
+                ("mimetype", mimetype),
+                ("META-INF/container.xml", container),
+                ("content.opf", opf),
+                ("page.xhtml", page),
+                ("page.png", make_png(10, 10).as_slice()),
+            ],
+        );
+
+        let analysis = analyzer().analyze(&path, false);
+        let media = &analysis.media;
+        assert_eq!(media.status, MediaStatus::Ready);
+        assert!(
+            media.epub_divina_compatible,
+            "svg page referencing its image via xlink:href should be divina compatible"
+        );
+        assert_eq!(media.page_count, 1);
+        assert_eq!(media.pages[0].file_name, "page.png");
+        assert_eq!(media.pages[0].media_type, detect::IMAGE_PNG);
+        let ext = analysis.epub_extension.as_ref().expect("epub extension");
+        assert!(ext.is_fixed_layout);
+        assert_eq!(ext.positions.len(), 1);
+    }
+
+    // region epub cover fallbacks
+
+    #[test]
+    fn get_cover_guide_xhtml_extracts_utf8_encoded_image() {
+        let dir = tmpdir("cover-guide-utf8");
+        let opf = r#"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="2.0">
+  <metadata></metadata>
+  <manifest>
+    <item id="cover-img" href="images/caf%C3%A9.png" media-type="image/png"/>
+    <item id="cover-page" href="cover.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine><itemref idref="cover-page"/></spine>
+  <guide><reference type="cover" href="cover.xhtml"/></guide>
+</package>"#;
+        let page: &[u8] = br#"<html xmlns="http://www.w3.org/1999/xhtml"><body><img src="images/caf%C3%A9.png"/></body></html>"#;
+        let img = make_png(8, 8);
+        let path = write_epub(
+            &dir,
+            "guide-utf8.epub",
+            opf,
+            &[("cover.xhtml", page), ("images/café.png", img.as_slice())],
+        );
+        let a = analyzer();
+        let media = a.analyze(&path, false).media;
+        let poster = a
+            .get_poster(&path, &media)
+            .expect("cover via guide xhtml img with utf8 percent-encoded path");
+        assert_eq!(poster.media_type, detect::IMAGE_PNG);
+        assert_eq!(poster.bytes, img);
+    }
+
+    #[test]
+    fn get_cover_guide_direct_image() {
+        let dir = tmpdir("cover-guide-direct");
+        let opf = r#"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="2.0">
+  <metadata></metadata>
+  <manifest>
+    <item id="img1" href="images/cover.png" media-type="image/png"/>
+  </manifest>
+  <spine/>
+  <guide><reference type="Cover" href="images/cover.png"/></guide>
+</package>"#;
+        let img = make_png(8, 8);
+        let path = write_epub(
+            &dir,
+            "guide-direct.epub",
+            opf,
+            &[("images/cover.png", img.as_slice())],
+        );
+        let a = analyzer();
+        let media = a.analyze(&path, false).media;
+        let poster = a
+            .get_poster(&path, &media)
+            .expect("cover via guide direct image");
+        assert_eq!(poster.media_type, detect::IMAGE_PNG);
+        assert_eq!(poster.bytes, img);
+    }
+
+    #[test]
+    fn get_cover_property_and_meta_case_insensitive() {
+        let dir = tmpdir("cover-case-insensitive");
+
+        // properties="Cover-Image" (capitalized) must match
+        let opf_prop = r#"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+  <metadata></metadata>
+  <manifest>
+    <item id="c" href="cover.png" media-type="image/png" properties="Cover-Image"/>
+  </manifest>
+  <spine/>
+</package>"#;
+        let img = make_png(8, 8);
+        let p1 = write_epub(
+            &dir,
+            "prop-case.epub",
+            opf_prop,
+            &[("cover.png", img.as_slice())],
+        );
+        let a = analyzer();
+        let media = a.analyze(&p1, false).media;
+        assert_eq!(a.get_poster(&p1, &media).unwrap().bytes, img);
+
+        // <meta name="Cover" content="custom-id"/>
+        let opf_meta = r#"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="2.0">
+  <metadata><meta name="Cover" content="custom-id"/></metadata>
+  <manifest>
+    <item id="custom-id" href="cover.png" media-type="image/png"/>
+  </manifest>
+  <spine/>
+</package>"#;
+        let p2 = write_epub(
+            &dir,
+            "meta-case.epub",
+            opf_meta,
+            &[("cover.png", img.as_slice())],
+        );
+        let media = a.analyze(&p2, false).media;
+        assert_eq!(a.get_poster(&p2, &media).unwrap().bytes, img);
+    }
+
+    #[test]
+    fn get_cover_id_and_href_cover_heuristics() {
+        let dir = tmpdir("cover-heuristics");
+        let opf = r#"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+  <metadata></metadata>
+  <manifest>
+    <item id="page1" href="page1.png" media-type="image/png"/>
+    <item id="coverArt" href="coverArt.png" media-type="image/png"/>
+    <item id="img2" href="images/COVER.png" media-type="image/png"/>
+  </manifest>
+  <spine/>
+</package>"#;
+        let img = make_png(8, 8);
+        let path = write_epub(
+            &dir,
+            "heuristics.epub",
+            opf,
+            &[
+                ("page1.png", img.as_slice()),
+                ("coverArt.png", img.as_slice()),
+                ("images/COVER.png", img.as_slice()),
+            ],
+        );
+        let a = analyzer();
+        let media = a.analyze(&path, false).media;
+        let poster = a
+            .get_poster(&path, &media)
+            .expect("cover via id/href heuristics");
+        assert_eq!(poster.media_type, detect::IMAGE_PNG);
+    }
+
+    #[test]
+    fn get_cover_skips_unreadable_high_priority_candidate() {
+        let dir = tmpdir("cover-skip-missing");
+        let opf = r#"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+  <metadata></metadata>
+  <manifest>
+    <item id="missing-cover" href="missing.png" media-type="image/png" properties="cover-image"/>
+    <item id="cover-image" href="real.png" media-type="image/png"/>
+  </manifest>
+  <spine/>
+</package>"#;
+        let img = make_png(8, 8);
+        let path = write_epub(
+            &dir,
+            "skip-missing.epub",
+            opf,
+            &[("real.png", img.as_slice())],
+        );
+        let a = analyzer();
+        let media = a.analyze(&path, false).media;
+        let poster = a
+            .get_poster(&path, &media)
+            .expect("cover falls back past the missing candidate");
+        assert_eq!(poster.bytes, img);
+    }
+
+    // endregion epub cover fallbacks
+
+    // region epub percent-encoded paths
+
+    #[test]
+    fn analyze_epub_divina_percent_encoded_image_path() {
+        let dir = tmpdir("divina-percent-encoded");
+        let opf = r#"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+  <metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">t</dc:title></metadata>
+  <manifest>
+    <item id="page" href="page.xhtml" media-type="application/xhtml+xml"/>
+    <item id="img" href="img/page%2001.png" media-type="image/png"/>
+  </manifest>
+  <spine><itemref idref="page"/></spine>
+</package>"#;
+        let page: &[u8] = br#"<html xmlns="http://www.w3.org/1999/xhtml"><body><img src="img/page%2001.png"/></body></html>"#;
+        let img = make_png(10, 10);
+        let path = write_epub(
+            &dir,
+            "percent.epub",
+            opf,
+            &[("page.xhtml", page), ("img/page 01.png", img.as_slice())],
+        );
+        let analysis = analyzer().analyze(&path, false);
+        let media = &analysis.media;
+        assert_eq!(media.status, MediaStatus::Ready);
+        assert!(
+            media.epub_divina_compatible,
+            "percent-encoded image path should resolve to the real zip entry"
+        );
+        assert_eq!(media.page_count, 1);
+        assert_eq!(media.pages[0].file_name, "img/page 01.png");
+        assert_eq!(media.pages[0].media_type, detect::IMAGE_PNG);
+        let ext = analysis.epub_extension.as_ref().expect("epub extension");
+        assert!(ext.is_fixed_layout);
+    }
+
+    #[test]
+    fn analyze_epub_absolute_leading_slash_href() {
+        let dir = tmpdir("epub-leading-slash");
+        let opf = r#"<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+  <metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">t</dc:title></metadata>
+  <manifest>
+    <item id="page" href="/page.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine><itemref idref="page"/></spine>
+</package>"#;
+        let page = format!(
+            "<html><body><p>{}</p></body></html>",
+            "lorem ipsum ".repeat(400)
+        );
+        let path = write_epub(
+            &dir,
+            "leading-slash.epub",
+            opf,
+            &[("page.xhtml", page.as_bytes())],
+        );
+
+        // reading tolerates the leading slash
+        let mut pkg = open_epub(&path).unwrap();
+        assert!(pkg.read_entry_string("/page.xhtml").is_some());
+
+        let analysis = analyzer().analyze(&path, false);
+        let media = &analysis.media;
+        assert_eq!(media.status, MediaStatus::Ready);
+        assert_eq!(
+            media.comment, None,
+            "no ERR_1033: resource sizes must resolve despite the leading slash"
+        );
+        assert!(media.page_count >= 1);
+        let page_file = media
+            .files
+            .iter()
+            .find(|f| f.file_name.ends_with("page.xhtml"))
+            .expect("spine page resource");
+        assert!(page_file.file_size.is_some());
+    }
+
+    // endregion epub percent-encoded paths
+
+    // endregion epub fixed-layout detection
 
     #[test]
     fn analyze_epub_text_book_positions() {
@@ -2635,6 +3308,12 @@ mod tests {
         assert_eq!(normalize_zip_path("a//b"), "a/b");
         assert_eq!(normalize_zip_path("../a/b"), "../a/b");
         assert_eq!(normalize_zip_path("a/b/"), "a/b");
+        // backslashes are normalized
+        assert_eq!(
+            normalize_zip_path(r"OPS\text\chapter.xhtml"),
+            "OPS/text/chapter.xhtml"
+        );
+        assert_eq!(normalize_zip_path("a/b\\c"), "a/b/c");
         assert_eq!(
             resolve_relative("OEBPS/page.xhtml", "img/p1.png"),
             "OEBPS/img/p1.png"
@@ -2643,14 +3322,25 @@ mod tests {
             resolve_relative("page.xhtml", "../img/p1.png"),
             "../img/p1.png"
         );
+        // leading-slash-insensitive zip entry matching
+        assert!(entry_matches("/page.xhtml", "page.xhtml"));
+        assert!(entry_matches("page.xhtml", "page.xhtml"));
+        assert!(!entry_matches("other.xhtml", "page.xhtml"));
     }
 
     #[test]
     fn percent_decoding() {
         assert_eq!(percent_decode("chapter%20027.xhtml"), "chapter 027.xhtml");
-        assert_eq!(percent_decode("a+b"), "a b");
+        assert_eq!(percent_decode("a+b"), "a+b");
         assert_eq!(percent_decode("%E3%83%9A"), "ペ");
         assert_eq!(percent_decode("100%"), "100%");
+        // invalid UTF-8 falls back to the original string, '+' is never converted
+        assert_eq!(percent_decode("%FF"), "%FF");
+        assert_eq!(
+            normalize_href(Some("OEBPS"), "img/caf%C3%A9.png"),
+            "OEBPS/img/café.png"
+        );
+        assert_eq!(normalize_href(None, "chapter+1.xhtml"), "chapter+1.xhtml");
     }
 
     #[test]
