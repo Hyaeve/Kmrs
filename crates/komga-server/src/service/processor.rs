@@ -9,6 +9,7 @@
 use crate::events::DomainEvent;
 use crate::service::{book, convert, import, library_content, series, TaskNotify};
 use crate::state::AppState;
+use komga_core::model::book::Book;
 use komga_core::model::library::Library;
 use komga_core::model::media::MediaStatus;
 use komga_core::task::{BookMetadataPatchCapability, Task, LOWEST_PRIORITY, LOW_PRIORITY};
@@ -17,6 +18,8 @@ use komga_db::dao::library::LibraryDao;
 use komga_db::dao::media::MediaDao;
 use komga_db::dao::series::SeriesDao;
 use komga_db::dao::tasks::TasksDao;
+use komga_media::CapturedMetadataSources;
+use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 pub struct TaskProcessor;
@@ -146,6 +149,42 @@ fn hook_start(_id: &str) {}
 #[cfg(not(test))]
 fn hook_end(_id: &str) {}
 
+/// Runs the metadata refresh right after analysis, reusing the metadata documents captured
+/// while the file was open (ComicInfo.xml / EPUB OPF), so no file I/O is repeated.
+///
+/// On success the derived series refresh is scheduled at `priority` — matching the old chain
+/// AnalyzeBook(p) → RefreshBookMetadata(p+1) → refresh_series_metadata((p+1)-1), whose
+/// effective priority was p. On failure a standalone RefreshBookMetadata task is enqueued at
+/// `priority + 1`, preserving the pre-reuse behavior: it re-reads the file and derives the
+/// series refresh follow-up itself.
+fn refresh_after_analysis(
+    state: &AppState,
+    book: &Book,
+    capabilities: &BTreeSet<BookMetadataPatchCapability>,
+    sources: &CapturedMetadataSources,
+    priority: i32,
+) -> komga_db::Result<()> {
+    match crate::service::metadata::refresh_book_metadata_with_sources(
+        state,
+        book,
+        capabilities,
+        Some(sources),
+    ) {
+        Ok(()) => state
+            .task_emitter
+            .refresh_series_metadata(&book.series_id, priority),
+        Err(e) => {
+            tracing::warn!(
+                "Inline metadata refresh after analysis failed for book {}: {e}; scheduling standalone refresh",
+                book.id
+            );
+            state
+                .task_emitter
+                .refresh_book_metadata(book, capabilities.clone(), priority + 1)
+        }
+    }
+}
+
 pub(crate) fn dispatch_task(state: &AppState, task: &Task) -> anyhow::Result<()> {
     match task {
         Task::ScanLibrary(t) => {
@@ -200,17 +239,23 @@ pub(crate) fn dispatch_task(state: &AppState, task: &Task) -> anyhow::Result<()>
                 );
                 return Ok(());
             };
-            let actions = book::analyze_and_persist(state, &book)?;
+            let (actions, captured_sources) = book::analyze_and_persist(state, &book)?;
             if actions.contains(&book::BookAction::GenerateThumbnail) {
                 state
                     .task_emitter
                     .generate_book_thumbnail(&book.id, t.priority + 1)?;
             }
             if actions.contains(&book::BookAction::RefreshMetadata) {
-                state.task_emitter.refresh_book_metadata(
+                // Reuse the metadata documents (ComicInfo.xml / EPUB OPF) captured while the
+                // analysis had the file open, so the refresh does not re-open the book. On
+                // failure, fall back to a standalone RefreshBookMetadata task, which re-reads
+                // the file (and derives the series refresh follow-up itself).
+                refresh_after_analysis(
+                    state,
                     &book,
-                    BookMetadataPatchCapability::all(),
-                    t.priority + 1,
+                    &BookMetadataPatchCapability::all(),
+                    &captured_sources,
+                    t.priority,
                 )?;
             }
             Ok(())
@@ -512,11 +557,12 @@ fn book_ids_with_missing_page_hash(
 mod tests {
     use super::*;
     use crate::service::series::tests as series_tests;
-    use komga_core::model::book::Book;
+    use komga_core::model::book::{Book, BookMetadata};
     use komga_core::model::library::{ScanInterval, SeriesCover};
     use komga_core::model::media::{BookPage, Media, MediaStatus};
     use komga_core::task::{BookTaskKind, LibraryTaskKind, SeriesTaskKind, DEFAULT_PRIORITY};
     use komga_core::time_codec::{format_datetime, now_utc};
+    use komga_db::dao::book::BookMetadataDao;
     use komga_db::dao::media::MediaDao;
     use komga_db::pool::Database;
     use std::path::Path;
@@ -1148,6 +1194,133 @@ mod tests {
             .unwrap();
         let ids = task_ids(&state);
         assert_eq!(ids, vec!["AGGREGATE_SERIES_METADATA_s1".to_string()]);
+    }
+
+    /// AnalyzeBook now refreshes metadata inline, reusing the analysis-captured ComicInfo.xml,
+    /// instead of enqueueing a standalone RefreshBookMetadata task. The derived series refresh
+    /// keeps the old effective priority (AnalyzeBook p, not p-1).
+    #[test]
+    fn analyze_book_inline_refresh_reuses_captured_sources() {
+        let state = series_tests::test_state();
+        seed_library(&state.db, &test_library("lib-r", "file:/l/"));
+        seed_series(&state.db, "lib-r", "s1");
+
+        let dir = visible_tempdir("inline-refresh");
+        let book_path = dir.join("v01.cbz");
+        let comicinfo = r#"<?xml version="1.0" encoding="UTF-8"?>
+<ComicInfo><Title>Captured Title</Title></ComicInfo>"#;
+        {
+            let file = std::fs::File::create(&book_path).unwrap();
+            let mut writer = zip::ZipWriter::new(file);
+            let options = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            use std::io::Write;
+            writer.start_file("page1.png", options).unwrap();
+            let png = komga_media::zip::get_entry_bytes(
+                &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/resources/archives/zip.zip"),
+                "komga.png",
+            )
+            .unwrap();
+            writer.write_all(&png).unwrap();
+            writer.start_file("ComicInfo.xml", options).unwrap();
+            writer.write_all(comicinfo.as_bytes()).unwrap();
+            writer.finish().unwrap();
+        }
+        let book = seed_book(
+            &state.db,
+            "lib-r",
+            "s1",
+            &format!("file:{}", book_path.display()),
+        );
+        // refresh only updates an existing BOOK_METADATA row (created at import time)
+        BookMetadataDao::new(state.db.clone())
+            .insert(&BookMetadata {
+                book_id: book.id.clone(),
+                title: String::new(),
+                summary: String::new(),
+                number: String::new(),
+                number_sort: 0.0,
+                release_date: None,
+                authors: vec![],
+                tags: vec![],
+                isbn: String::new(),
+                links: vec![],
+                title_lock: false,
+                summary_lock: false,
+                number_lock: false,
+                number_sort_lock: false,
+                release_date_lock: false,
+                authors_lock: false,
+                tags_lock: false,
+                isbn_lock: false,
+                links_lock: false,
+                created_date: now_utc(),
+                last_modified_date: now_utc(),
+            })
+            .unwrap();
+
+        dispatch_task(
+            &state,
+            &Task::analyze_book(&book.id, DEFAULT_PRIORITY, book.series_id.clone()),
+        )
+        .unwrap();
+
+        // the inline refresh applied the captured ComicInfo.xml to the DB
+        let metadata = BookMetadataDao::new(state.db.clone())
+            .find_by_id(&book.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(metadata.title, "Captured Title");
+
+        // no standalone refresh task; thumbnail + series refresh were derived instead, and
+        // the series refresh keeps the AnalyzeBook priority (the old effective chain)
+        let ids = task_ids(&state);
+        assert!(ids.contains(&"REFRESH_SERIES_METADATA_s1".to_string()));
+        assert!(ids.contains(&format!("GENERATE_BOOK_THUMBNAIL_{}", book.id)));
+        assert!(!ids
+            .iter()
+            .any(|id| id.starts_with("REFRESH_BOOK_METADATA_")));
+        let tasks = TasksDao::new(state.tasks_db.clone()).find_all().unwrap();
+        let series_task = tasks
+            .iter()
+            .find(|t| t.unique_id() == "REFRESH_SERIES_METADATA_s1")
+            .expect("series refresh task enqueued");
+        assert_eq!(series_task.priority(), DEFAULT_PRIORITY);
+    }
+
+    /// If the inline refresh after analysis fails, the dispatch falls back to enqueueing a
+    /// standalone RefreshBookMetadata task at priority + 1 (which re-reads the file and
+    /// derives the series refresh follow-up itself), preserving the pre-reuse chain.
+    #[test]
+    fn refresh_after_analysis_falls_back_to_standalone_refresh() {
+        let state = series_tests::test_state();
+        seed_library(&state.db, &test_library("lib-r", "file:/l/"));
+        seed_series(&state.db, "lib-r", "s1");
+        let book = seed_book(&state.db, "lib-r", "s1", "file:/l/s/v01.cbz");
+        // force the inline refresh to fail: with no MEDIA row, refresh_book_metadata_with_sources
+        // errors out, which is the dispatch branch the processor executes on failure
+        MediaDao::new(state.db.clone()).delete(&book.id).unwrap();
+
+        refresh_after_analysis(
+            &state,
+            &book,
+            &BookMetadataPatchCapability::all(),
+            &CapturedMetadataSources::default(),
+            DEFAULT_PRIORITY,
+        )
+        .unwrap();
+
+        let ids = task_ids(&state);
+        assert!(ids.contains(&format!("REFRESH_BOOK_METADATA_{}", book.id)));
+        assert!(!ids
+            .iter()
+            .any(|id| id.starts_with("REFRESH_SERIES_METADATA_")));
+        let tasks = TasksDao::new(state.tasks_db.clone()).find_all().unwrap();
+        let refresh_task = tasks
+            .iter()
+            .find(|t| t.unique_id() == format!("REFRESH_BOOK_METADATA_{}", book.id))
+            .expect("standalone refresh task enqueued");
+        assert_eq!(refresh_task.priority(), DEFAULT_PRIORITY + 1);
     }
 
     #[test]

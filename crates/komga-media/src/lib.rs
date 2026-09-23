@@ -16,5 +16,6 @@ pub mod zip;
 #[cfg(test)]
 mod net_mount_sim;
 
+pub use analyzer::CapturedMetadataSources;
 pub use container::PageContent;
 pub use error::{MediaError, Result};

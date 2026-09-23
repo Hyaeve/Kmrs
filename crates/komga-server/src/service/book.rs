@@ -10,6 +10,8 @@ use crate::state::test_search_index;
 use crate::state::AppState;
 use komga_core::dto::url_to_file_path;
 use komga_core::model::book::Book;
+#[cfg(test)]
+use komga_core::model::book::BookMetadata;
 use komga_core::model::book_projection::{BookProjection, KEPUB_DEFAULT};
 use komga_core::model::history::{HistoricalEvent, HistoricalEventType};
 use komga_core::model::media::{Media, MediaStatus};
@@ -23,7 +25,9 @@ use komga_db::dao::library::LibraryDao;
 use komga_db::dao::media::MediaDao;
 use komga_db::dao::read_progress::ReadProgressDao;
 use komga_db::dao::thumbnail::ThumbnailBookDao;
-use komga_media::analyzer::{encode_epub_extension_gz, Analyzer, EPUB_EXTENSION_CLASS};
+use komga_media::analyzer::{
+    encode_epub_extension_gz, Analyzer, CapturedMetadataSources, EPUB_EXTENSION_CLASS,
+};
 use komga_media::hash::{compute_hashes, compute_koreader_hash};
 use komga_media::image::{self, ImageType};
 use komga_media::PageContent;
@@ -89,7 +93,7 @@ fn thumbnail_exists(thumbnail: &ThumbnailBook) -> bool {
 pub fn analyze_and_persist(
     state: &AppState,
     book: &Book,
-) -> komga_db::Result<BTreeSet<BookAction>> {
+) -> komga_db::Result<(BTreeSet<BookAction>, CapturedMetadataSources)> {
     tracing::info!("Analyze and persist book: {book:?}");
     let library = LibraryDao::new(state.db.clone())
         .find_by_id(&book.library_id)?
@@ -148,13 +152,14 @@ pub fn analyze_and_persist(
 
     let _ = state.events.send(DomainEvent::BookUpdated(book.clone()));
 
-    Ok(if media.status == MediaStatus::Ready {
+    let actions = if media.status == MediaStatus::Ready {
         [BookAction::GenerateThumbnail, BookAction::RefreshMetadata]
             .into_iter()
             .collect()
     } else {
         BTreeSet::new()
-    })
+    };
+    Ok((actions, analysis.metadata_sources))
 }
 
 /// Compute and persist whichever of the file hash and the KOReader hash is missing and
@@ -848,7 +853,7 @@ mod tests {
         );
 
         let mut rx = state.events.subscribe();
-        let actions = analyze_and_persist(&state, &book).unwrap();
+        let (actions, _) = analyze_and_persist(&state, &book).unwrap();
         assert!(actions.contains(&BookAction::GenerateThumbnail));
         assert!(actions.contains(&BookAction::RefreshMetadata));
 
@@ -878,6 +883,102 @@ mod tests {
         assert!(matches!(rx.try_recv(), Ok(DomainEvent::BookUpdated(_))));
     }
 
+    /// The analysis captures the raw ComicInfo.xml bytes while the archive is open, and the
+    /// metadata refresh consumes them (no file re-read) and applies the patch to the DB.
+    #[test]
+    fn analyze_captures_comicinfo_and_refresh_reuses_it() {
+        let state = test_state();
+        seed_library(&state, "lib1", false);
+        seed_series(&state, "lib1", "s1");
+        let dir = tmpdir();
+        let book_path = dir.join("comic.cbz");
+        let comicinfo = r#"<?xml version="1.0" encoding="UTF-8"?>
+<ComicInfo><Title>Captured Title</Title></ComicInfo>"#;
+        {
+            let file = std::fs::File::create(&book_path).unwrap();
+            let mut writer = zip::ZipWriter::new(file);
+            let options = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            use std::io::Write;
+            writer.start_file("page1.png", options).unwrap();
+            writer.write_all(&png_bytes()).unwrap();
+            writer.start_file("ComicInfo.xml", options).unwrap();
+            writer.write_all(comicinfo.as_bytes()).unwrap();
+            writer.finish().unwrap();
+        }
+        let file_size = std::fs::metadata(&book_path).unwrap().len() as i64;
+        let book = seed_book(
+            &state,
+            "lib1",
+            "s1",
+            &format!("file:{}", book_path.display()),
+            file_size,
+        );
+
+        let (actions, sources) = analyze_and_persist(&state, &book).unwrap();
+        assert!(actions.contains(&BookAction::RefreshMetadata));
+        let captured = sources
+            .comicinfo
+            .as_ref()
+            .expect("ComicInfo.xml captured during analysis");
+        assert_eq!(std::str::from_utf8(captured).unwrap(), comicinfo);
+
+        // make the test falsifiable: strip ComicInfo.xml from the on-disk book, so the
+        // refresh can only apply the title if it reused the captured bytes, not the file
+        {
+            let file = std::fs::File::create(&book_path).unwrap();
+            let mut writer = zip::ZipWriter::new(file);
+            let options = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            use std::io::Write;
+            writer.start_file("page1.png", options).unwrap();
+            writer.write_all(&png_bytes()).unwrap();
+            writer.finish().unwrap();
+        }
+
+        // `seed_book` does not create a BOOK_METADATA row (that happens at import time);
+        // `refresh_book_metadata` only updates an existing row, so insert the default row
+        BookMetadataDao::new(state.db.clone())
+            .insert(&BookMetadata {
+                book_id: book.id.clone(),
+                title: String::new(),
+                summary: String::new(),
+                number: String::new(),
+                number_sort: 0.0,
+                release_date: None,
+                authors: vec![],
+                tags: vec![],
+                isbn: String::new(),
+                links: vec![],
+                title_lock: false,
+                summary_lock: false,
+                number_lock: false,
+                number_sort_lock: false,
+                release_date_lock: false,
+                authors_lock: false,
+                tags_lock: false,
+                isbn_lock: false,
+                links_lock: false,
+                created_date: now_utc(),
+                last_modified_date: now_utc(),
+            })
+            .unwrap();
+
+        // refresh with the captured sources must apply the metadata from the in-memory bytes
+        crate::service::metadata::refresh_book_metadata_with_sources(
+            &state,
+            &book,
+            &komga_core::task::BookMetadataPatchCapability::all(),
+            Some(&sources),
+        )
+        .unwrap();
+        let metadata = BookMetadataDao::new(state.db.clone())
+            .find_by_id(&book.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(metadata.title, "Captured Title");
+    }
+
     #[test]
     fn analyze_and_persist_unsupported_file() {
         let state = test_state();
@@ -888,7 +989,7 @@ mod tests {
         std::fs::write(&txt, b"not a book").unwrap();
         let book = seed_book(&state, "lib1", "s1", &format!("file:{}", txt.display()), 10);
 
-        let actions = analyze_and_persist(&state, &book).unwrap();
+        let (actions, _) = analyze_and_persist(&state, &book).unwrap();
         assert!(actions.is_empty());
         let media = MediaDao::new(state.db.clone())
             .find_by_id(&book.id)
@@ -937,7 +1038,7 @@ mod tests {
             })
             .unwrap();
 
-        analyze_and_persist(&state, &book).unwrap();
+        let (_actions, _sources) = analyze_and_persist(&state, &book).unwrap();
 
         let progress = progress_dao
             .find_by_book_and_user(&book.id, &user_id)
@@ -1061,7 +1162,7 @@ mod tests {
             12345,
         );
 
-        analyze_and_persist(&state, &book).unwrap();
+        let (_actions, _sources) = analyze_and_persist(&state, &book).unwrap();
         hash_pages_and_persist(&state, &book).unwrap();
 
         let media = MediaDao::new(state.db.clone())
@@ -1094,7 +1195,7 @@ mod tests {
             &format!("file:{}", zip_path.display()),
             3260,
         );
-        analyze_and_persist(&state, &book).unwrap();
+        let (_actions, _sources) = analyze_and_persist(&state, &book).unwrap();
 
         generate_thumbnail_and_persist(&state, &book).unwrap();
 

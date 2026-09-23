@@ -188,8 +188,8 @@ fn analyze_old(path: &Path, stats: &Rc<RefCell<Stats>>) -> Vec<(String, Option<(
 /// Post-fix: the real `zip_entries_from`, head-first dimensions
 fn analyze_new(path: &Path, stats: &Rc<RefCell<Stats>>) -> Vec<(String, Option<(i32, i32)>)> {
     let file = accounted(path, stats);
-    let archive = zip::ZipArchive::new(file).unwrap();
-    zip_entries_from(archive, true)
+    let mut archive = zip::ZipArchive::new(file).unwrap();
+    zip_entries_from(&mut archive, true)
         .unwrap()
         .into_iter()
         .map(|e| (e.name, e.dimension))

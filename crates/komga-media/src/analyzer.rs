@@ -35,6 +35,22 @@ pub struct Analysis {
     pub epub_extension: Option<MediaExtensionEpub>,
     /// file size of the on-the-fly kepub conversion, when one was produced for positions
     pub kepub_file_size: Option<u64>,
+    /// Raw metadata documents captured while the file was open, so a follow-up metadata
+    /// refresh can reuse them without re-opening the book. Empty for media types without a
+    /// document.
+    pub metadata_sources: CapturedMetadataSources,
+}
+
+/// Raw metadata documents captured during analysis (the file is already being read once).
+///
+/// `None` means the document was not present / not captured; consumers fall back to
+/// re-reading the book file in that case.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CapturedMetadataSources {
+    /// Raw `ComicInfo.xml` entry bytes (zip/rar books), when the archive contains one.
+    pub comicinfo: Option<Vec<u8>>,
+    /// Raw EPUB OPF document (`content.opf`) bytes, for EPUB books.
+    pub epub_opf: Option<Vec<u8>>,
 }
 
 /// `MediaExtensionEpub.kt`. All fields are always serialized (Jackson default inclusion),
@@ -108,12 +124,14 @@ impl Analyzer {
                     media: error_media(&e),
                     epub_extension: None,
                     kepub_file_size: None,
+                    metadata_sources: CapturedMetadataSources::default(),
                 }
             }
         }
     }
 
     fn analyze_internal(&self, book_path: &Path, analyze_dimensions: bool) -> Result<Analysis> {
+        let mut metadata_sources = CapturedMetadataSources::default();
         let detected = detect_book_media_type(book_path)?;
         let mut media_type = match container::media_profile(Some(&detected)) {
             Some(_) => detected,
@@ -126,6 +144,7 @@ impl Analyzer {
                     ),
                     epub_extension: None,
                     kepub_file_size: None,
+                    metadata_sources: CapturedMetadataSources::default(),
                 })
             }
         };
@@ -148,13 +167,19 @@ impl Analyzer {
                     ),
                     epub_extension: None,
                     kepub_file_size: None,
+                    metadata_sources: CapturedMetadataSources::default(),
                 });
             }
         }
 
         match container::media_profile(Some(&media_type)) {
             Some(MediaProfile::Divina) => {
-                let media = self.analyze_divina(book_path, &media_type, analyze_dimensions);
+                let media = self.analyze_divina(
+                    book_path,
+                    &media_type,
+                    analyze_dimensions,
+                    &mut metadata_sources,
+                );
                 Ok(Analysis {
                     media: Media {
                         media_type: Some(media_type),
@@ -162,6 +187,7 @@ impl Analyzer {
                     },
                     epub_extension: None,
                     kepub_file_size: None,
+                    metadata_sources,
                 })
             }
             Some(MediaProfile::Pdf) => {
@@ -173,11 +199,12 @@ impl Analyzer {
                     },
                     epub_extension: None,
                     kepub_file_size: None,
+                    metadata_sources: CapturedMetadataSources::default(),
                 })
             }
             Some(MediaProfile::Epub) => {
                 let (media, extension, kepub_file_size) =
-                    self.analyze_epub(book_path, analyze_dimensions)?;
+                    self.analyze_epub(book_path, analyze_dimensions, &mut metadata_sources)?;
                 Ok(Analysis {
                     media: Media {
                         media_type: Some(media_type),
@@ -185,6 +212,7 @@ impl Analyzer {
                     },
                     epub_extension: Some(extension),
                     kepub_file_size,
+                    metadata_sources,
                 })
             }
             // media_profile returned Some above, so one of the profiles must match
@@ -197,8 +225,14 @@ impl Analyzer {
         book_path: &Path,
         media_type: &str,
         analyze_dimensions: bool,
+        sources: &mut CapturedMetadataSources,
     ) -> Media {
-        let entries = match get_divina_entries(book_path, media_type, analyze_dimensions) {
+        let entries = match get_divina_entries(
+            book_path,
+            media_type,
+            analyze_dimensions,
+            &mut sources.comicinfo,
+        ) {
             Ok(e) => e,
             Err(MediaError::Unsupported { code, .. }) => {
                 return media(MediaStatus::Unsupported, None, code)
@@ -283,8 +317,12 @@ impl Analyzer {
         &self,
         book_path: &Path,
         analyze_dimensions: bool,
+        sources: &mut CapturedMetadataSources,
     ) -> Result<(Media, MediaExtensionEpub, Option<u64>)> {
         let mut pkg = open_epub(book_path)?;
+        // the OPF document is already fully in memory from open_epub; hand it over for the
+        // metadata refresh instead of letting it re-open the file
+        sources.epub_opf = Some(pkg.opf_content.clone().into_bytes());
 
         let all_resources = get_resources(&mut pkg);
         let (resources, missing): (Vec<_>, Vec<_>) = all_resources
@@ -456,10 +494,9 @@ impl Analyzer {
     /// Pick the first suitable cover page among the first three archive pages, falling
     /// back to the first page when none qualifies.
     ///
-    /// Ported from komga-rust `find_best_cover_page` + `is_suitable_cover_image`
-    /// (media-metadata/src/refresh/artwork_refresh.rs). Blank/undecodable first pages are
-    /// skipped in favor of a later candidate; when every candidate fails, the first page
-    /// is returned anyway so a cover is produced rather than lost.
+    /// Blank/undecodable first pages are skipped in favor of a later candidate; when
+    /// every candidate fails, the first page is returned anyway so a cover is produced
+    /// rather than lost.
     fn find_best_cover_page(&self, book_path: &Path, media: &Media) -> Option<PageContent> {
         let page_count = media.page_count.max(0) as usize;
         let numbers: Vec<usize> = (1..=page_count).take(3).collect();
@@ -671,11 +708,14 @@ fn get_divina_entries(
     book_path: &Path,
     media_type: &str,
     analyze_dimensions: bool,
+    captured_comicinfo: &mut Option<Vec<u8>>,
 ) -> Result<Vec<ContainerEntry>> {
     match media_type {
-        detect::APPLICATION_ZIP => get_zip_entries(book_path, analyze_dimensions),
+        detect::APPLICATION_ZIP => {
+            get_zip_entries(book_path, analyze_dimensions, captured_comicinfo)
+        }
         "application/x-rar-compressed" | detect::APPLICATION_RAR_4 | detect::APPLICATION_RAR_5 => {
-            get_rar_entries(book_path, analyze_dimensions)
+            get_rar_entries(book_path, analyze_dimensions, captured_comicinfo)
         }
         // Kotlin returns UNSUPPORTED with no comment when no extractor matches
         other => Err(MediaError::unsupported(format!(
@@ -685,18 +725,31 @@ fn get_divina_entries(
 }
 
 /// `ZipExtractor.getEntries`
-fn get_zip_entries(book_path: &Path, analyze_dimensions: bool) -> Result<Vec<ContainerEntry>> {
+fn get_zip_entries(
+    book_path: &Path,
+    analyze_dimensions: bool,
+    captured_comicinfo: &mut Option<Vec<u8>>,
+) -> Result<Vec<ContainerEntry>> {
     let file = open_book_file(book_path)?;
     // an unopenable archive is a generic getEntries failure (ERR_1008), not a coded UNSUPPORTED
-    let archive = zip::ZipArchive::new(file)
+    let mut archive = zip::ZipArchive::new(file)
         .map_err(|e| MediaError::Other(anyhow::anyhow!("could not open zip archive: {e}")))?;
-    zip_entries_from(archive, analyze_dimensions)
+    let entries = zip_entries_from(&mut archive, analyze_dimensions)?;
+    // ComicInfo.xml is usually a few KB; read it from the still-open archive handle so the
+    // follow-up metadata refresh does not re-open the book file
+    if let Ok(mut entry) = archive.by_name(crate::metadata::comicinfo::COMIC_INFO) {
+        let mut buf = Vec::with_capacity(entry.size() as usize);
+        if entry.read_to_end(&mut buf).is_ok() {
+            *captured_comicinfo = Some(buf);
+        }
+    }
+    Ok(entries)
 }
 
 /// Entry loop of `get_zip_entries`, split from file opening so tests can drive it with
 /// instrumented readers.
 pub(crate) fn zip_entries_from<R: std::io::Read + std::io::Seek>(
-    mut archive: zip::ZipArchive<R>,
+    archive: &mut zip::ZipArchive<R>,
     analyze_dimensions: bool,
 ) -> Result<Vec<ContainerEntry>> {
     let mut entries = Vec::new();
@@ -758,7 +811,11 @@ pub(crate) fn zip_entries_from<R: std::io::Read + std::io::Seek>(
 
 /// `RarExtractor.getEntries`. junrar extracts solid archives sequentially just fine;
 /// the `unrar` crate is used for the same reason (libarchive refuses solid archives).
-fn get_rar_entries(book_path: &Path, analyze_dimensions: bool) -> Result<Vec<ContainerEntry>> {
+fn get_rar_entries(
+    book_path: &Path,
+    analyze_dimensions: bool,
+    captured_comicinfo: &mut Option<Vec<u8>>,
+) -> Result<Vec<ContainerEntry>> {
     if unrar::Archive::new(book_path).is_multipart() {
         return Err(MediaError::unsupported_coded(
             "Multi-Volume RAR archives are not supported",
@@ -800,6 +857,11 @@ fn get_rar_entries(book_path: &Path, analyze_dimensions: bool) -> Result<Vec<Con
             }
         };
         archive = next;
+        // the entry bytes are already fully in memory for the dimension scan; hand
+        // ComicInfo.xml over for the metadata refresh instead of re-opening the archive
+        if name == crate::metadata::comicinfo::COMIC_INFO {
+            *captured_comicinfo = Some(bytes.clone());
+        }
         let media_type = detect::detect_media_type(&bytes[..bytes.len().min(65536)]);
         let dimension = if analyze_dimensions && detect::is_image(&media_type) {
             image::get_dimension(&bytes).map(|(w, h)| (w as i32, h as i32))
@@ -2254,13 +2316,80 @@ mod tests {
         writer.finish().unwrap();
     }
 
+    fn crc32(data: &[u8]) -> u32 {
+        let mut crc: u32 = 0xFFFF_FFFF;
+        for &b in data {
+            crc ^= b as u32;
+            for _ in 0..8 {
+                crc = if crc & 1 != 0 {
+                    (crc >> 1) ^ 0xEDB8_8320
+                } else {
+                    crc >> 1
+                };
+            }
+        }
+        !crc
+    }
+
+    /// RAR4 header CRC: the truncated CRC32 libunrar's `Raw::GetCRC15` expects
+    /// (`~CRC32(0xffffffff, header_body) & 0xffff`), verified against the `rar4.rar` fixture.
+    fn rar_header_crc(body: &[u8]) -> u16 {
+        (crc32(body) & 0xFFFF) as u16
+    }
+
+    /// Builds a minimal RAR4 archive with stored (uncompressed) entries, so the rar capture
+    /// path can be tested without depending on system compression tools. Layout follows RAR
+    /// 4.x: signature + main header (0x73) + one file header (0x74) per entry followed by its
+    /// raw data + end-of-archive header (0x7B).
+    fn write_rar(path: &Path, entries: &[(&str, &[u8])]) {
+        let mut out: Vec<u8> = Vec::new();
+        out.extend_from_slice(b"Rar!\x1A\x07\x00");
+
+        // main archive header
+        let mut main = Vec::new();
+        main.push(0x73); // HEAD_TYPE
+        main.extend_from_slice(&0x0000u16.to_le_bytes()); // HEAD_FLAGS
+        main.extend_from_slice(&13u16.to_le_bytes()); // HEAD_SIZE
+        main.extend_from_slice(&0x0000u16.to_le_bytes()); // RESERVED1
+        main.extend_from_slice(&0x0000_0000u32.to_le_bytes()); // RESERVED2
+        out.extend_from_slice(&rar_header_crc(&main).to_le_bytes());
+        out.extend_from_slice(&main);
+
+        for (name, data) in entries {
+            let mut head = Vec::new();
+            head.push(0x74); // HEAD_TYPE
+            head.extend_from_slice(&0x0000u16.to_le_bytes()); // HEAD_FLAGS
+            head.extend_from_slice(&(32u16 + name.len() as u16).to_le_bytes()); // HEAD_SIZE
+            head.extend_from_slice(&(data.len() as u32).to_le_bytes()); // PACK_SIZE
+            head.extend_from_slice(&(data.len() as u32).to_le_bytes()); // UNP_SIZE
+            head.push(2); // HOST_OS = Win32
+            head.extend_from_slice(&crc32(data).to_le_bytes()); // FILE_CRC
+            head.extend_from_slice(&0x0000_0000u32.to_le_bytes()); // FTIME (DOS 1980-01-01)
+            head.push(20); // UNP_VER
+            head.push(0x30); // METHOD = STORE
+            head.extend_from_slice(&(name.len() as u16).to_le_bytes()); // NAME_SIZE
+            head.extend_from_slice(&0x0000_0020u32.to_le_bytes()); // ATTR = file
+            head.extend_from_slice(name.as_bytes());
+            out.extend_from_slice(&rar_header_crc(&head).to_le_bytes());
+            out.extend_from_slice(&head);
+            out.extend_from_slice(data);
+        }
+
+        // end-of-archive header
+        let end = [0x7Bu8, 0x00, 0x00, 0x07, 0x00];
+        out.extend_from_slice(&rar_header_crc(&end).to_le_bytes());
+        out.extend_from_slice(&end);
+
+        std::fs::write(path, out).unwrap();
+    }
+
     fn tmpdir(name: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("kmrs-analyzer-{name}"));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
 
-    // region cover selection (ported from komga-rust find_best_cover_page)
+    // region cover selection
 
     fn divina_media(file_names: &[(&str, &str)]) -> Media {
         Media {
@@ -2481,12 +2610,12 @@ mod tests {
         let zip_bytes = zip_buf.into_inner();
 
         let read_bytes = Rc::new(Cell::new(0usize));
-        let archive = zip::ZipArchive::new(CountingCursor {
+        let mut archive = zip::ZipArchive::new(CountingCursor {
             inner: Cursor::new(zip_bytes),
             bytes: read_bytes.clone(),
         })
         .unwrap();
-        let entries = zip_entries_from(archive, true).unwrap();
+        let entries = zip_entries_from(&mut archive, true).unwrap();
         assert_eq!(entries[0].dimension, Some((800, 600)));
         assert!(
             read_bytes.get() < jpeg.len(),
@@ -2530,6 +2659,41 @@ mod tests {
         let media = analyzer().analyze(&book, false).media;
         assert_eq!(media.status, MediaStatus::Error);
         assert_eq!(media.comment.as_deref(), Some("ERR_1006"));
+    }
+
+    #[test]
+    fn analyze_zip_captures_comicinfo_for_metadata_refresh() {
+        let dir = tmpdir("capture-comicinfo");
+        let book = dir.join("comic.cbz");
+        let png = make_png(48, 48);
+        let comicinfo: &[u8] =
+            br#"<?xml version="1.0"?><ComicInfo><Title>Captured</Title></ComicInfo>"#;
+        write_zip(&book, &[("ComicInfo.xml", comicinfo), ("p1.png", &png)]);
+
+        let analysis = analyzer().analyze(&book, false);
+        assert_eq!(analysis.media.status, MediaStatus::Ready);
+        assert_eq!(
+            analysis.metadata_sources.comicinfo.as_deref(),
+            Some(comicinfo)
+        );
+        assert!(analysis.metadata_sources.epub_opf.is_none());
+    }
+
+    #[test]
+    fn analyze_epub_captures_opf_for_metadata_refresh() {
+        let analysis = analyzer().analyze(&fixtures().join("archives/epub3.epub"), false);
+        assert_eq!(analysis.media.status, MediaStatus::Ready);
+        let opf = analysis
+            .metadata_sources
+            .epub_opf
+            .as_deref()
+            .expect("OPF document should be captured during EPUB analysis");
+        let text = std::str::from_utf8(opf).unwrap();
+        assert!(
+            text.contains("<package") || text.contains("package "),
+            "captured bytes should be the OPF document, got: {text:.120}"
+        );
+        assert!(analysis.metadata_sources.comicinfo.is_none());
     }
 
     #[test]
@@ -2597,6 +2761,30 @@ mod tests {
             assert_eq!(media.status, MediaStatus::Ready, "{name}");
             assert_eq!(media.page_count, 3, "{name}");
         }
+    }
+
+    /// RAR capture: the entry bytes are already fully in memory for the dimension scan, so a
+    /// ComicInfo.xml entry is captured while the archive is open — the metadata refresh can
+    /// reuse it instead of re-opening the archive. Locks the branch the zip/EPUB tests can't
+    /// reach (the fixture is generated, since no system rar writer is assumed).
+    #[test]
+    fn analyze_rar_captures_comicinfo_for_metadata_refresh() {
+        let dir = tmpdir("capture-comicinfo-rar");
+        let book = dir.join("comic.rar");
+        let png = make_png(48, 48);
+        let comicinfo: &[u8] =
+            br#"<?xml version="1.0"?><ComicInfo><Title>Captured</Title></ComicInfo>"#;
+        write_rar(&book, &[("ComicInfo.xml", comicinfo), ("p1.png", &png)]);
+
+        let analysis = analyzer().analyze(&book, false);
+        assert_eq!(analysis.media.status, MediaStatus::Ready);
+        assert_eq!(analysis.media.page_count, 1);
+        assert_eq!(analysis.media.pages[0].file_name, "p1.png");
+        assert_eq!(
+            analysis.metadata_sources.comicinfo.as_deref(),
+            Some(comicinfo)
+        );
+        assert!(analysis.metadata_sources.epub_opf.is_none());
     }
 
     #[test]

@@ -30,6 +30,7 @@ use komga_media::metadata::patch::{
     AggregationParts, BookMetadataPatch, BookMetadataProvider, MetadataPatchTarget,
     MetadataProvider, SeriesMetadataFromBookProvider, SeriesMetadataPatch, SeriesMetadataProvider,
 };
+use komga_media::CapturedMetadataSources;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
@@ -47,11 +48,23 @@ fn series_path(series: &Series) -> PathBuf {
     PathBuf::from(komga_core::dto::url_to_file_path(&series.url))
 }
 
-/// `BookMetadataLifecycle.refreshMetadata`.
+/// `BookMetadataLifecycle.refreshMetadata`: re-reads the book file for every provider.
 pub fn refresh_book_metadata(
     state: &AppState,
     book: &Book,
     capabilities: &BTreeSet<BookMetadataPatchCapability>,
+) -> Result<()> {
+    refresh_book_metadata_with_sources(state, book, capabilities, None)
+}
+
+/// Like `refresh_book_metadata`, but hands the metadata documents captured during analysis
+/// (ComicInfo.xml / EPUB OPF bytes) to the providers so they do not re-open the book file.
+/// `sources` is `None` for standalone refreshes, which fall back to file reads.
+pub fn refresh_book_metadata_with_sources(
+    state: &AppState,
+    book: &Book,
+    capabilities: &BTreeSet<BookMetadataPatchCapability>,
+    sources: Option<&CapturedMetadataSources>,
 ) -> Result<()> {
     tracing::info!("Refresh metadata for book: {book:?} with capabilities: {capabilities:?}");
     let media = MediaDao::new(state.db.clone())
@@ -83,7 +96,8 @@ pub fn refresh_book_metadata(
             continue;
         }
 
-        let patch = provider.get_book_metadata_from_book(&book_path(book), &media);
+        let patch =
+            provider.get_book_metadata_from_book_with_sources(&book_path(book), &media, sources);
 
         if provider.should_library_handle_patch(&library, MetadataPatchTarget::Book) {
             handle_patch_for_book_metadata(state, patch.as_ref(), book)?;

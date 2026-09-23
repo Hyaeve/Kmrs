@@ -16,7 +16,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::LazyLock;
 
-const COMIC_INFO: &str = "ComicInfo.xml";
+pub(crate) const COMIC_INFO: &str = "ComicInfo.xml";
 
 // region dto (`dto/ComicInfo.kt`)
 
@@ -252,7 +252,12 @@ impl ComicInfoProvider {
             return None;
         }
         let content = container::get_file_content(book_path, media, COMIC_INFO).ok()?;
-        match quick_xml::de::from_reader::<_, ComicInfo>(content.as_slice()) {
+        Self::get_comic_info_from_bytes(&content)
+    }
+
+    /// Parse raw ComicInfo.xml bytes captured during analysis; parse failures yield None.
+    fn get_comic_info_from_bytes(content: &[u8]) -> Option<ComicInfo> {
+        match quick_xml::de::from_reader::<_, ComicInfo>(content) {
             Ok(comic_info) => Some(comic_info),
             Err(e) => {
                 tracing::error!("Error while retrieving metadata from {COMIC_INFO}: {e}");
@@ -284,126 +289,144 @@ impl BookMetadataProvider for ComicInfoProvider {
         media: &Media,
     ) -> Option<BookMetadataPatch> {
         let comic_info = Self::get_comic_info(book_path, media)?;
-
-        // an invalid date aborts the whole patch, like LocalDate.of throwing out of the provider
-        let release_date = match comic_info.year {
-            Some(year) => {
-                let month = time::Month::try_from(comic_info.month.unwrap_or(1) as u8).ok()?;
-                Some(
-                    time::Date::from_calendar_date(year, month, comic_info.day.unwrap_or(1) as u8)
-                        .ok()?,
-                )
-            }
-            None => None,
-        };
-
-        let mut authors = vec![];
-        for (value, role) in [
-            (&comic_info.writer, "writer"),
-            (&comic_info.penciller, "penciller"),
-            (&comic_info.inker, "inker"),
-            (&comic_info.colorist, "colorist"),
-            (&comic_info.letterer, "letterer"),
-            (&comic_info.cover_artist, "cover"),
-            (&comic_info.editor, "editor"),
-            (&comic_info.translator, "translator"),
-        ] {
-            if let Some(list) = split_with_role(value.as_deref(), role) {
-                authors.extend(list);
-            }
-        }
-
-        let mut read_lists = vec![];
-        if let Some(alternate_series) = non_blank(comic_info.alternate_series.as_deref()) {
-            read_lists.push(ReadListEntry::new(
-                alternate_series,
-                comic_info
-                    .alternate_number
-                    .as_deref()
-                    .and_then(|n| n.parse::<i32>().ok()),
-            ));
-        }
-        if let Some(story_arc) = &comic_info.story_arc {
-            let arcs: Vec<Option<String>> = story_arc
-                .split(',')
-                .map(|s| non_blank(Some(s.trim())).map(str::to_string))
-                .collect();
-            let numbers: Option<Vec<Option<i32>>> = comic_info
-                .story_arc_number
-                .as_deref()
-                .map(|n| n.split(',').map(|s| s.trim().parse::<i32>().ok()).collect());
-            if let Some(numbers) = numbers.filter(|n| !n.is_empty()) {
-                for (arc, number) in arcs.iter().zip(numbers.iter()) {
-                    if let (Some(arc), Some(number)) = (arc, number) {
-                        read_lists.push(ReadListEntry::new(arc, Some(*number)));
-                    }
-                }
-            } else {
-                read_lists.extend(
-                    arcs.into_iter()
-                        .flatten()
-                        .map(|arc| ReadListEntry::new(arc, None)),
-                );
-            }
-        }
-
-        let links: Option<Vec<WebLink>> = comic_info.web.as_deref().and_then(|web| {
-            let links: Vec<WebLink> = web
-                .split(' ')
-                .filter(|s| !s.is_empty())
-                .filter_map(|s| {
-                    let trimmed = s.trim();
-                    host_of(trimmed).map(|host| WebLink {
-                        label: host.to_string(),
-                        url: trimmed.to_string(),
-                    })
-                })
-                .collect();
-            if links.is_empty() {
-                None
-            } else {
-                Some(links)
-            }
-        });
-
-        let tags: Option<Vec<String>> = comic_info.tags.as_deref().and_then(|tags_str| {
-            let mut tags: Vec<String> = vec![];
-            for tag in tags_str.split(',') {
-                if let Some(tag) = non_blank(Some(tag.trim().to_lowercase().as_str())) {
-                    if !tags.iter().any(|t| t == tag) {
-                        tags.push(tag.to_string());
-                    }
-                }
-            }
-            if tags.is_empty() {
-                None
-            } else {
-                Some(tags)
-            }
-        });
-
-        let isbn = comic_info.gtin.as_deref().and_then(isbn_validate);
-
-        Some(BookMetadataPatch {
-            title: non_blank(comic_info.title.as_deref()).map(str::to_string),
-            summary: non_blank(comic_info.summary.as_deref()).map(str::to_string),
-            number: non_blank(comic_info.number.as_deref()).map(str::to_string),
-            number_sort: comic_info
-                .number
-                .as_deref()
-                .and_then(|n| n.parse::<f32>().ok()),
-            release_date,
-            authors: if authors.is_empty() {
-                None
-            } else {
-                Some(authors)
-            },
-            isbn,
-            links,
-            tags,
-            read_lists,
-        })
+        book_patch_from_comic_info(&comic_info)
     }
+
+    fn get_book_metadata_from_book_with_sources(
+        &self,
+        book_path: &Path,
+        media: &Media,
+        sources: Option<&crate::CapturedMetadataSources>,
+    ) -> Option<BookMetadataPatch> {
+        // reuse the raw ComicInfo.xml captured during analysis when available, so the
+        // refresh does not re-open the book; fall back to the file otherwise
+        let comic_info = match sources.and_then(|s| s.comicinfo.as_deref()) {
+            Some(bytes) => Self::get_comic_info_from_bytes(bytes),
+            None => Self::get_comic_info(book_path, media),
+        }?;
+        book_patch_from_comic_info(&comic_info)
+    }
+}
+
+fn book_patch_from_comic_info(comic_info: &ComicInfo) -> Option<BookMetadataPatch> {
+    // an invalid date aborts the whole patch, like LocalDate.of throwing out of the provider
+    let release_date = match comic_info.year {
+        Some(year) => {
+            let month = time::Month::try_from(comic_info.month.unwrap_or(1) as u8).ok()?;
+            Some(
+                time::Date::from_calendar_date(year, month, comic_info.day.unwrap_or(1) as u8)
+                    .ok()?,
+            )
+        }
+        None => None,
+    };
+
+    let mut authors = vec![];
+    for (value, role) in [
+        (&comic_info.writer, "writer"),
+        (&comic_info.penciller, "penciller"),
+        (&comic_info.inker, "inker"),
+        (&comic_info.colorist, "colorist"),
+        (&comic_info.letterer, "letterer"),
+        (&comic_info.cover_artist, "cover"),
+        (&comic_info.editor, "editor"),
+        (&comic_info.translator, "translator"),
+    ] {
+        if let Some(list) = split_with_role(value.as_deref(), role) {
+            authors.extend(list);
+        }
+    }
+
+    let mut read_lists = vec![];
+    if let Some(alternate_series) = non_blank(comic_info.alternate_series.as_deref()) {
+        read_lists.push(ReadListEntry::new(
+            alternate_series,
+            comic_info
+                .alternate_number
+                .as_deref()
+                .and_then(|n| n.parse::<i32>().ok()),
+        ));
+    }
+    if let Some(story_arc) = &comic_info.story_arc {
+        let arcs: Vec<Option<String>> = story_arc
+            .split(',')
+            .map(|s| non_blank(Some(s.trim())).map(str::to_string))
+            .collect();
+        let numbers: Option<Vec<Option<i32>>> = comic_info
+            .story_arc_number
+            .as_deref()
+            .map(|n| n.split(',').map(|s| s.trim().parse::<i32>().ok()).collect());
+        if let Some(numbers) = numbers.filter(|n| !n.is_empty()) {
+            for (arc, number) in arcs.iter().zip(numbers.iter()) {
+                if let (Some(arc), Some(number)) = (arc, number) {
+                    read_lists.push(ReadListEntry::new(arc, Some(*number)));
+                }
+            }
+        } else {
+            read_lists.extend(
+                arcs.into_iter()
+                    .flatten()
+                    .map(|arc| ReadListEntry::new(arc, None)),
+            );
+        }
+    }
+
+    let links: Option<Vec<WebLink>> = comic_info.web.as_deref().and_then(|web| {
+        let links: Vec<WebLink> = web
+            .split(' ')
+            .filter(|s| !s.is_empty())
+            .filter_map(|s| {
+                let trimmed = s.trim();
+                host_of(trimmed).map(|host| WebLink {
+                    label: host.to_string(),
+                    url: trimmed.to_string(),
+                })
+            })
+            .collect();
+        if links.is_empty() {
+            None
+        } else {
+            Some(links)
+        }
+    });
+
+    let tags: Option<Vec<String>> = comic_info.tags.as_deref().and_then(|tags_str| {
+        let mut tags: Vec<String> = vec![];
+        for tag in tags_str.split(',') {
+            if let Some(tag) = non_blank(Some(tag.trim().to_lowercase().as_str())) {
+                if !tags.iter().any(|t| t == tag) {
+                    tags.push(tag.to_string());
+                }
+            }
+        }
+        if tags.is_empty() {
+            None
+        } else {
+            Some(tags)
+        }
+    });
+
+    let isbn = comic_info.gtin.as_deref().and_then(isbn_validate);
+
+    Some(BookMetadataPatch {
+        title: non_blank(comic_info.title.as_deref()).map(str::to_string),
+        summary: non_blank(comic_info.summary.as_deref()).map(str::to_string),
+        number: non_blank(comic_info.number.as_deref()).map(str::to_string),
+        number_sort: comic_info
+            .number
+            .as_deref()
+            .and_then(|n| n.parse::<f32>().ok()),
+        release_date,
+        authors: if authors.is_empty() {
+            None
+        } else {
+            Some(authors)
+        },
+        isbn,
+        links,
+        tags,
+        read_lists,
+    })
 }
 
 impl SeriesMetadataFromBookProvider for ComicInfoProvider {

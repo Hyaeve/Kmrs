@@ -185,96 +185,118 @@ impl BookMetadataProvider for EpubMetadataProvider {
             return None;
         }
         let package_file = get_package_file_content(book_path)?;
-        let opf = Opf::parse(&package_file)?;
-
-        let title = opf.first_text("title");
-        let description = opf
-            .children_named("description")
-            .next()
-            .and_then(|n| n.text())
-            .map(clean_html)
-            .filter(|s| !s.is_empty());
-        let date = opf
-            .children_named("date")
-            .next()
-            .and_then(|n| n.text())
-            .and_then(parse_date);
-
-        // refines-id → MARC role for every `<meta property="role" scheme="marc:relators">`
-        let author_roles: HashMap<String, String> = opf
-            .meta_with("role", Some("marc:relators"))
-            .map(|n| {
-                (
-                    n.attribute("refines")
-                        .unwrap_or("")
-                        .trim_start_matches('#')
-                        .to_string(),
-                    n.text().map(jsoup_text).unwrap_or_default(),
-                )
-            })
-            .collect();
-
-        let creators: Vec<Author> = opf
-            .children_named("creator")
-            .filter_map(|el| {
-                let name = el.text().map(jsoup_text)?;
-                if name.is_empty() {
-                    return None;
-                }
-                let opf_role = el.attribute((OPF_NS, "role")).filter(|r| !r.is_empty());
-                let id = el.attribute("id").filter(|i| !i.is_empty());
-                let refine_role = id
-                    .and_then(|i| author_roles.get(i))
-                    .filter(|r| !r.is_empty());
-                let role = opf_role
-                    .or(refine_role.map(String::as_str))
-                    .and_then(relator_role)
-                    .unwrap_or("writer");
-                Some(Author::new(&name, role))
-            })
-            .collect();
-        let authors = if creators.is_empty() {
-            None
-        } else {
-            Some(creators)
-        };
-
-        // identifiers are lowercased and stripped of a leading "isbn:"; only the first one is
-        // `firstNotNullOfOrNull { isbnValidator.validate(it) }`: scan all identifiers and keep
-        // the first one the ISBN validator accepts (invalid ones are just skipped, never fatal)
-        let isbn = opf
-            .children_named("identifier")
-            .filter_map(|identifier| {
-                let text = identifier.text()?.to_lowercase();
-                let text = text.strip_prefix("isbn:").unwrap_or(&text);
-                isbn_validate(text)
-            })
-            .next();
-
-        let series_index = opf
-            .meta_with("belongs-to-collection", None)
-            .next()
-            .and_then(|n| n.attribute("id"))
-            .and_then(|id| {
-                opf.meta_with("group-position", None)
-                    .find(|n| n.attribute("refines") == Some(format!("#{id}").as_str()))
-            })
-            .and_then(|n| n.text())
-            .map(jsoup_text);
-
-        Some(BookMetadataPatch {
-            title,
-            summary: description,
-            number: series_index.clone().filter(|s| !s.is_empty()),
-            number_sort: series_index.and_then(|s| s.parse::<f32>().ok()),
-            release_date: date,
-            authors,
-            isbn,
-            links: None,
-            tags: None,
-            read_lists: vec![],
-        })
+        book_patch_from_package(&package_file)
     }
+
+    fn get_book_metadata_from_book_with_sources(
+        &self,
+        book_path: &Path,
+        media: &Media,
+        sources: Option<&crate::CapturedMetadataSources>,
+    ) -> Option<BookMetadataPatch> {
+        if media.media_type.as_deref() != Some(EPUB_MEDIA_TYPE) {
+            return None;
+        }
+        // reuse the OPF document captured during analysis when available, so the refresh
+        // does not re-open the book; fall back to the file otherwise
+        let package_file = match sources.and_then(|s| s.epub_opf.as_deref()) {
+            Some(bytes) => std::borrow::Cow::Borrowed(std::str::from_utf8(bytes).ok()?),
+            None => std::borrow::Cow::Owned(get_package_file_content(book_path)?),
+        };
+        book_patch_from_package(&package_file)
+    }
+}
+
+fn book_patch_from_package(package_file: &str) -> Option<BookMetadataPatch> {
+    let opf = Opf::parse(package_file)?;
+
+    let title = opf.first_text("title");
+    let description = opf
+        .children_named("description")
+        .next()
+        .and_then(|n| n.text())
+        .map(clean_html)
+        .filter(|s| !s.is_empty());
+    let date = opf
+        .children_named("date")
+        .next()
+        .and_then(|n| n.text())
+        .and_then(parse_date);
+
+    // refines-id → MARC role for every `<meta property="role" scheme="marc:relators">`
+    let author_roles: HashMap<String, String> = opf
+        .meta_with("role", Some("marc:relators"))
+        .map(|n| {
+            (
+                n.attribute("refines")
+                    .unwrap_or("")
+                    .trim_start_matches('#')
+                    .to_string(),
+                n.text().map(jsoup_text).unwrap_or_default(),
+            )
+        })
+        .collect();
+
+    let creators: Vec<Author> = opf
+        .children_named("creator")
+        .filter_map(|el| {
+            let name = el.text().map(jsoup_text)?;
+            if name.is_empty() {
+                return None;
+            }
+            let opf_role = el.attribute((OPF_NS, "role")).filter(|r| !r.is_empty());
+            let id = el.attribute("id").filter(|i| !i.is_empty());
+            let refine_role = id
+                .and_then(|i| author_roles.get(i))
+                .filter(|r| !r.is_empty());
+            let role = opf_role
+                .or(refine_role.map(String::as_str))
+                .and_then(relator_role)
+                .unwrap_or("writer");
+            Some(Author::new(&name, role))
+        })
+        .collect();
+    let authors = if creators.is_empty() {
+        None
+    } else {
+        Some(creators)
+    };
+
+    // identifiers are lowercased and stripped of a leading "isbn:"; only the first one is
+    // `firstNotNullOfOrNull { isbnValidator.validate(it) }`: scan all identifiers and keep
+    // the first one the ISBN validator accepts (invalid ones are just skipped, never fatal)
+    let isbn = opf
+        .children_named("identifier")
+        .filter_map(|identifier| {
+            let text = identifier.text()?.to_lowercase();
+            let text = text.strip_prefix("isbn:").unwrap_or(&text);
+            isbn_validate(text)
+        })
+        .next();
+
+    let series_index = opf
+        .meta_with("belongs-to-collection", None)
+        .next()
+        .and_then(|n| n.attribute("id"))
+        .and_then(|id| {
+            opf.meta_with("group-position", None)
+                .find(|n| n.attribute("refines") == Some(format!("#{id}").as_str()))
+        })
+        .and_then(|n| n.text())
+        .map(jsoup_text);
+
+    Some(BookMetadataPatch {
+        title,
+        summary: description,
+        number: series_index.clone().filter(|s| !s.is_empty()),
+        number_sort: series_index.and_then(|s| s.parse::<f32>().ok()),
+        release_date: date,
+        authors,
+        isbn,
+        links: None,
+        tags: None,
+        read_lists: vec![],
+    })
 }
 
 impl SeriesMetadataFromBookProvider for EpubMetadataProvider {
