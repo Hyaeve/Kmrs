@@ -8,8 +8,15 @@ use crate::error::{MediaError, Result};
 use crate::image;
 use pdfium_render::prelude::*;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 const RESOLUTION: f32 = 3200.0;
+
+/// Process-wide Pdfium binding, resolved at most once. Binding loads the shared library
+/// and resolves its whole symbol table, so repeating it per operation is pure overhead.
+/// Side effect: `KOMGA_PDFIUM_PATH` is read once per process — changing it after the
+/// first probe has no effect, consistent with availability not changing at runtime.
+static PDFIUM: OnceLock<std::result::Result<Pdfium, String>> = OnceLock::new();
 
 fn library_paths() -> Vec<PathBuf> {
     let mut paths = vec![];
@@ -24,7 +31,7 @@ fn library_paths() -> Vec<PathBuf> {
     paths
 }
 
-fn bind() -> Result<Pdfium> {
+fn bind_uncached() -> Result<Pdfium> {
     let mut last_err = None;
     for path in library_paths() {
         if path.exists() {
@@ -47,9 +54,20 @@ fn bind() -> Result<Pdfium> {
     }
 }
 
+/// Returns the process-wide `Pdfium` binding, initialized on first use.
+/// A failed probe is cached too: library availability does not change at runtime.
+/// The cached message is reused as-is (it already carries the full
+/// "libpdfium is not available: <detail>" wording from `bind_uncached`).
+pub fn pdfium() -> Result<&'static Pdfium> {
+    PDFIUM
+        .get_or_init(|| bind_uncached().map_err(|e| e.to_string()))
+        .as_ref()
+        .map_err(|e| MediaError::unsupported(e.clone()))
+}
+
 /// Whether a usable libpdfium was found; tests skip PDF assertions when false.
 pub fn pdf_available() -> bool {
-    bind().is_ok()
+    pdfium().is_ok()
 }
 
 fn load<'a>(pdfium: &'a Pdfium, path: &Path) -> Result<PdfDocument<'a>> {
@@ -65,20 +83,39 @@ fn load<'a>(pdfium: &'a Pdfium, path: &Path) -> Result<PdfDocument<'a>> {
 /// `PdfExtractor.getPageContentAsImage`: render the page at `3200 / min(cropBox.w, cropBox.h)`
 /// and encode as JPEG.
 pub fn get_page_content_as_image(path: &Path, page_number: usize) -> Result<Vec<u8>> {
-    let pdfium = bind()?;
-    let document = load(&pdfium, path)?;
+    let pdfium = pdfium()?;
+    let document = load(pdfium, path)?;
     render_page(&document, page_number)
 }
 
 /// Renders several pages with a single document open, in the order given. Network mounts
 /// charge per open, so hashing the first and last pages must not reopen the PDF per page.
 pub fn get_pages_content_as_images(path: &Path, page_numbers: &[usize]) -> Result<Vec<Vec<u8>>> {
-    let pdfium = bind()?;
-    let document = load(&pdfium, path)?;
+    let pdfium = pdfium()?;
+    let document = load(pdfium, path)?;
     page_numbers
         .iter()
         .map(|&n| render_page(&document, n))
         .collect()
+}
+
+/// A PDF document opened once, rendering pages on demand from the same handle. Consumers
+/// that must stop early (barcode scan) use this instead of the eager batch render.
+pub struct PdfPages {
+    document: PdfDocument<'static>,
+}
+
+impl PdfPages {
+    pub fn open(path: &Path) -> Result<Self> {
+        let pdfium = pdfium()?;
+        let document = load(pdfium, path)?;
+        Ok(Self { document })
+    }
+
+    /// Renders one page from the held document; only this page is materialized.
+    pub fn render(&self, page_number: usize) -> Result<Vec<u8>> {
+        render_page(&self.document, page_number)
+    }
 }
 
 fn render_page(document: &PdfDocument<'_>, page_number: usize) -> Result<Vec<u8>> {
@@ -104,8 +141,8 @@ fn render_page(document: &PdfDocument<'_>, page_number: usize) -> Result<Vec<u8>
 
 /// `PdfExtractor.getPageContentAsPdf`: a new document containing only the requested page.
 pub fn get_page_content_as_pdf(path: &Path, page_number: usize) -> Result<Vec<u8>> {
-    let pdfium = bind()?;
-    let source = load(&pdfium, path)?;
+    let pdfium = pdfium()?;
+    let source = load(pdfium, path)?;
     let mut extracted = pdfium
         .create_new_pdf()
         .map_err(|e| MediaError::unsupported(format!("could not create pdf document: {e}")))?;

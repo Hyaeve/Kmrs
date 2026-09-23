@@ -87,6 +87,68 @@ pub fn get_entries_bytes(path: &Path, entry_names: &[&str]) -> Result<Vec<Vec<u8
     Ok(out.into_iter().map(|o| o.unwrap()).collect())
 }
 
+/// Like `get_entries_bytes`, but with per-entry outcomes: a missing or unreadable entry
+/// fails only its own slot, so best-effort scans (barcode) keep trying the remaining
+/// candidates. Still a single sequential pass. A payload read error consumes the archive
+/// cursor (the unrar crate cannot continue after a failed extract), so the slots after it
+/// degrade to `EntryNotFound`; missing entries at end-of-archive are filled the same way.
+pub fn get_entries_bytes_tolerant(
+    path: &Path,
+    entry_names: &[&str],
+) -> Result<Vec<Result<Vec<u8>>>> {
+    check_multipart(path)?;
+    let mut archive = open(path)?;
+    let mut out: Vec<Option<Result<Vec<u8>>>> = std::iter::repeat_with(|| None)
+        .take(entry_names.len())
+        .collect();
+    loop {
+        let header = match archive.read_header() {
+            Ok(Some(h)) => h,
+            Ok(None) => break,
+            Err(e) => return Err(map_unrar_error(e)),
+        };
+        let e = header.entry();
+        let name = e.filename.to_string_lossy();
+        if e.is_directory() {
+            archive = header
+                .skip()
+                .map_err(|e| MediaError::Other(anyhow::anyhow!(e)))?;
+            continue;
+        }
+        if let Some(idx) = entry_names
+            .iter()
+            .enumerate()
+            .find(|(i, &r)| r == name && out[*i].is_none())
+            .map(|(i, _)| i)
+        {
+            match header.read() {
+                Ok((bytes, next)) => {
+                    out[idx] = Some(Ok(bytes));
+                    archive = next;
+                }
+                Err(e) => {
+                    out[idx] = Some(Err(map_unrar_error(e)));
+                    break;
+                }
+            }
+            if out.iter().all(|o| o.is_some()) {
+                break;
+            }
+        } else {
+            archive = header
+                .skip()
+                .map_err(|e| MediaError::Other(anyhow::anyhow!(e)))?;
+        }
+    }
+    Ok(out
+        .into_iter()
+        .enumerate()
+        .map(|(i, o)| {
+            o.unwrap_or_else(|| Err(MediaError::EntryNotFound(entry_names[i].to_string())))
+        })
+        .collect())
+}
+
 /// Lists the file names in the archive; used to detect multi-volume and encrypted archives.
 pub fn list_entries(path: &Path) -> Result<Vec<String>> {
     check_multipart(path)?;

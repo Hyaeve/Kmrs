@@ -15,7 +15,7 @@ use komga_core::search::MediaProfile;
 use komga_core::time_codec;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::io::Read;
+use std::io::{Read, Seek};
 use std::path::Path;
 
 /// `org.gotson.komga.domain.model.MediaExtensionEpub` (EXTENSION_CLASS for EPUB media)
@@ -567,13 +567,18 @@ fn detect_book_media_type(book_path: &Path) -> Result<String> {
     let n = read_full(&mut file, &mut head)?;
     head.truncate(n);
     if head.starts_with(b"PK\x03\x04") {
-        if let Ok(mut archive) = zip::ZipArchive::new(open_book_file(book_path)?) {
-            if let Ok(mut entry) = archive.by_name("mimetype") {
-                let mut content = String::new();
-                if entry.read_to_string(&mut content).is_ok() {
-                    let trimmed = content.trim();
-                    if !trimmed.is_empty() {
-                        return Ok(trimmed.to_string());
+        // reuse the same handle instead of a second open: on network mounts every open
+        // is a round trip. A seek on a regular file cannot realistically fail; if it
+        // did, we fall back to the head sniff below rather than abort the whole detect
+        if file.seek(std::io::SeekFrom::Start(0)).is_ok() {
+            if let Ok(mut archive) = zip::ZipArchive::new(file) {
+                if let Ok(mut entry) = archive.by_name("mimetype") {
+                    let mut content = String::new();
+                    if entry.read_to_string(&mut content).is_ok() {
+                        let trimmed = content.trim();
+                        if !trimmed.is_empty() {
+                            return Ok(trimmed.to_string());
+                        }
                     }
                 }
             }
@@ -790,7 +795,7 @@ fn map_unrar_error(e: unrar::error::UnrarError) -> MediaError {
 
 /// `PdfExtractor.getPages`: page name is the 1-based index; dimensions come from the crop box
 fn get_pdf_pages(book_path: &Path, analyze_dimensions: bool) -> Result<Vec<BookPage>> {
-    let pdfium = bind_pdfium()?;
+    let pdfium = pdf::pdfium()?;
     let document = pdfium.load_pdf_from_file(book_path, None).map_err(|e| {
         if !book_path.exists() {
             MediaError::NoSuchFile(book_path.display().to_string())
@@ -820,37 +825,6 @@ fn get_pdf_pages(book_path: &Path, analyze_dimensions: bool) -> Result<Vec<BookP
         });
     }
     Ok(pages)
-}
-
-/// Mirrors `pdf.rs`'s library lookup (kept private there): env override, executable dir, system
-fn bind_pdfium() -> Result<pdfium_render::prelude::Pdfium> {
-    use pdfium_render::prelude::Pdfium;
-    let mut last_err = None;
-    let mut candidates = vec![];
-    if let Ok(custom) = std::env::var("KOMGA_PDFIUM_PATH") {
-        candidates.push(std::path::PathBuf::from(custom));
-    }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            candidates.push(dir.join(Pdfium::pdfium_platform_library_name()));
-        }
-    }
-    for path in candidates {
-        if path.exists() {
-            match Pdfium::bind_to_library(&path) {
-                Ok(bindings) => return Ok(Pdfium::new(bindings)),
-                Err(e) => last_err = Some(e.to_string()),
-            }
-        }
-    }
-    Pdfium::bind_to_system_library()
-        .map(Pdfium::new)
-        .map_err(|e| {
-            MediaError::unsupported(format!(
-                "libpdfium is not available: {}",
-                last_err.unwrap_or_else(|| e.to_string())
-            ))
-        })
 }
 
 /// PDFBox `page.cropBox` semantics: falls back to the media box

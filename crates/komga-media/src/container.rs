@@ -8,6 +8,7 @@ use crate::image::ImageType;
 use crate::{detect, image, pdf, rar, zip};
 use komga_core::model::media::{Media, MediaStatus};
 use komga_core::search::MediaProfile;
+use std::collections::HashMap;
 use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -106,6 +107,131 @@ pub fn get_pages_content(
             }
         }
         None => Err(MediaError::NotReady),
+    }
+}
+
+/// A book container opened once, with per-page reads on the same handle. Used where
+/// candidates must be consumed lazily in priority order with early termination and
+/// per-page fault tolerance (e.g. the barcode scan), as opposed to the eager
+/// `get_pages_content` which materializes every requested page up front.
+///
+/// ZIP / EPUB-divina / PDF reads are lazy: a page is only touched when `read_page` is
+/// called, so a hit stops the container reads immediately. RAR cannot seek and its
+/// priority candidates sit at the end of the archive, so they are collected in one
+/// sequential pass at open with per-entry outcomes (a missing entry fails only its own
+/// slot); decoding still stops at the first hit.
+pub struct PagesReader {
+    kind: PagesReaderKind,
+    page_count: usize,
+}
+
+enum PagesReaderKind {
+    Zip {
+        entries: zip::ZipEntries,
+        /// 1-based page number -> entry name (only the requested pages)
+        names: HashMap<usize, String>,
+    },
+    Rar {
+        /// per-requested-page outcome; a slot is consumed by its first `read_page`
+        outcomes: HashMap<usize, Result<Vec<u8>>>,
+    },
+    Pdf {
+        pages: pdf::PdfPages,
+    },
+}
+
+impl PagesReader {
+    /// Opens the container once for the given 1-based page numbers (same bounds/status
+    /// checks as `get_page_content`). For RAR the candidates are collected in a single
+    /// sequential pass here; ZIP/EPUB/PDF stay lazy.
+    pub fn open(book_path: &Path, media: &Media, numbers: &[usize]) -> Result<Self> {
+        if media.status != MediaStatus::Ready {
+            return Err(MediaError::NotReady);
+        }
+        if let Some(&n) = numbers
+            .iter()
+            .find(|&&n| n == 0 || n > media.page_count as usize)
+        {
+            return Err(MediaError::PageOutOfBounds(n));
+        }
+        let page_count = media.page_count as usize;
+        match media_profile(media.media_type.as_deref()) {
+            Some(MediaProfile::Divina) => match media.media_type.as_deref() {
+                Some(detect::APPLICATION_ZIP) | Some(detect::APPLICATION_EPUB) => {
+                    Ok(Self::zip(book_path, media, numbers, page_count)?)
+                }
+                Some("application/x-rar-compressed")
+                | Some(detect::APPLICATION_RAR_4)
+                | Some(detect::APPLICATION_RAR_5) => {
+                    let names: Vec<&str> = numbers
+                        .iter()
+                        .map(|&n| media.pages[n - 1].file_name.as_str())
+                        .collect();
+                    let outcomes = rar::get_entries_bytes_tolerant(book_path, &names)?;
+                    Ok(Self {
+                        kind: PagesReaderKind::Rar {
+                            outcomes: numbers.iter().copied().zip(outcomes).collect(),
+                        },
+                        page_count,
+                    })
+                }
+                Some(other) => Err(MediaError::unsupported(format!(
+                    "no divina extractor for media type {other}"
+                ))),
+                None => Err(MediaError::NotReady),
+            },
+            Some(MediaProfile::Pdf) => Ok(Self {
+                kind: PagesReaderKind::Pdf {
+                    pages: pdf::PdfPages::open(book_path)?,
+                },
+                page_count,
+            }),
+            Some(MediaProfile::Epub) => {
+                if media.epub_divina_compatible {
+                    Ok(Self::zip(book_path, media, numbers, page_count)?)
+                } else {
+                    Err(MediaError::unsupported(
+                        "Epub profile does not support getting page content",
+                    ))
+                }
+            }
+            None => Err(MediaError::NotReady),
+        }
+    }
+
+    fn zip(book_path: &Path, media: &Media, numbers: &[usize], page_count: usize) -> Result<Self> {
+        let names: HashMap<usize, String> = numbers
+            .iter()
+            .map(|&n| (n, media.pages[n - 1].file_name.clone()))
+            .collect();
+        Ok(Self {
+            kind: PagesReaderKind::Zip {
+                entries: zip::ZipEntries::open(book_path)?,
+                names,
+            },
+            page_count,
+        })
+    }
+
+    /// Reads one page on the held container; only this page is materialized (ZIP/EPUB/PDF).
+    /// RAR slots are consumed by their first read, so each requested page must be read at
+    /// most once — the barcode scan does.
+    pub fn read_page(&mut self, number: usize) -> Result<Vec<u8>> {
+        if number == 0 || number > self.page_count {
+            return Err(MediaError::PageOutOfBounds(number));
+        }
+        match &mut self.kind {
+            PagesReaderKind::Zip { entries, names } => {
+                let name = names
+                    .get(&number)
+                    .ok_or(MediaError::PageOutOfBounds(number))?;
+                entries.read(name)
+            }
+            PagesReaderKind::Rar { outcomes } => outcomes
+                .remove(&number)
+                .ok_or(MediaError::PageOutOfBounds(number))?,
+            PagesReaderKind::Pdf { pages } => pages.render(number),
+        }
     }
 }
 
@@ -392,6 +518,58 @@ mod tests {
         assert!(get_pages_content(&rar_book, &rar_media, &[])
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn pages_reader_lazy_zip_fault_tolerant() {
+        let book = fixtures().join("archives/zip.zip");
+        // media lists one entry the archive does not have: only that page fails, the
+        // other is still readable from the same open handle
+        let media = media(
+            detect::APPLICATION_ZIP,
+            vec![
+                page("komga.png", detect::IMAGE_PNG),
+                page("nope.png", detect::IMAGE_PNG),
+            ],
+        );
+        let mut reader = PagesReader::open(&book, &media, &[1, 2]).unwrap();
+        assert_eq!(&reader.read_page(1).unwrap()[0..4], b"\x89PNG");
+        assert!(matches!(
+            reader.read_page(2),
+            Err(MediaError::EntryNotFound(_))
+        ));
+        // bounds behave like the single-page functions
+        assert!(matches!(
+            PagesReader::open(&book, &media, &[3]),
+            Err(MediaError::PageOutOfBounds(3))
+        ));
+    }
+
+    #[test]
+    fn pages_reader_rar_order_and_fault_tolerance() {
+        let book = fixtures().join("archives/rar4.rar");
+        let media = media(
+            detect::APPLICATION_RAR_4,
+            vec![
+                page("komga-1.png", detect::IMAGE_PNG),
+                page("komga-2.png", detect::IMAGE_PNG),
+                page("komga-3.png", detect::IMAGE_PNG),
+                page("nope.png", detect::IMAGE_PNG),
+            ],
+        );
+        let mut reader = PagesReader::open(&book, &media, &[1, 3, 2, 4]).unwrap();
+        for n in [1usize, 3, 2] {
+            assert_eq!(
+                reader.read_page(n).unwrap(),
+                get_page_content(&book, &media, n).unwrap(),
+                "page {n}"
+            );
+        }
+        // a missing entry fails only its own slot
+        assert!(matches!(
+            reader.read_page(4),
+            Err(MediaError::EntryNotFound(_))
+        ));
     }
 
     #[test]

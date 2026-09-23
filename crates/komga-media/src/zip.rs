@@ -8,31 +8,41 @@ use crate::error::{MediaError, Result};
 use std::io::Read;
 use std::path::Path;
 
+/// A ZIP archive opened once, with per-entry reads on the same handle. Lazy: only the
+/// requested entry is touched per call, so a scan can stop early without touching the
+/// remaining candidates (network mounts charge per open, not per read).
+pub struct ZipEntries {
+    archive: zip::ZipArchive<std::fs::File>,
+}
+
+impl ZipEntries {
+    pub fn open(path: &Path) -> Result<Self> {
+        let file = std::fs::File::open(path).map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => MediaError::NoSuchFile(path.display().to_string()),
+            _ => MediaError::Other(e.into()),
+        })?;
+        let archive = zip::ZipArchive::new(file)
+            .map_err(|e| MediaError::unsupported(format!("could not open zip archive: {e}")))?;
+        Ok(Self { archive })
+    }
+
+    /// Reads one entry on the held archive; repeated calls reuse the same handle.
+    pub fn read(&mut self, entry_name: &str) -> Result<Vec<u8>> {
+        read_entry(&mut self.archive, entry_name)
+    }
+}
+
 /// Returns the bytes of `entry_name` inside the zip at `path`.
 pub fn get_entry_bytes(path: &Path, entry_name: &str) -> Result<Vec<u8>> {
-    let file = std::fs::File::open(path).map_err(|e| match e.kind() {
-        std::io::ErrorKind::NotFound => MediaError::NoSuchFile(path.display().to_string()),
-        _ => MediaError::Other(e.into()),
-    })?;
-    let mut archive = zip::ZipArchive::new(file)
-        .map_err(|e| MediaError::unsupported(format!("could not open zip archive: {e}")))?;
-    read_entry(&mut archive, entry_name)
+    ZipEntries::open(path)?.read(entry_name)
 }
 
 /// Reads several entries with a single archive open, in the order given. Network mounts
 /// charge per open, so hashing the first and last pages must not reopen the archive for
 /// every page.
 pub fn get_entries_bytes(path: &Path, entry_names: &[&str]) -> Result<Vec<Vec<u8>>> {
-    let file = std::fs::File::open(path).map_err(|e| match e.kind() {
-        std::io::ErrorKind::NotFound => MediaError::NoSuchFile(path.display().to_string()),
-        _ => MediaError::Other(e.into()),
-    })?;
-    let mut archive = zip::ZipArchive::new(file)
-        .map_err(|e| MediaError::unsupported(format!("could not open zip archive: {e}")))?;
-    entry_names
-        .iter()
-        .map(|name| read_entry(&mut archive, name))
-        .collect()
+    let mut entries = ZipEntries::open(path)?;
+    entry_names.iter().map(|name| entries.read(name)).collect()
 }
 
 fn read_entry(archive: &mut zip::ZipArchive<std::fs::File>, entry_name: &str) -> Result<Vec<u8>> {

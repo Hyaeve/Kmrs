@@ -75,36 +75,44 @@ impl BookMetadataProvider for IsbnBarcodeProvider {
                 }
                 pages
             });
+        if pages_to_try.is_empty() {
+            return None;
+        }
 
+        // one container open for all candidates, read lazily in priority order (network
+        // mounts charge per open): a hit stops the container reads immediately, and a
+        // per-page failure is logged and skipped instead of aborting the scan
+        let mut reader = match container::PagesReader::open(book_path, media, &pages_to_try) {
+            Ok(reader) => reader,
+            Err(e) => {
+                tracing::error!("Error while opening book for barcode scan: {e}");
+                return None;
+            }
+        };
         for page in pages_to_try {
-            match try_page(book_path, media, page) {
-                Ok(Some(patch)) => return Some(patch),
-                Ok(None) => {}
-                Err(e) => tracing::error!("Error while processing page: {e}"),
+            let bytes = match reader.read_page(page) {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    tracing::error!("Error while processing page {page}: {e}");
+                    continue;
+                }
+            };
+            let Some(text) = decode_ean13(&bytes) else {
+                continue;
+            };
+            match isbn_validate(&text) {
+                Some(isbn) => {
+                    return Some(BookMetadataPatch {
+                        isbn: Some(isbn),
+                        ..Default::default()
+                    })
+                }
+                None => {
+                    tracing::debug!("Page {page} contains barcode which is invalid ISBN: '{text}'");
+                }
             }
         }
         None
-    }
-}
-
-fn try_page(
-    book_path: &Path,
-    media: &Media,
-    page: usize,
-) -> crate::Result<Option<BookMetadataPatch>> {
-    let bytes = container::get_page_content(book_path, media, page)?;
-    let Some(text) = decode_ean13(&bytes) else {
-        return Ok(None);
-    };
-    match isbn_validate(&text) {
-        Some(isbn) => Ok(Some(BookMetadataPatch {
-            isbn: Some(isbn),
-            ..Default::default()
-        })),
-        None => {
-            tracing::debug!("Page {page} contains barcode which is invalid ISBN: '{text}'");
-            Ok(None)
-        }
     }
 }
 
