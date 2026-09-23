@@ -26,7 +26,10 @@ pub struct MylarMetadata {
     #[serde(default)]
     pub imprint: Option<String>,
     pub name: String,
-    #[serde(alias = "cid")]
+    /// Mylar3 writes `comicid` as a JSON number (`int(cid)`); Komga's Kotlin
+    /// port relies on Jackson's default numeric→string coercion. serde is strict,
+    /// so accept both numbers and strings to keep real series.json parseable.
+    #[serde(alias = "cid", deserialize_with = "de_string_or_int")]
     pub comicid: String,
     pub year: i32,
     #[serde(default)]
@@ -40,9 +43,48 @@ pub struct MylarMetadata {
     pub age_rating: Option<MylarAgeRating>,
     #[serde(alias = "ComicImage")]
     pub comic_image: String,
+    /// Lenient like Jackson: older Mylar builds or hand-written files may write
+    /// `total_issues` as a string ("41"), which strict serde would reject.
+    #[serde(deserialize_with = "de_i32_or_string")]
     pub total_issues: i32,
     pub publication_run: String,
     pub status: MylarStatus,
+}
+
+/// Jackson-style numeric→string coercion for a single field: `9527` → `"9527"`,
+/// a string passes through unchanged. Any other JSON type is an error.
+fn de_string_or_int<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Value {
+        Str(String),
+        Int(i64),
+    }
+    Ok(match Value::deserialize(deserializer)? {
+        Value::Str(s) => s,
+        Value::Int(i) => i.to_string(),
+    })
+}
+
+/// Jackson-style string→number coercion for a single field: `"41"` → `41`,
+/// a number passes through unchanged.
+fn de_i32_or_string<'de, D>(deserializer: D) -> Result<i32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Value {
+        Int(i32),
+        Str(String),
+    }
+    Ok(match Value::deserialize(deserializer)? {
+        Value::Int(i) => i,
+        Value::Str(s) => s.trim().parse::<i32>().map_err(serde::de::Error::custom)?,
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -284,6 +326,75 @@ mod tests {
             MylarAgeRating::Seventeen
         );
         assert!(serde_json::from_str::<MylarAgeRating>("\"MA 15+\"").is_err());
+    }
+
+    #[test]
+    fn real_world_mylar_file_parses() {
+        // Shape of a real series.json as written by mylar3 (v1.0.x) and the
+        // Bangumi export tool: top-level `version`, numeric `comicid`,
+        // `type: "comicSeries"`, plus extra fields (collects, authors, links,
+        // alternateTitles, tags, ...) that serde must ignore. A strict
+        // `comicid: String` rejected the whole file ("invalid type: integer").
+        let dir = std::env::temp_dir().join("kmrs-mylar-real");
+        std::fs::create_dir_all(&dir).unwrap();
+        write_series_json(
+            &dir,
+            r#"{"version":"1.0.1","metadata":{
+                "type":"comicSeries",
+                "publisher":"白泉社",
+                "imprint":null,
+                "name":"3月的狮子",
+                "comicid":9527,
+                "year":2008,
+                "description_text":"独自居住在东京旧市街的17岁职业将棋棋士·桐山零。",
+                "description_formatted":null,
+                "volume":null,
+                "booktype":"Print",
+                "age_rating":"15+",
+                "collects":null,
+                "comic_image":"",
+                "total_issues":0,
+                "publication_run":"",
+                "status":"Continuing",
+                "language":"zh",
+                "readingDirection":"RIGHT_TO_LEFT",
+                "releaseDate":"2008-02-22",
+                "authors":[{"name":"羽海野チカ","role":"writer"}],
+                "links":[{"label":"Btv","url":"https://bangumi.tv/subject/1902"}],
+                "alternateTitles":[{"label":"原名","title":"3月のライオン"}],
+                "genres":null,
+                "tags":["治愈","将棋"]
+            }}"#,
+        );
+
+        let patch = provider().get_series_metadata(&dir, false).unwrap();
+        assert_eq!(patch.title.as_deref(), Some("3月的狮子"));
+        assert_eq!(patch.title_sort.as_deref(), Some("3月的狮子"));
+        assert_eq!(patch.status, Some(SeriesStatus::Ongoing));
+        assert_eq!(patch.publisher.as_deref(), Some("白泉社"));
+        assert_eq!(patch.age_rating, Some(15));
+        assert_eq!(
+            patch.summary.as_deref(),
+            Some("独自居住在东京旧市街的17岁职业将棋棋士·桐山零。"),
+            "descriptionFormatted is null: fall back to descriptionText"
+        );
+        assert_eq!(patch.total_book_count, None, "totalIssues == 0 is ignored");
+    }
+
+    #[test]
+    fn numeric_comicid_and_string_total_issues_coerce() {
+        let dir = std::env::temp_dir().join("kmrs-mylar-coerce");
+        std::fs::create_dir_all(&dir).unwrap();
+        // numeric comicid + string total_issues, both Jackson-coercible forms
+        let json = series_json(Some(1))
+            .replace("\"comicid\":\"12345\"", "\"comicid\":12345")
+            .replace("\"total_issues\":41", "\"total_issues\":\"41\"");
+        write_series_json(&dir, &json);
+
+        let patch = provider().get_series_metadata(&dir, false).unwrap();
+        assert_eq!(patch.title.as_deref(), Some("Berserk"));
+        assert_eq!(patch.total_book_count, Some(41));
+        assert_eq!(patch.publisher.as_deref(), Some("Hakusensha"));
     }
 
     #[test]
