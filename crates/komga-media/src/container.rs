@@ -158,7 +158,7 @@ impl PagesReader {
         match media_profile(media.media_type.as_deref()) {
             Some(MediaProfile::Divina) => match media.media_type.as_deref() {
                 Some(detect::APPLICATION_ZIP) | Some(detect::APPLICATION_EPUB) => {
-                    Ok(Self::zip(book_path, media, numbers, page_count)?)
+                    Self::zip(book_path, media, numbers, page_count)
                 }
                 Some("application/x-rar-compressed")
                 | Some(detect::APPLICATION_RAR_4)
@@ -188,7 +188,7 @@ impl PagesReader {
             }),
             Some(MediaProfile::Epub) => {
                 if media.epub_divina_compatible {
-                    Ok(Self::zip(book_path, media, numbers, page_count)?)
+                    Self::zip(book_path, media, numbers, page_count)
                 } else {
                     Err(MediaError::unsupported(
                         "Epub profile does not support getting page content",
@@ -222,14 +222,16 @@ impl PagesReader {
         }
         match &mut self.kind {
             PagesReaderKind::Zip { entries, names } => {
-                let name = names
-                    .get(&number)
-                    .ok_or(MediaError::PageOutOfBounds(number))?;
+                let name = names.get(&number).ok_or_else(|| {
+                    MediaError::Other(anyhow::anyhow!("page {number} was not requested at open"))
+                })?;
                 entries.read(name)
             }
-            PagesReaderKind::Rar { outcomes } => outcomes
-                .remove(&number)
-                .ok_or(MediaError::PageOutOfBounds(number))?,
+            PagesReaderKind::Rar { outcomes } => outcomes.remove(&number).ok_or_else(|| {
+                MediaError::Other(anyhow::anyhow!(
+                    "page {number} was not requested at open or was already read"
+                ))
+            })?,
             PagesReaderKind::Pdf { pages } => pages.render(number),
         }
     }
@@ -543,6 +545,9 @@ mod tests {
             PagesReader::open(&book, &media, &[3]),
             Err(MediaError::PageOutOfBounds(3))
         ));
+        // a valid page that was not requested at open is a caller error, not PageOutOfBounds
+        let mut partial = PagesReader::open(&book, &media, &[1]).unwrap();
+        assert!(matches!(partial.read_page(2), Err(MediaError::Other(_))));
     }
 
     #[test]

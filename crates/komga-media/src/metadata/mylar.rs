@@ -51,40 +51,36 @@ pub struct MylarMetadata {
     pub status: MylarStatus,
 }
 
-/// Jackson-style numeric→string coercion for a single field: `9527` → `"9527"`,
-/// a string passes through unchanged. Any other JSON type is an error.
+/// Jackson-style scalar coercion shared by lenient fields: Mylar3 and hand-written
+/// series.json mix numbers and strings for the same field, which strict serde rejects.
+/// Any other JSON type is an error.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum StringOrInt {
+    Str(String),
+    Int(i64),
+}
+
+/// numeric→string coercion for a single field: `9527` → `"9527"`, a string passes through.
 fn de_string_or_int<'de, D>(deserializer: D) -> Result<String, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum Value {
-        Str(String),
-        Int(i64),
-    }
-    Ok(match Value::deserialize(deserializer)? {
-        Value::Str(s) => s,
-        Value::Int(i) => i.to_string(),
+    Ok(match StringOrInt::deserialize(deserializer)? {
+        StringOrInt::Str(s) => s,
+        StringOrInt::Int(i) => i.to_string(),
     })
 }
 
-/// Jackson-style string→number coercion for a single field: `"41"` → `41`,
-/// a number passes through unchanged.
+/// string→number coercion for a single field: `"41"` → `41`, a number passes through.
 fn de_i32_or_string<'de, D>(deserializer: D) -> Result<i32, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum Value {
-        Int(i32),
-        Str(String),
+    match StringOrInt::deserialize(deserializer)? {
+        StringOrInt::Int(i) => i32::try_from(i).map_err(serde::de::Error::custom),
+        StringOrInt::Str(s) => s.trim().parse::<i32>().map_err(serde::de::Error::custom),
     }
-    Ok(match Value::deserialize(deserializer)? {
-        Value::Int(i) => i,
-        Value::Str(s) => s.trim().parse::<i32>().map_err(serde::de::Error::custom)?,
-    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -389,6 +385,9 @@ mod tests {
         let json = series_json(Some(1))
             .replace("\"comicid\":\"12345\"", "\"comicid\":12345")
             .replace("\"total_issues\":41", "\"total_issues\":\"41\"");
+        // a no-op replace would pass without exercising the coercion paths
+        assert!(json.contains("\"comicid\":12345"));
+        assert!(json.contains("\"total_issues\":\"41\""));
         write_series_json(&dir, &json);
 
         let patch = provider().get_series_metadata(&dir, false).unwrap();
