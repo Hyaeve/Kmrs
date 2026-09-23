@@ -1,9 +1,13 @@
 @import '@fontsource-variable/geist';
 @import '@fontsource-variable/geist-mono';
+@import '@fontsource-variable/newsreader';
 
 /**
- * kmrs theme: off-black dark mode, single amber accent.
- * Light mode keeps the same accent, deepened for contrast.
+ * kmrs theme: light by default, dark optional. Single amber accent from the
+ * book glyph (#ffb340), rose (#ff3d68) only as its gradient partner.
+ * Accent is deepened in light mode for text contrast.
+ * Display type follows the family design language: Newsreader serif headings,
+ * Geist sans body, Geist Mono for labels and code.
  */
 
 :root {
@@ -11,6 +15,8 @@
     sans-serif;
   --ifm-font-family-monospace: 'Geist Mono Variable', ui-monospace, 'SF Mono',
     Menlo, monospace;
+  --kmrs-font-display: 'Newsreader Variable', Georgia, 'Times New Roman', serif;
+  --ifm-heading-font-family: var(--kmrs-font-display);
 
   --ifm-color-primary: #c2730a;
   --ifm-color-primary-dark: #af6709;
@@ -21,13 +27,28 @@
   --ifm-color-primary-lightest: #e6952a;
   --ifm-code-font-size: 95%;
 
-  --kmrs-accent: #ffb340;
-  --kmrs-rose: #ff3d68;
-  --kmrs-bg: #0a0a0c;
-  --kmrs-surface: #121216;
-  --kmrs-border: rgba(255, 255, 255, 0.08);
-  --kmrs-text: #f4f4f5;
-  --kmrs-text-muted: #a1a1aa;
+  --kmrs-accent: #c2730a;
+  --kmrs-rose: #e11d48;
+  --kmrs-bg: #f7f7f8;
+  --kmrs-surface: #ffffff;
+  --kmrs-border: rgba(24, 24, 28, 0.1);
+  --kmrs-text: #1c1c21;
+  --kmrs-text-muted: #5f5f6a;
+  --kmrs-grad-a: #c2730a;
+  --kmrs-grad-b: #e11d48;
+  --kmrs-grid: rgba(24, 24, 28, 0.05);
+  --kmrs-glow-a: rgba(255, 179, 64, 0.2);
+  --kmrs-glow-r: rgba(255, 61, 104, 0.08);
+  --kmrs-btn-bg: #ffb340;
+  --kmrs-btn-hover: #f5a832;
+  --kmrs-btn-text: #1a1206;
+  --kmrs-ghost-bg: rgba(24, 24, 28, 0.03);
+  --kmrs-code-bg: #ffffff;
+  --kmrs-code-shadow: 0 0 90px rgba(255, 179, 64, 0.16), 0 24px 70px rgba(24, 24, 28, 0.12);
+  --kmrs-cellpre-bg: rgba(24, 24, 28, 0.04);
+  --kmrs-panel-shadow: 0 24px 70px rgba(24, 24, 28, 0.12);
+  --kmrs-footer-bg: #efeff1;
+  --ifm-navbar-background-color: rgba(247, 247, 248, 0.85);
 }
 
 [data-theme='dark'] {
@@ -39,10 +60,29 @@
   --ifm-color-primary-lighter: #ffcb6e;
   --ifm-color-primary-lightest: #ffd88a;
 
+  --kmrs-accent: #ffb340;
+  --kmrs-rose: #ff3d68;
+  --kmrs-bg: #0a0a0c;
+  --kmrs-surface: #121216;
+  --kmrs-border: rgba(255, 255, 255, 0.08);
+  --kmrs-text: #f4f4f5;
+  --kmrs-text-muted: #a1a1aa;
+  --kmrs-grad-a: #ffb340;
+  --kmrs-grad-b: #ff3d68;
+  --kmrs-grid: rgba(255, 255, 255, 0.035);
+  --kmrs-glow-a: rgba(255, 179, 64, 0.13);
+  --kmrs-glow-r: rgba(255, 61, 104, 0.06);
+  --kmrs-btn-hover: #ffc65c;
+  --kmrs-ghost-bg: rgba(255, 255, 255, 0.03);
+  --kmrs-code-bg: rgba(18, 18, 22, 0.75);
+  --kmrs-code-shadow: 0 0 90px rgba(255, 179, 64, 0.1), 0 24px 70px rgba(0, 0, 0, 0.5);
+  --kmrs-cellpre-bg: rgba(0, 0, 0, 0.35);
+  --kmrs-panel-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+  --kmrs-footer-bg: #08080a;
+
   --ifm-background-color: var(--kmrs-bg);
   --ifm-background-surface-color: var(--kmrs-surface);
   --ifm-navbar-background-color: rgba(10, 10, 12, 0.82);
-  --ifm-footer-background-color: #08080a;
   --ifm-toc-border-color: var(--kmrs-border);
   --ifm-color-emphasis-200: #1d1d22;
   --ifm-color-emphasis-300: #26262c;
@@ -53,7 +93,7 @@
   --ifm-menu-color-background-active: rgba(255, 179, 64, 0.12);
 }
 
-[data-theme='dark'] .navbar {
+.navbar {
   border-bottom: 1px solid var(--kmrs-border);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -72,8 +112,20 @@
 }
 
 .footer--dark {
-  background-color: #08080a;
+  background-color: var(--kmrs-footer-bg);
   border-top: 1px solid var(--kmrs-border);
+}
+
+[data-theme='light'] .footer--dark {
+  color: var(--kmrs-text-muted);
+}
+
+[data-theme='light'] .footer--dark .footer__title {
+  color: var(--kmrs-text);
+}
+
+[data-theme='light'] .footer--dark .footer__link-item {
+  color: var(--kmrs-text-muted);
 }
 
 /* doc content polish */

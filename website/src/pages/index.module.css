@@ -22,8 +22,8 @@
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(52rem 30rem at 78% 18%, rgba(255, 179, 64, 0.13), transparent 62%),
-    radial-gradient(38rem 26rem at 12% 82%, rgba(255, 61, 104, 0.06), transparent 60%);
+    radial-gradient(52rem 30rem at 78% 18%, var(--kmrs-glow-a), transparent 62%),
+    radial-gradient(38rem 26rem at 12% 82%, var(--kmrs-glow-r), transparent 60%);
 }
 
 .heroBg::before {
@@ -31,8 +31,8 @@
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+    linear-gradient(var(--kmrs-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--kmrs-grid) 1px, transparent 1px);
   background-size: 56px 56px;
   mask-image: radial-gradient(ellipse 90% 70% at 50% 30%, black 30%, transparent 75%);
 }
@@ -68,7 +68,7 @@
   font-style: italic;
   /* italic glyphs overhang the inline box; without room the background-clip: text fill clips them */
   padding-right: 0.09em;
-  background: linear-gradient(155deg, #ffb340 25%, #ff3d68 85%);
+  background: linear-gradient(155deg, var(--kmrs-grad-a) 25%, var(--kmrs-grad-b) 85%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -104,13 +104,13 @@
 }
 
 .btnPrimary {
-  background: var(--kmrs-accent);
-  color: #1a1206;
+  background: var(--kmrs-btn-bg);
+  color: var(--kmrs-btn-text);
 }
 
 .btnPrimary:hover {
-  background: #ffc65c;
-  color: #1a1206;
+  background: var(--kmrs-btn-hover);
+  color: var(--kmrs-btn-text);
   text-decoration: none;
   transform: translateY(-2px);
 }
@@ -118,7 +118,7 @@
 .btnGhost {
   border: 1px solid var(--kmrs-border);
   color: var(--kmrs-text);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--kmrs-ghost-bg);
 }
 
 .btnGhost:hover {
@@ -137,8 +137,8 @@
   position: relative;
   border-radius: 14px;
   border: 1px solid rgba(255, 179, 64, 0.22);
-  background: rgba(18, 18, 22, 0.75);
-  box-shadow: 0 0 90px rgba(255, 179, 64, 0.1), 0 24px 70px rgba(0, 0, 0, 0.5);
+  background: var(--kmrs-code-bg);
+  box-shadow: var(--kmrs-code-shadow);
   overflow: hidden;
 }
 
@@ -288,7 +288,7 @@
 .cell pre {
   margin: 0.9rem 0 0;
   font-size: 0.74rem;
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--kmrs-cellpre-bg);
   border: 1px solid var(--kmrs-border);
   border-radius: 8px;
 }
@@ -337,7 +337,7 @@
   border: 1px solid var(--kmrs-border);
   background: var(--kmrs-surface);
   overflow: hidden;
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--kmrs-panel-shadow);
 }
 
 .codePanel pre {
