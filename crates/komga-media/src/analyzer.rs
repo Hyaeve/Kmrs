@@ -453,13 +453,13 @@ impl Analyzer {
         }
     }
 
-    /// `BookAnalyser.findBestCoverPage`: pick the first suitable cover page among the first
-    /// three archive pages, falling back to the first page when none qualifies.
+    /// Pick the first suitable cover page among the first three archive pages, falling
+    /// back to the first page when none qualifies.
     ///
-    /// Ported from komga-rust `find_best_cover_page` + `is_suitable_cover_image` (archive
-    /// cover selection). Blank/undecodable first pages are skipped in favor of a later
-    /// candidate; when every candidate fails, the first page is returned anyway so a cover
-    /// is produced rather than lost.
+    /// Ported from komga-rust `find_best_cover_page` + `is_suitable_cover_image`
+    /// (media-metadata/src/refresh/artwork_refresh.rs). Blank/undecodable first pages are
+    /// skipped in favor of a later candidate; when every candidate fails, the first page
+    /// is returned anyway so a cover is produced rather than lost.
     fn find_best_cover_page(&self, book_path: &Path, media: &Media) -> Option<PageContent> {
         let page_count = media.page_count.max(0) as usize;
         let numbers: Vec<usize> = (1..=page_count).take(3).collect();
@@ -467,9 +467,8 @@ impl Analyzer {
             return None;
         }
 
-        // one container open for all candidates, read lazily in priority order (network
-        // mounts charge per open); a suitable page stops the reads immediately, and a
-        // per-page failure is logged and skipped instead of aborting the search
+        // one container open covers the whole search, fallback included (network mounts
+        // charge per open); a per-page failure is logged and skipped instead of aborting
         let mut reader = match container::PagesReader::open(book_path, media, &numbers) {
             Ok(reader) => reader,
             Err(e) => {
@@ -477,6 +476,8 @@ impl Analyzer {
                 return None;
             }
         };
+        // page 1 doubles as the fallback, so keep its bytes when it read but did not qualify
+        let mut fallback = None;
         for number in &numbers {
             let bytes = match reader.read_page(*number) {
                 Ok(bytes) => bytes,
@@ -485,22 +486,16 @@ impl Analyzer {
                     continue;
                 }
             };
-            if !image::is_suitable_cover_image(&bytes) {
-                tracing::debug!(
-                    "Page {number} is not a suitable cover (blank or undecodable), trying next"
-                );
-                continue;
-            }
             let media_type = media.pages[*number - 1].media_type.clone();
-            return Some(PageContent { bytes, media_type });
+            if image::is_suitable_cover_image(&bytes) {
+                return Some(PageContent { bytes, media_type });
+            }
+            tracing::debug!("Page {number} is not a suitable cover (blank or undecodable)");
+            if *number == 1 {
+                fallback = Some(PageContent { bytes, media_type });
+            }
         }
-
-        // no candidate qualified: fall back to the first page, like komga-rust
-        let bytes = container::get_page_content(book_path, media, 1).ok()?;
-        Some(PageContent {
-            bytes,
-            media_type: media.pages[0].media_type.clone(),
-        })
+        fallback
     }
 
     /// `BookAnalyzer.hashPages`: hashes the first and last `page_hashing` pages whose hash is
@@ -2342,7 +2337,9 @@ mod tests {
         let dir = tmpdir("cover-all-blank");
         let book = dir.join("book.cbz");
         let p1 = make_white_png(100, 100);
-        let p2 = make_white_png(100, 100);
+        // a distinct p2, otherwise the assertion cannot tell fallback-to-first from
+        // wrongly returning the second page
+        let p2 = make_white_png(120, 80);
         write_zip(&book, &[("p1.png", &p1), ("p2.png", &p2)]);
         let media = divina_media(&[("p1.png", "image/png"), ("p2.png", "image/png")]);
 

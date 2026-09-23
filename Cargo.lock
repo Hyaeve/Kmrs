@@ -1939,7 +1939,7 @@ dependencies = [
 
 [[package]]
 name = "komga-core"
-version = "0.9.1"
+version = "0.9.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -1950,7 +1950,7 @@ dependencies = [
 
 [[package]]
 name = "komga-db"
-version = "0.9.1"
+version = "0.9.2"
 dependencies = [
  "crc32fast",
  "flate2",
@@ -1971,7 +1971,7 @@ dependencies = [
 
 [[package]]
 name = "komga-media"
-version = "0.9.1"
+version = "0.9.2"
 dependencies = [
  "anyhow",
  "flate2",
@@ -1998,7 +1998,7 @@ dependencies = [
 
 [[package]]
 name = "komga-search"
-version = "0.9.1"
+version = "0.9.2"
 dependencies = [
  "komga-core",
  "opencc-jieba-rs",
@@ -2013,7 +2013,7 @@ dependencies = [
 
 [[package]]
 name = "komga-server"
-version = "0.9.1"
+version = "0.9.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -5002,7 +5002,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.9.1"
+version = "0.9.2"
 dependencies = [
  "anyhow",
  "crc32fast",
