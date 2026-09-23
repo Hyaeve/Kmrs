@@ -40,6 +40,64 @@ pub fn get_dimension(bytes: &[u8]) -> Option<(u32, u32)> {
     reader.into_dimensions().ok()
 }
 
+/// `BookAnalyser.isSuitableCoverImage`: whether a page image is a good cover candidate.
+///
+/// Ported from komga-rust `is_suitable_cover_image` (archive cover selection). Oversized
+/// images (>10 MB or a dimension >5000 px) are accepted without inspection; images that
+/// fail to decode, or that are almost entirely white or black (≥95% of sampled pixels),
+/// are rejected so a blank/placeholder first page can be skipped in favor of a later one.
+pub fn is_suitable_cover_image(bytes: &[u8]) -> bool {
+    const MAX_IMAGE_SIZE: usize = 10 * 1024 * 1024;
+    const MAX_DIMENSION: u32 = 5000;
+    const WHITE_THRESHOLD: u8 = 240;
+    const BLACK_THRESHOLD: u8 = 15;
+    const SUITABLE_RATIO: f64 = 0.95;
+
+    if bytes.len() > MAX_IMAGE_SIZE {
+        return true;
+    }
+
+    let Ok(image) = ::image::load_from_memory(bytes) else {
+        return false;
+    };
+    let width = image.width();
+    let height = image.height();
+
+    if width > MAX_DIMENSION || height > MAX_DIMENSION {
+        return true;
+    }
+
+    let rgb_image = image.to_rgb8();
+    let sample_step = (width.min(height) / 100).max(1);
+    let cols = width.div_ceil(sample_step);
+    let rows = height.div_ceil(sample_step);
+    let total_samples = (cols as u64) * (rows as u64);
+
+    let mut white_pixels = 0u64;
+    let mut black_pixels = 0u64;
+
+    for y in (0..height).step_by(sample_step as usize) {
+        for x in (0..width).step_by(sample_step as usize) {
+            let pixel = rgb_image.get_pixel(x, y);
+            let r = pixel[0];
+            let g = pixel[1];
+            let b = pixel[2];
+
+            if r > WHITE_THRESHOLD && g > WHITE_THRESHOLD && b > WHITE_THRESHOLD {
+                white_pixels += 1;
+            } else if r < BLACK_THRESHOLD && g < BLACK_THRESHOLD && b < BLACK_THRESHOLD {
+                black_pixels += 1;
+            }
+        }
+    }
+
+    let total_samples = total_samples as f64;
+    let white_ratio = white_pixels as f64 / total_samples;
+    let black_ratio = black_pixels as f64 / total_samples;
+
+    white_ratio < SUITABLE_RATIO && black_ratio < SUITABLE_RATIO
+}
+
 /// `ImageConverter.canConvertMediaType`: read support for `from`, write support for `to`.
 /// Write support is both formats here; read support matches the decodable set of `convert`.
 pub fn can_convert(from: &str, to: ImageType) -> bool {
@@ -231,5 +289,64 @@ mod tests {
             convert(b"junk", ImageType::Jpeg),
             Err(MediaError::Conversion(_))
         ));
+    }
+
+    fn make_solid_rgb(w: u32, h: u32, rgb: [u8; 3]) -> Vec<u8> {
+        let image = DynamicImage::ImageRgb8(image::RgbImage::from_pixel(w, h, image::Rgb(rgb)));
+        let mut out = Cursor::new(Vec::new());
+        image.write_to(&mut out, ImageFormat::Png).unwrap();
+        out.into_inner()
+    }
+
+    #[test]
+    fn suitable_cover_accepts_regular_image() {
+        assert!(is_suitable_cover_image(&make_png(100, 80)));
+        assert!(is_suitable_cover_image(&make_jpeg(100, 80)));
+    }
+
+    #[test]
+    fn suitable_cover_rejects_blank_and_undecodable_pages() {
+        assert!(!is_suitable_cover_image(&make_solid_rgb(
+            100,
+            100,
+            [255, 255, 255]
+        )));
+        assert!(!is_suitable_cover_image(&make_solid_rgb(
+            100,
+            100,
+            [0, 0, 0]
+        )));
+        assert!(!is_suitable_cover_image(b"not an image"));
+    }
+
+    #[test]
+    fn suitable_cover_accepts_oversized_without_inspection() {
+        // >10 MB is accepted without decoding
+        let oversized = vec![0u8; 10 * 1024 * 1024 + 1];
+        assert!(is_suitable_cover_image(&oversized));
+        // a dimension >5000 px is accepted even when mostly blank
+        assert!(is_suitable_cover_image(&make_solid_rgb(
+            5001,
+            2,
+            [255, 255, 255]
+        )));
+    }
+
+    #[test]
+    fn suitable_cover_requires_almost_entirely_blank_to_reject() {
+        // 93% white (7% non-white) stays under the 95% threshold and is still suitable
+        let white = image::Rgb([255, 255, 255]);
+        let stripe = image::Rgb([10, 200, 30]);
+        let mut rgb = image::RgbImage::from_pixel(100, 100, white);
+        for y in 48..55 {
+            for x in 0..100 {
+                rgb.put_pixel(x, y, stripe);
+            }
+        }
+        let mut out = Cursor::new(Vec::new());
+        DynamicImage::ImageRgb8(rgb)
+            .write_to(&mut out, ImageFormat::Png)
+            .unwrap();
+        assert!(is_suitable_cover_image(&out.into_inner()));
     }
 }

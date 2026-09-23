@@ -429,14 +429,7 @@ impl Analyzer {
     /// `BookAnalyzer.getPoster`
     pub fn get_poster(&self, book_path: &Path, media: &Media) -> Option<PageContent> {
         match container::media_profile(media.media_type.as_deref()) {
-            Some(MediaProfile::Divina) => {
-                let page = media.pages.first()?;
-                let bytes = container::get_page_content(book_path, media, 1).ok()?;
-                Some(PageContent {
-                    bytes,
-                    media_type: page.media_type.clone(),
-                })
-            }
+            Some(MediaProfile::Divina) => self.find_best_cover_page(book_path, media),
             Some(MediaProfile::Pdf) => {
                 let bytes = pdf::get_page_content_as_image(book_path, 1).ok()?;
                 Some(PageContent {
@@ -458,6 +451,56 @@ impl Analyzer {
             }),
             None => None,
         }
+    }
+
+    /// `BookAnalyser.findBestCoverPage`: pick the first suitable cover page among the first
+    /// three archive pages, falling back to the first page when none qualifies.
+    ///
+    /// Ported from komga-rust `find_best_cover_page` + `is_suitable_cover_image` (archive
+    /// cover selection). Blank/undecodable first pages are skipped in favor of a later
+    /// candidate; when every candidate fails, the first page is returned anyway so a cover
+    /// is produced rather than lost.
+    fn find_best_cover_page(&self, book_path: &Path, media: &Media) -> Option<PageContent> {
+        let page_count = media.page_count.max(0) as usize;
+        let numbers: Vec<usize> = (1..=page_count).take(3).collect();
+        if numbers.is_empty() {
+            return None;
+        }
+
+        // one container open for all candidates, read lazily in priority order (network
+        // mounts charge per open); a suitable page stops the reads immediately, and a
+        // per-page failure is logged and skipped instead of aborting the search
+        let mut reader = match container::PagesReader::open(book_path, media, &numbers) {
+            Ok(reader) => reader,
+            Err(e) => {
+                tracing::error!("Error while opening book for cover selection: {e}");
+                return None;
+            }
+        };
+        for number in &numbers {
+            let bytes = match reader.read_page(*number) {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    tracing::debug!("Error while reading cover candidate page {number}: {e}");
+                    continue;
+                }
+            };
+            if !image::is_suitable_cover_image(&bytes) {
+                tracing::debug!(
+                    "Page {number} is not a suitable cover (blank or undecodable), trying next"
+                );
+                continue;
+            }
+            let media_type = media.pages[*number - 1].media_type.clone();
+            return Some(PageContent { bytes, media_type });
+        }
+
+        // no candidate qualified: fall back to the first page, like komga-rust
+        let bytes = container::get_page_content(book_path, media, 1).ok()?;
+        Some(PageContent {
+            bytes,
+            media_type: media.pages[0].media_type.clone(),
+        })
     }
 
     /// `BookAnalyzer.hashPages`: hashes the first and last `page_hashing` pages whose hash is
@@ -2221,6 +2264,127 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
+
+    // region cover selection (ported from komga-rust find_best_cover_page)
+
+    fn divina_media(file_names: &[(&str, &str)]) -> Media {
+        Media {
+            book_id: "b1".into(),
+            status: MediaStatus::Ready,
+            media_type: Some(detect::APPLICATION_ZIP.into()),
+            comment: None,
+            page_count: file_names.len() as i32,
+            pages: file_names
+                .iter()
+                .map(|(name, media_type)| BookPage {
+                    file_name: name.to_string(),
+                    media_type: media_type.to_string(),
+                    width: None,
+                    height: None,
+                    file_hash: String::new(),
+                    file_size: None,
+                })
+                .collect(),
+            files: vec![],
+            extension_class: None,
+            extension_value: None,
+            epub_divina_compatible: false,
+            epub_is_kepub: false,
+            created_date: time_codec::now_utc(),
+            last_modified_date: time_codec::now_utc(),
+        }
+    }
+
+    fn make_solid_rgb(w: u32, h: u32, rgb: [u8; 3]) -> Vec<u8> {
+        let img = ::image::DynamicImage::ImageRgb8(::image::RgbImage::from_pixel(
+            w,
+            h,
+            ::image::Rgb(rgb),
+        ));
+        let mut out = std::io::Cursor::new(Vec::new());
+        img.write_to(&mut out, ::image::ImageFormat::Png).unwrap();
+        out.into_inner()
+    }
+
+    fn make_white_png(w: u32, h: u32) -> Vec<u8> {
+        make_solid_rgb(w, h, [255, 255, 255])
+    }
+
+    #[test]
+    fn cover_skips_blank_first_page_for_second() {
+        let dir = tmpdir("cover-skip-blank");
+        let book = dir.join("book.cbz");
+        let p1 = make_white_png(100, 100);
+        let p2 = make_png(48, 48);
+        write_zip(&book, &[("p1.png", &p1), ("p2.png", &p2)]);
+        let media = divina_media(&[("p1.png", "image/png"), ("p2.png", "image/png")]);
+
+        let poster = analyzer().find_best_cover_page(&book, &media).unwrap();
+        assert_eq!(poster.bytes, p2);
+        assert_eq!(poster.media_type, detect::IMAGE_PNG);
+    }
+
+    #[test]
+    fn cover_uses_first_suitable_page() {
+        let dir = tmpdir("cover-first-suitable");
+        let book = dir.join("book.cbz");
+        let p1 = make_png(48, 48);
+        let p2 = make_png(100, 80);
+        write_zip(&book, &[("p1.png", &p1), ("p2.png", &p2)]);
+        let media = divina_media(&[("p1.png", "image/png"), ("p2.png", "image/png")]);
+
+        let poster = analyzer().find_best_cover_page(&book, &media).unwrap();
+        assert_eq!(poster.bytes, p1);
+    }
+
+    #[test]
+    fn cover_falls_back_to_first_page_when_all_blank() {
+        let dir = tmpdir("cover-all-blank");
+        let book = dir.join("book.cbz");
+        let p1 = make_white_png(100, 100);
+        let p2 = make_white_png(100, 100);
+        write_zip(&book, &[("p1.png", &p1), ("p2.png", &p2)]);
+        let media = divina_media(&[("p1.png", "image/png"), ("p2.png", "image/png")]);
+
+        let poster = analyzer().find_best_cover_page(&book, &media).unwrap();
+        assert_eq!(poster.bytes, p1);
+    }
+
+    #[test]
+    fn cover_single_page_returns_it() {
+        let dir = tmpdir("cover-single");
+        let book = dir.join("book.cbz");
+        let p1 = make_png(48, 48);
+        write_zip(&book, &[("p1.png", &p1)]);
+        let media = divina_media(&[("p1.png", "image/png")]);
+
+        let poster = analyzer().find_best_cover_page(&book, &media).unwrap();
+        assert_eq!(poster.bytes, p1);
+    }
+
+    #[test]
+    fn cover_empty_media_returns_none() {
+        let dir = tmpdir("cover-empty");
+        let book = dir.join("book.cbz");
+        write_zip(&book, &[]);
+        let media = divina_media(&[]);
+
+        assert!(analyzer().find_best_cover_page(&book, &media).is_none());
+    }
+
+    #[test]
+    fn cover_skips_undecodable_first_page_for_second() {
+        let dir = tmpdir("cover-broken-first");
+        let book = dir.join("book.cbz");
+        let p2 = make_png(48, 48);
+        write_zip(&book, &[("p1.png", b"not an image"), ("p2.png", &p2)]);
+        let media = divina_media(&[("p1.png", "image/png"), ("p2.png", "image/png")]);
+
+        let poster = analyzer().find_best_cover_page(&book, &media).unwrap();
+        assert_eq!(poster.bytes, p2);
+    }
+
+    // endregion cover selection
 
     // region analyze: divina
 
