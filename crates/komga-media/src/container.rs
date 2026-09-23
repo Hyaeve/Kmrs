@@ -57,6 +57,58 @@ pub fn get_page_content(book_path: &Path, media: &Media, number: usize) -> Resul
     }
 }
 
+/// Batch variant of `get_page_content` for the page-hashing path: reads the requested
+/// pages (1-based, output follows `numbers`) with a single container open per book instead
+/// of one open per page — network mounts charge per open. A page outside `[1, page_count]`
+/// fails like the single-page function; any missing entry fails the whole batch.
+pub fn get_pages_content(
+    book_path: &Path,
+    media: &Media,
+    numbers: &[usize],
+) -> Result<Vec<Vec<u8>>> {
+    if media.status != MediaStatus::Ready {
+        return Err(MediaError::NotReady);
+    }
+    if numbers.is_empty() {
+        return Ok(vec![]);
+    }
+    if let Some(&n) = numbers
+        .iter()
+        .find(|&&n| n == 0 || n > media.page_count as usize)
+    {
+        return Err(MediaError::PageOutOfBounds(n));
+    }
+    let names: Vec<&str> = numbers
+        .iter()
+        .map(|&n| media.pages[n - 1].file_name.as_str())
+        .collect();
+    match media_profile(media.media_type.as_deref()) {
+        Some(MediaProfile::Divina) => match media.media_type.as_deref() {
+            Some(detect::APPLICATION_ZIP) | Some(detect::APPLICATION_EPUB) => {
+                zip::get_entries_bytes(book_path, &names)
+            }
+            Some("application/x-rar-compressed")
+            | Some(detect::APPLICATION_RAR_4)
+            | Some(detect::APPLICATION_RAR_5) => rar::get_entries_bytes(book_path, &names),
+            Some(other) => Err(MediaError::unsupported(format!(
+                "no divina extractor for media type {other}"
+            ))),
+            None => Err(MediaError::NotReady),
+        },
+        Some(MediaProfile::Pdf) => pdf::get_pages_content_as_images(book_path, numbers),
+        Some(MediaProfile::Epub) => {
+            if media.epub_divina_compatible {
+                zip::get_entries_bytes(book_path, &names)
+            } else {
+                Err(MediaError::unsupported(
+                    "Epub profile does not support getting page content",
+                ))
+            }
+        }
+        None => Err(MediaError::NotReady),
+    }
+}
+
 /// `BookAnalyzer.getPageContentRaw`: the raw page; only PDF supports it (single-page document).
 pub fn get_page_content_raw(book_path: &Path, media: &Media, number: usize) -> Result<PageContent> {
     if media_profile(media.media_type.as_deref()) != Some(MediaProfile::Pdf) {
@@ -292,6 +344,54 @@ mod tests {
         );
         let bytes = get_page_content(&book, &media, 1).unwrap();
         assert_eq!(&bytes[0..4], b"\x89PNG");
+    }
+
+    #[test]
+    fn get_pages_content_batch_matches_individual() {
+        let zip_book = fixtures().join("archives/zip.zip");
+        let zip_media = media(
+            detect::APPLICATION_ZIP,
+            vec![page("komga.png", detect::IMAGE_PNG)],
+        );
+        assert_eq!(
+            get_pages_content(&zip_book, &zip_media, &[1]).unwrap(),
+            vec![get_page_content(&zip_book, &zip_media, 1).unwrap()]
+        );
+
+        // rar batch keeps the requested order, even when it differs from archive order
+        let rar_book = fixtures().join("archives/rar4.rar");
+        let rar_media = media(
+            detect::APPLICATION_RAR_4,
+            vec![
+                page("komga-1.png", detect::IMAGE_PNG),
+                page("komga-2.png", detect::IMAGE_PNG),
+                page("komga-3.png", detect::IMAGE_PNG),
+            ],
+        );
+        let batch = get_pages_content(&rar_book, &rar_media, &[1, 3, 2]).unwrap();
+        assert_eq!(batch.len(), 3);
+        for (n, bytes) in [1usize, 3, 2].iter().zip(batch.iter()) {
+            assert_eq!(*bytes, get_page_content(&rar_book, &rar_media, *n).unwrap());
+        }
+
+        // bounds and status behave like the single-page function
+        assert!(matches!(
+            get_pages_content(&rar_book, &rar_media, &[0]),
+            Err(MediaError::PageOutOfBounds(0))
+        ));
+        assert!(matches!(
+            get_pages_content(&rar_book, &rar_media, &[4]),
+            Err(MediaError::PageOutOfBounds(4))
+        ));
+        let mut not_ready = zip_media.clone();
+        not_ready.status = MediaStatus::Unknown;
+        assert!(matches!(
+            get_pages_content(&zip_book, &not_ready, &[1]),
+            Err(MediaError::NotReady)
+        ));
+        assert!(get_pages_content(&rar_book, &rar_media, &[])
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

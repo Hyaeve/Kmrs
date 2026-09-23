@@ -460,19 +460,30 @@ impl Analyzer {
         }
     }
 
-    /// `BookAnalyzer.hashPages`: hashes the first and last `page_hashing` pages whose hash is blank
+    /// `BookAnalyzer.hashPages`: hashes the first and last `page_hashing` pages whose hash is
+    /// blank. All pages are read with a single container open (network mounts charge per
+    /// open), instead of reopening the archive/document for every page.
     pub fn hash_pages(&self, book_path: &Path, media: &Media) -> Result<Media> {
         let page_count = media.page_count as usize;
+        let indices: Vec<usize> = media
+            .pages
+            .iter()
+            .enumerate()
+            .filter(|(index, page)| {
+                page.file_hash.trim().is_empty()
+                    && (*index < self.page_hashing as usize
+                        || *index >= page_count.saturating_sub(self.page_hashing as usize))
+            })
+            .map(|(index, _)| index)
+            .collect();
         let mut hashed = media.clone();
-        for index in 0..media.pages.len() {
-            let page = &media.pages[index];
-            if page.file_hash.trim().is_empty()
-                && (index < self.page_hashing as usize
-                    || index >= page_count.saturating_sub(self.page_hashing as usize))
-            {
-                let content = container::get_page_content(book_path, media, index + 1)?;
-                hashed.pages[index].file_hash = self.hash_page(page, &content)?;
-            }
+        if indices.is_empty() {
+            return Ok(hashed);
+        }
+        let numbers: Vec<usize> = indices.iter().map(|i| i + 1).collect();
+        let contents = container::get_pages_content(book_path, media, &numbers)?;
+        for (index, content) in indices.iter().zip(contents.iter()) {
+            hashed.pages[*index].file_hash = self.hash_page(&media.pages[*index], content)?;
         }
         Ok(hashed)
     }

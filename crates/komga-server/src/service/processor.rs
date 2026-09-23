@@ -10,9 +10,11 @@ use crate::events::DomainEvent;
 use crate::service::{book, convert, import, library_content, series, TaskNotify};
 use crate::state::AppState;
 use komga_core::model::library::Library;
+use komga_core::model::media::MediaStatus;
 use komga_core::task::{BookMetadataPatchCapability, Task, LOWEST_PRIORITY, LOW_PRIORITY};
 use komga_db::dao::book::BookDao;
 use komga_db::dao::library::LibraryDao;
+use komga_db::dao::media::MediaDao;
 use komga_db::dao::series::SeriesDao;
 use komga_db::dao::tasks::TasksDao;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -294,6 +296,29 @@ pub(crate) fn dispatch_task(state: &AppState, task: &Task) -> anyhow::Result<()>
                 return Ok(());
             };
             book::hash_and_persist(state, &book)?;
+            // Page hashing right after the file pass: when the file pass actually read the
+            // book, the first/last pages are still warm in the OS cache, so hashing them
+            // here costs ~0 extra network reads on mounts. When both hashes already existed
+            // the file pass early-returns without reading and this runs cache-cold —
+            // idempotent and harmless. Best-effort and zip-only: mirrors the pre-existing
+            // page-hash lifecycle (which only covers application/zip books), so rar/pdf/epub
+            // books keep their previous "no page hashing" behavior.
+            match MediaDao::new(state.db.clone()).find_by_id(&book.id) {
+                Ok(Some(media))
+                    if media.status == MediaStatus::Ready
+                        && media.media_type.as_deref()
+                            == Some(komga_media::detect::APPLICATION_ZIP) =>
+                {
+                    if let Err(e) = book::hash_pages_and_persist(state, &book) {
+                        tracing::warn!("Page hashing failed for book {}: {e}", book.id);
+                    }
+                }
+                Ok(_) => {}
+                Err(e) => tracing::warn!(
+                    "Skipped cache-hot page hashing for book {}: media lookup failed: {e}",
+                    book.id
+                ),
+            }
             Ok(())
         }
         Task::HashBookKoreader(t) => {
@@ -489,7 +514,7 @@ mod tests {
     use crate::service::series::tests as series_tests;
     use komga_core::model::book::Book;
     use komga_core::model::library::{ScanInterval, SeriesCover};
-    use komga_core::model::media::{Media, MediaStatus};
+    use komga_core::model::media::{BookPage, Media, MediaStatus};
     use komga_core::task::{BookTaskKind, LibraryTaskKind, SeriesTaskKind, DEFAULT_PRIORITY};
     use komga_core::time_codec::{format_datetime, now_utc};
     use komga_db::dao::media::MediaDao;
@@ -849,6 +874,162 @@ mod tests {
             })
             .unwrap();
         assert!(!hash.is_empty());
+    }
+
+    #[tokio::test]
+    async fn hash_book_task_also_hashes_pages_when_media_ready() {
+        let state = series_tests::test_state();
+        let root = visible_tempdir("hash-both");
+        seed_library(
+            &state.db,
+            &test_library("lib-h", &format!("file:{}/", root.display())),
+        );
+        seed_series(&state.db, "lib-h", "s1");
+        let book_path = root.join("v01.cbz");
+        let book = seed_book(
+            &state.db,
+            "lib-h",
+            "s1",
+            &format!("file:{}", book_path.display()),
+        );
+        fixture_zip(&book_path);
+
+        let notify: TaskNotify = std::sync::Arc::new(tokio::sync::Notify::new());
+        let emitter = crate::service::TaskEmitter::new(
+            state.db.clone(),
+            state.tasks_db.clone(),
+            notify.clone(),
+        );
+        let handle = TaskProcessor::start(state.clone(), notify);
+
+        // analyze so the media is READY with an unhashed page
+        emitter
+            .submit(Task::analyze_book(
+                &book.id,
+                DEFAULT_PRIORITY,
+                book.series_id.clone(),
+            ))
+            .unwrap();
+        let analyzed = wait_until(|| queue_empty(&state)).await;
+        assert!(analyzed, "analyze did not drain: {:?}", task_ids(&state));
+        let media = MediaDao::new(state.db.clone())
+            .find_by_id(&book.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(media.status, MediaStatus::Ready);
+        assert!(media.pages.iter().all(|p| p.file_hash.is_empty()));
+
+        // the HashBook task must hash pages too, right after the file pass (cache-hot)
+        emitter
+            .submit(Task::book(
+                BookTaskKind::HashBook,
+                &book.id,
+                DEFAULT_PRIORITY,
+                None,
+            ))
+            .unwrap();
+        let done = wait_until(|| queue_empty(&state)).await;
+        handle.abort();
+        assert!(done, "queue did not drain: {:?}", task_ids(&state));
+
+        let file_hash: String = state
+            .db
+            .ro()
+            .query_row("SELECT FILE_HASH FROM BOOK WHERE ID = ?", [&book.id], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert!(!file_hash.is_empty());
+        let media = MediaDao::new(state.db.clone())
+            .find_by_id(&book.id)
+            .unwrap()
+            .unwrap();
+        assert!(
+            media.pages.iter().all(|p| !p.file_hash.is_empty()),
+            "pages were not hashed by the HashBook task"
+        );
+    }
+
+    #[tokio::test]
+    async fn hash_book_task_skips_page_hashing_for_non_zip() {
+        let state = series_tests::test_state();
+        let root = visible_tempdir("hash-nonzip");
+        seed_library(
+            &state.db,
+            &test_library("lib-nz", &format!("file:{}/", root.display())),
+        );
+        seed_series(&state.db, "lib-nz", "s1");
+        let book_path = root.join("v01.pdf");
+        std::fs::write(&book_path, b"not a real pdf but hashable bytes").unwrap();
+        let book = seed_book(
+            &state.db,
+            "lib-nz",
+            "s1",
+            &format!("file:{}", book_path.display()),
+        );
+        // READY media of a non-zip profile with an unhashed page: the page-hash lifecycle
+        // only covers application/zip books, so this page must stay unhashed
+        MediaDao::new(state.db.clone())
+            .update(&Media {
+                book_id: book.id.clone(),
+                status: MediaStatus::Ready,
+                media_type: Some(komga_media::detect::APPLICATION_PDF.into()),
+                comment: None,
+                page_count: 1,
+                pages: vec![BookPage {
+                    file_name: "1".into(),
+                    media_type: komga_media::detect::IMAGE_JPEG.into(),
+                    width: None,
+                    height: None,
+                    file_hash: String::new(),
+                    file_size: None,
+                }],
+                files: vec![],
+                extension_class: None,
+                extension_value: None,
+                epub_divina_compatible: false,
+                epub_is_kepub: false,
+                created_date: now_utc(),
+                last_modified_date: now_utc(),
+            })
+            .unwrap();
+
+        let notify: TaskNotify = std::sync::Arc::new(tokio::sync::Notify::new());
+        let emitter = crate::service::TaskEmitter::new(
+            state.db.clone(),
+            state.tasks_db.clone(),
+            notify.clone(),
+        );
+        let handle = TaskProcessor::start(state.clone(), notify);
+        emitter
+            .submit(Task::book(
+                BookTaskKind::HashBook,
+                &book.id,
+                DEFAULT_PRIORITY,
+                None,
+            ))
+            .unwrap();
+        let done = wait_until(|| queue_empty(&state)).await;
+        handle.abort();
+        assert!(done, "queue did not drain: {:?}", task_ids(&state));
+
+        // the file hash was written (any bytes are hashable), pages stayed unhashed
+        let file_hash: String = state
+            .db
+            .ro()
+            .query_row("SELECT FILE_HASH FROM BOOK WHERE ID = ?", [&book.id], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert!(!file_hash.is_empty());
+        let media = MediaDao::new(state.db.clone())
+            .find_by_id(&book.id)
+            .unwrap()
+            .unwrap();
+        assert!(
+            media.pages[0].file_hash.is_empty(),
+            "non-zip pages must keep the previous no-page-hashing behavior"
+        );
     }
 
     #[tokio::test]

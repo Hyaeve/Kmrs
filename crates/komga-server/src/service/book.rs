@@ -24,7 +24,7 @@ use komga_db::dao::media::MediaDao;
 use komga_db::dao::read_progress::ReadProgressDao;
 use komga_db::dao::thumbnail::ThumbnailBookDao;
 use komga_media::analyzer::{encode_epub_extension_gz, Analyzer, EPUB_EXTENSION_CLASS};
-use komga_media::hash::{compute_hash, compute_koreader_hash};
+use komga_media::hash::{compute_hashes, compute_koreader_hash};
 use komga_media::image::{self, ImageType};
 use komga_media::PageContent;
 use std::collections::BTreeSet;
@@ -157,24 +157,30 @@ pub fn analyze_and_persist(
     })
 }
 
+/// Compute and persist whichever of the file hash and the KOReader hash is missing and
+/// enabled on the library. When both are wanted, `compute_hashes` reads the file once and
+/// computes both in a single pass, avoiding a second open plus the KOReader sample seeks.
 pub fn hash_and_persist(state: &AppState, book: &Book) -> komga_db::Result<()> {
     let library = LibraryDao::new(state.db.clone())
         .find_by_id(&book.library_id)?
         .expect("book references a missing library");
-    if !library.hash_files {
-        tracing::info!("File hashing is disabled for the library, it may have changed since the task was submitted, skipping");
+    let want_file = library.hash_files && book.file_hash.is_empty();
+    let want_koreader = library.hash_koreader && book.file_hash_koreader.is_empty();
+    if !want_file && !want_koreader {
+        tracing::info!("No hashing needed for the book (disabled or already hashed), skipping");
         return Ok(());
     }
     tracing::info!("Hash and persist book: {book:?}");
-    if book.file_hash.is_empty() {
-        let hash = compute_hash(&book_path(book)).map_err(|e| service_error(e.to_string()))?;
-        BookDao::new(state.db.clone()).update(&Book {
-            file_hash: hash,
-            ..book.clone()
-        })?;
-    } else {
-        tracing::info!("Book already has a hash, skipping");
-    }
+    let (file_hash, koreader_hash) = compute_hashes(&book_path(book), want_file, want_koreader)
+        .map_err(|e| service_error(e.to_string()))?;
+    // The early return above already covers the case where neither hash is wanted, and
+    // compute_hashes returns Some for every requested hash, so the update is
+    // unconditional here; unwrap_or_else keeps a not-requested field untouched.
+    BookDao::new(state.db.clone()).update(&Book {
+        file_hash: file_hash.unwrap_or_else(|| book.file_hash.clone()),
+        file_hash_koreader: koreader_hash.unwrap_or_else(|| book.file_hash_koreader.clone()),
+        ..book.clone()
+    })?;
     Ok(())
 }
 
@@ -979,6 +985,40 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(not_hashed.file_hash.is_empty());
+    }
+
+    #[test]
+    fn hash_and_persist_writes_both_hashes_when_enabled() {
+        let state = test_state();
+        seed_library(&state, "lib1", true); // hash_files && hash_koreader both enabled
+        seed_series(&state, "lib1", "s1");
+        let dir = tmpdir();
+        let zip_path = dir.join("v01.cbz");
+        std::fs::copy(fixtures().join("zip.zip"), &zip_path).unwrap();
+        let book = seed_book(
+            &state,
+            "lib1",
+            "s1",
+            &format!("file:{}", zip_path.display()),
+            3260,
+        );
+
+        hash_and_persist(&state, &book).unwrap();
+        let hashed = BookDao::new(state.db.clone())
+            .find_by_id(&book.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(hashed.file_hash.len(), 32);
+        assert_eq!(hashed.file_hash_koreader.len(), 32);
+
+        // a second run is a no-op for both fields
+        hash_and_persist(&state, &hashed).unwrap();
+        let again = BookDao::new(state.db.clone())
+            .find_by_id(&book.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(again.file_hash, hashed.file_hash);
+        assert_eq!(again.file_hash_koreader, hashed.file_hash_koreader);
     }
 
     #[test]

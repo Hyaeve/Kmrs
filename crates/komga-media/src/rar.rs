@@ -36,6 +36,57 @@ pub fn get_entry_bytes(path: &Path, entry_name: &str) -> Result<Vec<u8>> {
     Err(MediaError::EntryNotFound(entry_name.to_string()))
 }
 
+/// Reads several entries with a single sequential pass over the archive. RAR cannot seek,
+/// so solid archives are traversed in order and matching entries are extracted as they are
+/// encountered. Output follows `entry_names`; when a requested name is absent from the
+/// archive the whole archive is still scanned, then `EntryNotFound` is returned for the
+/// first missing name. `entry_names` may repeat a name: each same-named archive entry
+/// fills the next unfilled slot in request order.
+pub fn get_entries_bytes(path: &Path, entry_names: &[&str]) -> Result<Vec<Vec<u8>>> {
+    check_multipart(path)?;
+    let mut archive = open(path)?;
+    let mut out: Vec<Option<Vec<u8>>> = vec![None; entry_names.len()];
+    loop {
+        let header = match archive.read_header() {
+            Ok(Some(h)) => h,
+            Ok(None) => break,
+            Err(e) => return Err(map_unrar_error(e)),
+        };
+        let e = header.entry();
+        let name = e.filename.to_string_lossy();
+        if e.is_directory() {
+            archive = header
+                .skip()
+                .map_err(|e| MediaError::Other(anyhow::anyhow!(e)))?;
+            continue;
+        }
+        // `out` indexes follow `entry_names`; each entry maps to the first unfilled slot
+        // whose name matches, so output order follows the request even when the archive
+        // order differs (a repeated name lands in the next unfilled slot).
+        if let Some(idx) = entry_names
+            .iter()
+            .enumerate()
+            .find(|(i, &r)| r == name && out[*i].is_none())
+            .map(|(i, _)| i)
+        {
+            let (bytes, next) = header.read().map_err(map_unrar_error)?;
+            out[idx] = Some(bytes);
+            archive = next;
+            if out.iter().all(|o| o.is_some()) {
+                break;
+            }
+        } else {
+            archive = header
+                .skip()
+                .map_err(|e| MediaError::Other(anyhow::anyhow!(e)))?;
+        }
+    }
+    if let Some(pos) = out.iter().position(|o| o.is_none()) {
+        return Err(MediaError::EntryNotFound(entry_names[pos].to_string()));
+    }
+    Ok(out.into_iter().map(|o| o.unwrap()).collect())
+}
+
 /// Lists the file names in the archive; used to detect multi-volume and encrypted archives.
 pub fn list_entries(path: &Path) -> Result<Vec<String>> {
     check_multipart(path)?;
@@ -160,6 +211,45 @@ mod tests {
             get_entry_bytes(&archives().join("rar4.rar"), "nope.png"),
             Err(MediaError::EntryNotFound(_))
         ));
+    }
+
+    #[test]
+    fn get_entries_bytes_single_pass_matches_individual_reads() {
+        let path = archives().join("rar4.rar");
+        let names = ["komga-1.png", "komga-3.png", "komga-2.png"];
+        let batch = get_entries_bytes(&path, &names).unwrap();
+        for (name, bytes) in names.iter().zip(batch.iter()) {
+            assert_eq!(
+                *bytes,
+                get_entry_bytes(&path, name).unwrap(),
+                "{name} (order preserved)"
+            );
+        }
+
+        // a missing name fails after scanning the whole archive, like the single-entry read
+        assert!(matches!(
+            get_entries_bytes(&path, &["komga-1.png", "nope.png"]),
+            Err(MediaError::EntryNotFound(_))
+        ));
+    }
+
+    #[test]
+    fn get_entries_bytes_solid_archives() {
+        for name in ["rar4-solid.rar", "rar5-solid.rar"] {
+            let path = archives().join(name);
+            let batch =
+                get_entries_bytes(&path, &["komga-1.png", "komga-2.png", "komga-3.png"]).unwrap();
+            for (i, entry) in ["komga-1.png", "komga-2.png", "komga-3.png"]
+                .iter()
+                .enumerate()
+            {
+                assert_eq!(
+                    batch[i],
+                    get_entry_bytes(&path, entry).unwrap(),
+                    "{name}:{entry}"
+                );
+            }
+        }
     }
 
     #[test]

@@ -135,7 +135,11 @@ impl TaskEmitter {
                 Task::book(
                     BookTaskKind::HashBook,
                     &b.id,
-                    komga_core::task::LOWEST_PRIORITY,
+                    // One notch above LOWEST: the HashBook handler also hashes pages
+                    // (cache-hot right after the file pass), so it must run before the
+                    // FindBooksWithMissingPageHash batch, otherwise those HashBookPages
+                    // tasks would run first and defeat the combined cache-friendly pass.
+                    komga_core::task::LOWEST_PRIORITY + 1,
                     None,
                 )
             })

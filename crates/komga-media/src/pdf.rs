@@ -67,6 +67,21 @@ fn load<'a>(pdfium: &'a Pdfium, path: &Path) -> Result<PdfDocument<'a>> {
 pub fn get_page_content_as_image(path: &Path, page_number: usize) -> Result<Vec<u8>> {
     let pdfium = bind()?;
     let document = load(&pdfium, path)?;
+    render_page(&document, page_number)
+}
+
+/// Renders several pages with a single document open, in the order given. Network mounts
+/// charge per open, so hashing the first and last pages must not reopen the PDF per page.
+pub fn get_pages_content_as_images(path: &Path, page_numbers: &[usize]) -> Result<Vec<Vec<u8>>> {
+    let pdfium = bind()?;
+    let document = load(&pdfium, path)?;
+    page_numbers
+        .iter()
+        .map(|&n| render_page(&document, n))
+        .collect()
+}
+
+fn render_page(document: &PdfDocument<'_>, page_number: usize) -> Result<Vec<u8>> {
     let page = document
         .pages()
         .get((page_number - 1) as i32)
@@ -139,6 +154,22 @@ mod tests {
         assert_eq!(&bytes[0..3], b"\xFF\xD8\xFF");
         let (w, h) = image::get_dimension(&bytes).unwrap();
         assert_eq!(w.min(h), 3200);
+    }
+
+    #[test]
+    fn render_pages_batch_matches_individual() {
+        if !pdf_available() {
+            eprintln!("libpdfium not available, skipping");
+            return;
+        }
+        let batch = get_pages_content_as_images(&fixture(), &[1, 1]).unwrap();
+        assert_eq!(batch.len(), 2);
+        for bytes in &batch {
+            assert_eq!(&bytes[0..3], b"\xFF\xD8\xFF");
+        }
+        assert_eq!(batch[0], get_page_content_as_image(&fixture(), 1).unwrap());
+        // deterministic render: both entries identical
+        assert_eq!(batch[0], batch[1]);
     }
 
     #[test]
