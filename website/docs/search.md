@@ -1,3 +1,7 @@
+---
+sidebar_label: Search
+---
+
 # Search in kmrs
 
 kmrs ports komga's Lucene search to [tantivy](https://github.com/quickwit-oss/tantivy): the query syntax (`title:berserk`, `tag:seinen AND status:ONGOING`, prefixes, wildcards, phrases) and the multilingual analyzer chain behave like the Java version. This document describes the analyzer chain and the recall extensions kmrs adds on top of it.

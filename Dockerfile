@@ -4,7 +4,7 @@
 # as produced by the release workflow (or by hand for a local build):
 #   dist/amd64/kmrs   x86_64-unknown-linux-gnu build
 #   dist/arm64/kmrs   aarch64-unknown-linux-gnu build
-#   dist/webui.tar.gz  prebuilt kmweb bundle (see docs/webui.md)
+#   dist/webui.tar.gz  prebuilt kmweb bundle (see website/docs/webui.md)
 
 # Runs on the build platform, so no emulation is ever needed: downloads
 # libpdfium (a lazy runtime dependency for PDF support; kmrs looks it up next

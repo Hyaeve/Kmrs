@@ -1,5 +1,5 @@
 //! Analysis chain aligned with komga's Lucene analyzers (kmrs's recall extensions on top
-//! are documented in docs/search.md):
+//! are documented in website/docs/search.md):
 //! - search side (`MultiLingualAnalyzer`): t2s -> standard tokenize -> CJK width -> lowercase ->
 //!   CJK bigram -> ASCII fold
 //! - index side (`MultiLingualNGramAnalyzer`): the same, with every CJK character also emitted

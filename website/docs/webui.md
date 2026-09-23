@@ -1,3 +1,7 @@
+---
+sidebar_label: Serving a web UI
+---
+
 # Serving a web UI with kmrs
 
 kmrs does not embed a web UI in the binary (the release docker image bundles
