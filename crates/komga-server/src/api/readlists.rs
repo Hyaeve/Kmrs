@@ -30,7 +30,6 @@ use komga_core::time_codec::now_utc;
 use komga_db::dao::book::BookDao;
 use komga_db::dao::media::MediaDao;
 use komga_db::dao::read_progress::ReadProgressDao;
-use komga_db::dao::readlist::ReadListDao;
 use komga_db::dao::thumbnail::ThumbnailReadListDao;
 use komga_db::dto_dao::book::BookDtoDao;
 use komga_db::dto_dao::read_progress::ReadProgressDtoDao;
@@ -415,8 +414,8 @@ async fn update_readlist_by_id(
     if !violations.is_empty() {
         return Err(ApiError::Violations(violations));
     }
-    let existing = ReadListDao::new(state.db.clone())
-        .find_by_id(&id)?
+    let existing = ReadListDtoDao::new(state.db.clone())
+        .find_by_id(&id, None, &auth.0.user.restrictions)?
         .ok_or_else(|| ApiError::not_found(""))?;
     let updated = ReadList {
         name: body.name.unwrap_or(existing.name.clone()),
@@ -443,8 +442,8 @@ async fn delete_readlist_by_id(
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     auth.0.require_admin()?;
-    let readlist = ReadListDao::new(state.db.clone())
-        .find_by_id(&id)?
+    let readlist = ReadListDtoDao::new(state.db.clone())
+        .find_by_id(&id, None, &auth.0.user.restrictions)?
         .ok_or_else(|| ApiError::not_found(""))?;
     crate::service::readlist::delete_read_list(&state, &readlist)?;
     Ok(StatusCode::NO_CONTENT)
@@ -1419,6 +1418,62 @@ mod tests {
         assert_eq!(status, StatusCode::NO_CONTENT);
         let (status, _, _) = call(&state, router(), get("/api/v1/readlists/r1", ADMIN_KEY)).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn update_and_delete_readlist_restricted_admin() {
+        let state = test_state();
+        seed_base_with_readlists(&state.db);
+        exec(
+            &state.db,
+            "INSERT INTO SERIES_METADATA_SHARING (SERIES_ID, LABEL) VALUES ('s1', 'kids')",
+            [],
+        );
+        insert_user(
+            &state.db,
+            "restricted-admin@x.y",
+            &[UserRole::Admin],
+            &[],
+            ContentRestrictions::new(
+                None,
+                ["kids".to_string()].into_iter().collect(),
+                std::collections::BTreeSet::new(),
+            ),
+            "restricted-admin-key",
+        );
+        // r2 has no book matching the allowed labels: hidden from update/delete as well
+        let (status, _, _) = call(
+            &state,
+            router(),
+            json_request(
+                "PATCH",
+                "/api/v1/readlists/r2",
+                "restricted-admin-key",
+                r#"{"name":"X"}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (status, _, _) = call(
+            &state,
+            router(),
+            json_request("DELETE", "/api/v1/readlists/r2", "restricted-admin-key", ""),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        // r1 stays writable
+        let (status, _, _) = call(
+            &state,
+            router(),
+            json_request(
+                "PATCH",
+                "/api/v1/readlists/r1",
+                "restricted-admin-key",
+                r#"{"name":"Still"}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
     }
 
     #[tokio::test]

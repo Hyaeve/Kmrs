@@ -33,6 +33,8 @@ pub struct Analyzer {
 pub struct Analysis {
     pub media: Media,
     pub epub_extension: Option<MediaExtensionEpub>,
+    /// file size of the on-the-fly kepub conversion, when one was produced for positions
+    pub kepub_file_size: Option<u64>,
 }
 
 /// `MediaExtensionEpub.kt`. All fields are always serialized (Jackson default inclusion),
@@ -105,6 +107,7 @@ impl Analyzer {
                 Analysis {
                     media: error_media(&e),
                     epub_extension: None,
+                    kepub_file_size: None,
                 }
             }
         }
@@ -122,6 +125,7 @@ impl Analyzer {
                         Some("ERR_1001".into()),
                     ),
                     epub_extension: None,
+                    kepub_file_size: None,
                 })
             }
         };
@@ -143,6 +147,7 @@ impl Analyzer {
                         Some("ERR_1032".into()),
                     ),
                     epub_extension: None,
+                    kepub_file_size: None,
                 });
             }
         }
@@ -156,6 +161,7 @@ impl Analyzer {
                         ..media
                     },
                     epub_extension: None,
+                    kepub_file_size: None,
                 })
             }
             Some(MediaProfile::Pdf) => {
@@ -166,16 +172,19 @@ impl Analyzer {
                         ..media
                     },
                     epub_extension: None,
+                    kepub_file_size: None,
                 })
             }
             Some(MediaProfile::Epub) => {
-                let (media, extension) = self.analyze_epub(book_path, analyze_dimensions)?;
+                let (media, extension, kepub_file_size) =
+                    self.analyze_epub(book_path, analyze_dimensions)?;
                 Ok(Analysis {
                     media: Media {
                         media_type: Some(media_type),
                         ..media
                     },
                     epub_extension: Some(extension),
+                    kepub_file_size,
                 })
             }
             // media_profile returned Some above, so one of the profiles must match
@@ -274,7 +283,7 @@ impl Analyzer {
         &self,
         book_path: &Path,
         analyze_dimensions: bool,
-    ) -> Result<(Media, MediaExtensionEpub)> {
+    ) -> Result<(Media, MediaExtensionEpub, Option<u64>)> {
         let mut pkg = open_epub(book_path)?;
 
         let all_resources = get_resources(&mut pkg);
@@ -319,7 +328,7 @@ impl Analyzer {
 
         let is_fixed_layout = !divina_pages.is_empty() || is_fixed_layout(&pkg);
 
-        let positions = match compute_positions(
+        let (positions, kepub_file_size) = match compute_positions(
             &mut pkg,
             &resources,
             is_fixed_layout,
@@ -331,7 +340,7 @@ impl Analyzer {
             Err(e) => {
                 tracing::error!("Error while getting EPUB positions: {e}");
                 errors.push("ERR_1039".into());
-                vec![]
+                (vec![], None)
             }
         };
 
@@ -383,7 +392,7 @@ impl Analyzer {
             comment,
             ..media(MediaStatus::Ready, None, None)
         };
-        Ok((media, extension))
+        Ok((media, extension, kepub_file_size))
     }
 
     /// `BookAnalyzer.generateThumbnail`
@@ -1457,7 +1466,8 @@ fn is_fixed_layout(pkg: &EpubPackage) -> bool {
         })
 }
 
-/// `EpubExtractor.computePositions`
+/// `EpubExtractor.computePositions`; also reports the file size of the kepub conversion, when
+/// one was produced (stored as a book projection by the caller).
 fn compute_positions(
     pkg: &mut EpubPackage,
     resources: &[MediaFile],
@@ -1465,26 +1475,35 @@ fn compute_positions(
     is_kepub: bool,
     book_path: &Path,
     kepubify_path: Option<&Path>,
-) -> Result<Vec<R2Locator>> {
+) -> Result<(Vec<R2Locator>, Option<u64>)> {
     let reading_order: Vec<&MediaFile> = resources
         .iter()
         .filter(|r| r.sub_type == Some(MediaFileSubType::EpubPage))
         .collect();
 
-    let kobo_positions: HashMap<String, Vec<(String, f32)>> = if is_fixed_layout {
-        HashMap::new()
+    let (kobo_positions, kepub_file_size): (KoboSpans, Option<u64>) = if is_fixed_layout {
+        (HashMap::new(), None)
     } else if is_kepub {
-        compute_positions_from_kobo_span(&reading_order, &mut |name| pkg.read_entry_string(name))?
+        (
+            compute_positions_from_kobo_span(&reading_order, &mut |name| {
+                pkg.read_entry_string(name)
+            })?,
+            None,
+        )
     } else if let Some(kepubify_path) = kepubify_path {
-        positions_via_kepubify(kepubify_path, book_path, &reading_order).unwrap_or_else(|| {
-            tracing::warn!(
-                "Could not convert to Kepub to compute positions: {}",
-                book_path.display()
-            );
-            HashMap::new()
-        })
+        let (spans, size) = positions_via_kepubify(kepubify_path, book_path, &reading_order);
+        (
+            spans.unwrap_or_else(|| {
+                tracing::warn!(
+                    "Could not convert to Kepub to compute positions: {}",
+                    book_path.display()
+                );
+                HashMap::new()
+            }),
+            size,
+        )
     } else {
-        HashMap::new()
+        (HashMap::new(), None)
     };
 
     let mut start_position = 1i32;
@@ -1552,29 +1571,41 @@ fn compute_positions(
     }
 
     let total = positions.len() as f32;
-    Ok(positions
-        .into_iter()
-        .map(|mut l| {
-            if let Some(loc) = &mut l.locations {
-                loc.total_progression = loc.position.map(|p| p as f32 / total);
-            }
-            l
-        })
-        .collect())
+    Ok((
+        positions
+            .into_iter()
+            .map(|mut l| {
+                if let Some(loc) = &mut l.locations {
+                    loc.total_progression = loc.position.map(|p| p as f32 / total);
+                }
+                l
+            })
+            .collect(),
+        kepub_file_size,
+    ))
 }
 
+/// koboSpan id → progression, per resource file name
+type KoboSpans = HashMap<String, Vec<(String, f32)>>;
+
 /// `EpubExtractor`: plain EPUBs are converted to a temporary KEPUB so positions can be read
-/// from real kobo spans; the converted file is deleted right after.
+/// from real kobo spans; the converted file is deleted right after. The spans are `None` when
+/// the converted file could not be parsed; the converted file size is reported either way.
 fn positions_via_kepubify(
     kepubify_path: &Path,
     book_path: &Path,
     reading_order: &[&MediaFile],
-) -> Option<HashMap<String, Vec<(String, f32)>>> {
+) -> (Option<KoboSpans>, Option<u64>) {
     // the output name is derived from the source file stem, so same-named EPUBs converted
     // concurrently would clobber each other in the shared temp dir — isolate per call
-    let tmp = tempfile::tempdir().ok()?;
-    let kepub = crate::kepubify::convert(kepubify_path, book_path, Some(tmp.path()))?;
-    let result = std::fs::File::open(&kepub)
+    let Some(tmp) = tempfile::tempdir().ok() else {
+        return (None, None);
+    };
+    let Some(kepub) = crate::kepubify::convert(kepubify_path, book_path, Some(tmp.path())) else {
+        return (None, None);
+    };
+    let size = std::fs::metadata(&kepub).ok().map(|m| m.len());
+    let spans = std::fs::File::open(&kepub)
         .ok()
         .and_then(|f| zip::ZipArchive::new(f).ok())
         .and_then(|mut archive| {
@@ -1586,7 +1617,7 @@ fn positions_via_kepubify(
             })
             .ok()
         });
-    result
+    (spans, size)
 }
 
 /// `EpubExtractor.computePositionsFromKoboSpan`: koboSpan id → progression per resource.
@@ -1594,7 +1625,7 @@ fn positions_via_kepubify(
 fn compute_positions_from_kobo_span(
     reading_order: &[&MediaFile],
     supplier: &mut dyn FnMut(&str) -> Option<String>,
-) -> Result<HashMap<String, Vec<(String, f32)>>> {
+) -> Result<KoboSpans> {
     let mut map = HashMap::new();
     for file in reading_order {
         let entries = supplier(&file.file_name)
@@ -3040,6 +3071,10 @@ mod tests {
         let media = &analysis.media;
         assert_eq!(media.status, MediaStatus::Ready);
         assert!(!media.epub_is_kepub);
+        assert_eq!(
+            analysis.kepub_file_size,
+            Some(std::fs::metadata(&converted).unwrap().len())
+        );
 
         let ext = analysis.epub_extension.as_ref().unwrap();
         assert!(!ext.is_fixed_layout);
@@ -3062,6 +3097,7 @@ mod tests {
 
         let analysis = Analyzer::new(3, 300, 15, Some(script.clone())).analyze(&source, false);
         assert_eq!(analysis.media.status, MediaStatus::Ready);
+        assert_eq!(analysis.kepub_file_size, None);
         let ext = analysis.epub_extension.as_ref().unwrap();
         let positions = &ext.positions;
         assert_eq!(positions.len(), 3);

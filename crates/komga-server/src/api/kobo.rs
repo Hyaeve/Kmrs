@@ -20,11 +20,13 @@ use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::{routing, Json, Router};
 use komga_core::dto::url_to_file_path;
+use komga_core::model::book_projection::{BookProjection, KEPUB_DEFAULT};
 use komga_core::model::read_progress::ReadProgress;
 use komga_core::model::sync_point::SyncPoint;
 use komga_core::model::user::{KomgaUser, UserRole};
 use komga_core::time_codec;
 use komga_db::dao::book::BookDao;
+use komga_db::dao::book_projection::BookProjectionDao;
 use komga_db::dao::media::MediaDao;
 use komga_db::dao::sync_point::{SyncPage, SyncPointDao};
 use komga_db::dao::thumbnail::ThumbnailBookDao;
@@ -852,7 +854,16 @@ fn with_download_urls(
     metadata.download_urls = vec![DownloadUrlDto {
         drm_type: "None".to_string(),
         format,
-        size: metadata.file_size,
+        size: if format == FormatDto::Kepub {
+            // Kobo checks the size to decide on re-downloads: serve the converted file's size
+            metadata
+                .extra_file_sizes
+                .get(komga_core::model::book_projection::KEPUB_DEFAULT)
+                .copied()
+                .unwrap_or(metadata.file_size)
+        } else {
+            metadata.file_size
+        },
         platform: "Generic".to_string(),
         url: format!(
             "{download_base}/{}/file/epub?convert_kepub={convert}",
@@ -900,6 +911,7 @@ fn metadata_for_removed_book(book_id: &str) -> KoboBookMetadataDto {
         is_kepub: false,
         is_pre_paginated: false,
         file_size: 0,
+        extra_file_sizes: Default::default(),
     }
 }
 
@@ -1139,7 +1151,28 @@ async fn get_book_file(
     let kepub_path = state
         .kepub
         .cached_or_convert(&cache_key, |tmp_dir| {
-            komga_media::kepubify::convert(&kepubify, &book_path, Some(tmp_dir))
+            let converted = komga_media::kepubify::convert(&kepubify, &book_path, Some(tmp_dir))?;
+            // store the kepub file size, so it can be passed back during Kobo Sync
+            match std::fs::metadata(&converted) {
+                Ok(meta) => {
+                    if let Err(e) = BookProjectionDao::new(state.db.clone()).save(&BookProjection {
+                        book_id: book.id.clone(),
+                        profile: KEPUB_DEFAULT.to_string(),
+                        file_size: meta.len() as i64,
+                        created_date: time_codec::now_utc(),
+                        last_modified_date: time_codec::now_utc(),
+                    }) {
+                        tracing::warn!("Could not store kepub file size for {}: {e}", book.id);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Could not stat converted kepub {}: {e}",
+                        converted.display()
+                    )
+                }
+            }
+            Some(converted)
         })
         .ok_or_else(conversion_failed)?;
 
@@ -2042,25 +2075,27 @@ mod tests {
                 [format!("file:{}", epub.display())],
             )
             .unwrap();
-        // fake kepubify: copies input to output, counting invocations
+        // fake kepubify: copies input to output, appending 5 bytes, counting invocations
         let counter = dir.path().join("count");
         let script = dir.path().join("kepubify");
         executable_script(
             &script,
             &format!(
-                "#!/bin/sh\necho x >> \"{}\"\ncp \"$1\" \"$3\"\n",
+                "#!/bin/sh\necho x >> \"{}\"\ncp \"$1\" \"$3\"\nprintf EXTRA >> \"$3\"\n",
                 counter.display()
             ),
         );
         save_setting(&state, "KEPUBIFY_PATH", script.to_str().unwrap());
         let app = test_router(state.clone());
 
-        // download URLs advertise KEPUB with convert_kepub=true
+        // download URLs advertise KEPUB with convert_kepub=true, with the original file size
+        // until a conversion has happened
         let (status, _, bytes) = call(&app, "GET", "/kobo/kobokey/v1/library/sync", None).await;
         assert_eq!(status, StatusCode::OK);
         let body = json(&bytes);
         let url = &body[0]["NewEntitlement"]["BookMetadata"]["DownloadUrls"][0];
         assert_eq!(url["Format"], "KEPUB");
+        assert_eq!(url["Size"], 16227);
         assert!(url["Url"]
             .as_str()
             .unwrap()
@@ -2082,9 +2117,18 @@ mod tests {
             .to_str()
             .unwrap();
         assert!(disposition.contains("v01.kepub.epub"), "{disposition}");
-        assert_eq!(bytes, b"EPUB-BYTES");
+        assert_eq!(bytes, b"EPUB-BYTESEXTRA");
         let runs = std::fs::read_to_string(&counter).unwrap().lines().count();
         assert_eq!(runs, 1);
+
+        // after the conversion, sync reports the converted file size
+        let (status, _, bytes) = call(&app, "GET", "/kobo/kobokey/v1/library/sync", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let body = json(&bytes);
+        assert_eq!(
+            body[0]["NewEntitlement"]["BookMetadata"]["DownloadUrls"][0]["Size"],
+            15
+        );
 
         // the second download is served from the cache: no new conversion
         let (status, _, bytes) = call(
@@ -2095,7 +2139,7 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(bytes, b"EPUB-BYTES");
+        assert_eq!(bytes, b"EPUB-BYTESEXTRA");
         let runs = std::fs::read_to_string(&counter).unwrap().lines().count();
         assert_eq!(runs, 1);
     }

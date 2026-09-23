@@ -1,4 +1,4 @@
-//! Migration integration test: runs all 91 main-database migrations plus the
+//! Migration integration test: runs all 92 main-database migrations plus the
 //! tasks-database migrations, and verifies the history table and final schema.
 
 use komga_db::migrate::{MigrateError, Migrator, Placeholders};
@@ -16,9 +16,9 @@ fn migrate_main(conn: &Connection) -> usize {
 fn fresh_db_applies_all_migrations() {
     let conn = Connection::open_in_memory().unwrap();
     let applied = migrate_main(&conn);
-    assert_eq!(applied, 91, "86 SQL + 5 JDBC migrations");
+    assert_eq!(applied, 92, "87 SQL + 5 JDBC migrations");
 
-    // history table: 91 rows all successful, 5 of them JDBC with NULL checksum
+    // history table: 92 rows all successful, 5 of them JDBC with NULL checksum
     let (total, jdbc, null_checksum): (i64, i64, i64) = conn
         .query_row(
             "SELECT COUNT(*), \
@@ -29,7 +29,7 @@ fn fresh_db_applies_all_migrations() {
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .unwrap();
-    assert_eq!(total, 91);
+    assert_eq!(total, 92);
     assert_eq!(jdbc, 5);
     assert_eq!(null_checksum, 5);
 
@@ -44,6 +44,7 @@ fn fresh_db_applies_all_migrations() {
         "BOOK",
         "BOOK_METADATA",
         "BOOK_METADATA_AGGREGATION",
+        "BOOK_PROJECTION",
         "MEDIA",
         "MEDIA_PAGE",
         "MEDIA_FILE",

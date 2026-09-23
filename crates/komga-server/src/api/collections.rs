@@ -234,8 +234,8 @@ async fn update_collection_by_id(
     if !violations.is_empty() {
         return Err(ApiError::Violations(violations));
     }
-    let existing = komga_db::dao::collection::CollectionDao::new(state.db.clone())
-        .find_by_id(&id)?
+    let existing = CollectionDtoDao::new(state.db.clone())
+        .find_by_id(&id, None, &auth.0.user.restrictions)?
         .ok_or_else(|| ApiError::not_found(""))?;
     let updated = SeriesCollection {
         name: body.name.unwrap_or(existing.name.clone()),
@@ -258,8 +258,8 @@ async fn delete_collection_by_id(
     Path(id): Path<String>,
 ) -> Result<axum::http::StatusCode, ApiError> {
     auth.0.require_admin()?;
-    let collection = komga_db::dao::collection::CollectionDao::new(state.db.clone())
-        .find_by_id(&id)?
+    let collection = CollectionDtoDao::new(state.db.clone())
+        .find_by_id(&id, None, &auth.0.user.restrictions)?
         .ok_or_else(|| ApiError::not_found(""))?;
     crate::service::collection::delete_collection(&state, &collection)?;
     Ok(axum::http::StatusCode::NO_CONTENT)
@@ -1420,6 +1420,67 @@ pub(crate) mod tests {
         assert_eq!(status, StatusCode::NO_CONTENT);
         let (status, _, _) = call(&state, router(), get("/api/v1/collections/c1", ADMIN_KEY)).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn update_and_delete_collection_restricted_admin() {
+        let state = test_state();
+        seed_base(&state.db);
+        exec(
+            &state.db,
+            "INSERT INTO SERIES_METADATA_SHARING (SERIES_ID, LABEL) VALUES ('s1', 'kids')",
+            [],
+        );
+        insert_user(
+            &state.db,
+            "restricted-admin@x.y",
+            &[UserRole::Admin],
+            &[],
+            ContentRestrictions::new(
+                None,
+                ["kids".to_string()].into_iter().collect(),
+                std::collections::BTreeSet::new(),
+            ),
+            "restricted-admin-key",
+        );
+        // c2 has no series matching the allowed labels: hidden from update/delete as well
+        let (status, _, _) = call(
+            &state,
+            router(),
+            json_request(
+                "PATCH",
+                "/api/v1/collections/c2",
+                "restricted-admin-key",
+                r#"{"name":"X"}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (status, _, _) = call(
+            &state,
+            router(),
+            json_request(
+                "DELETE",
+                "/api/v1/collections/c2",
+                "restricted-admin-key",
+                "",
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        // c1 stays writable
+        let (status, _, _) = call(
+            &state,
+            router(),
+            json_request(
+                "PATCH",
+                "/api/v1/collections/c1",
+                "restricted-admin-key",
+                r#"{"name":"Still"}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
     }
 
     #[tokio::test]

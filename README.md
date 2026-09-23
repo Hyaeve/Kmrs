@@ -62,7 +62,7 @@ The binary serves on port 25600 with data directory `~/.komga` (override with `K
 
 ## Compatibility
 
-The compatibility target is **komga 1.27.0**: the Flyway migrations, the OpenAPI document, and the behavior fixtures are taken from that release, and API behavior is ported from it. Known deviations are listed under [Known limitations](#known-limitations).
+The compatibility target is **komga 1.27.1**: the Flyway migrations, the OpenAPI document, and the behavior fixtures are taken from that release, and API behavior is ported from it. Known deviations are listed under [Known limitations](#known-limitations).
 
 `tests/diff/diff.py` starts the Java komga and kmrs side by side over the same fixture library and compares ~105 endpoints (status, normalized JSON/XML bodies, headers, zip structure):
 
@@ -80,7 +80,7 @@ cargo xtask dump-schema            # print the final migrated schema
 cargo xtask dump-checksums         # print Flyway CRC32 for all migrations
 ```
 
-`sync-migrations` looks for a `komga` source checkout next to this repo by default; `KOMGA_REPO_DIR` can be used to point elsewhere. The checkout should be at the compatibility target (`1.27.0`).
+`sync-migrations` looks for a `komga` source checkout next to this repo by default; `KOMGA_REPO_DIR` can be used to point elsewhere. The checkout should be at the compatibility target (`1.27.1`).
 
 ### Profiling memory usage
 

@@ -10,12 +10,14 @@ use crate::state::test_search_index;
 use crate::state::AppState;
 use komga_core::dto::url_to_file_path;
 use komga_core::model::book::Book;
+use komga_core::model::book_projection::{BookProjection, KEPUB_DEFAULT};
 use komga_core::model::history::{HistoricalEvent, HistoricalEventType};
 use komga_core::model::media::{Media, MediaStatus};
 use komga_core::model::read_progress::ReadProgress;
 use komga_core::model::thumbnail::{Dimension, ThumbnailBook, ThumbnailType};
 use komga_core::time_codec::now_utc;
 use komga_db::dao::book::{BookDao, BookMetadataDao};
+use komga_db::dao::book_projection::BookProjectionDao;
 use komga_db::dao::history::HistoricalEventDao;
 use komga_db::dao::library::LibraryDao;
 use komga_db::dao::media::MediaDao;
@@ -93,6 +95,17 @@ pub fn analyze_and_persist(
         .find_by_id(&book.library_id)?
         .expect("book references a missing library");
     let analysis = analyzer_for(state).analyze(&book_path(book), library.analyze_dimensions);
+
+    // `KepubConverter`: the size of the on-the-fly kepub conversion is stored for Kobo Sync
+    if let Some(size) = analysis.kepub_file_size {
+        BookProjectionDao::new(state.db.clone()).save(&BookProjection {
+            book_id: book.id.clone(),
+            profile: KEPUB_DEFAULT.to_string(),
+            file_size: size as i64,
+            created_date: now_utc(),
+            last_modified_date: now_utc(),
+        })?;
+    }
 
     let media_dao = MediaDao::new(state.db.clone());
     let previous = media_dao
@@ -482,6 +495,7 @@ pub fn delete_one(state: &AppState, book: &Book) -> komga_db::Result<()> {
     MediaDao::new(state.db.clone()).delete(&book.id)?;
     ThumbnailBookDao::new(state.db.clone()).delete_by_book_id(&book.id)?;
     BookMetadataDao::new(state.db.clone()).delete(&book.id)?;
+    BookProjectionDao::new(state.db.clone()).delete(&book.id)?;
     BookDao::new(state.db.clone()).delete(&book.id)?;
 
     let _ = state.events.send(DomainEvent::BookDeleted(book.clone()));
@@ -518,6 +532,7 @@ pub fn delete_many(state: &AppState, books: &[Book]) -> komga_db::Result<()> {
     for id in &book_ids {
         metadata_dao.delete(id)?;
     }
+    BookProjectionDao::new(state.db.clone()).delete_by_book_ids(&book_ids)?;
     for id in &book_ids {
         book_dao.delete(id)?;
     }

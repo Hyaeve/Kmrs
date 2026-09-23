@@ -11,6 +11,7 @@ use rusqlite::{Error as SqlError, Row};
 use time::OffsetDateTime;
 
 pub mod book;
+pub mod book_projection;
 pub mod collection;
 pub mod history;
 pub mod library;

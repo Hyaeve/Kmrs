@@ -213,6 +213,9 @@ pub struct KoboBookMetadataDto {
     pub is_pre_paginated: bool,
     #[serde(skip)]
     pub file_size: i64,
+    /// `extraFileSizes`: file size per projection profile, `@JsonIgnore` like `fileSize`
+    #[serde(skip)]
+    pub extra_file_sizes: std::collections::BTreeMap<String, i64>,
 }
 
 impl From<&KoboBookMetadataRow> for KoboBookMetadataDto {
@@ -290,6 +293,7 @@ impl From<&KoboBookMetadataRow> for KoboBookMetadataDto {
             is_kepub: row.epub_is_kepub,
             is_pre_paginated: row.is_pre_paginated,
             file_size: row.file_size,
+            extra_file_sizes: row.extra_file_sizes.clone(),
         }
     }
 }
@@ -742,6 +746,7 @@ mod tests {
             is_pre_paginated: false,
             cover_image_id: Some("t1".into()),
             authors: vec!["Kentaro Miura".into()],
+            extra_file_sizes: Default::default(),
         }
     }
 

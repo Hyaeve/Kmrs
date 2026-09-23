@@ -30,6 +30,8 @@ pub struct KoboBookMetadataRow {
     /// selected thumbnail id (coverImageId)
     pub cover_image_id: Option<String>,
     pub authors: Vec<String>,
+    /// `KoboBookMetadataDto.extraFileSizes`: file size per projection profile, plus `default`
+    pub extra_file_sizes: BTreeMap<String, i64>,
 }
 
 pub struct KoboDtoDao {
@@ -47,6 +49,15 @@ impl KoboDtoDao {
     ) -> Result<Vec<KoboBookMetadataRow>> {
         if book_ids.is_empty() {
             return Ok(vec![]);
+        }
+        let projections = crate::dao::book_projection::BookProjectionDao::new(self.db.clone())
+            .find_by_book_ids(book_ids)?;
+        let mut sizes_by_book: HashMap<String, BTreeMap<String, i64>> = HashMap::new();
+        for p in projections {
+            sizes_by_book
+                .entry(p.book_id)
+                .or_default()
+                .insert(p.profile, p.file_size);
         }
         let conn = self.db.ro();
         let authors = self.authors_by_book(&conn, book_ids)?;
@@ -69,7 +80,11 @@ impl KoboDtoDao {
                 Self::row_to_metadata(row, &authors)
             })?;
             for row in mapped {
-                rows.push(row?);
+                let mut row = row?;
+                let mut sizes = sizes_by_book.remove(&row.book_id).unwrap_or_default();
+                sizes.insert("default".to_string(), row.file_size);
+                row.extra_file_sizes = sizes;
+                rows.push(row);
             }
         }
         Ok(rows)
@@ -125,6 +140,8 @@ impl KoboDtoDao {
             epub_is_kepub: row.get(14)?,
             is_pre_paginated: is_fixed_layout(blob.as_deref()),
             cover_image_id: row.get(16)?,
+            // filled in by `find_book_metadata_by_ids` once projections are loaded
+            extra_file_sizes: BTreeMap::new(),
         })
     }
 }
@@ -216,6 +233,11 @@ mod tests {
             params![now, now],
         )
         .unwrap();
+        rw.execute(
+            "INSERT INTO BOOK_PROJECTION (BOOK_ID, PROFILE, FILE_SIZE) VALUES ('b1', 'kepub_default', 999)",
+            [],
+        )
+        .unwrap();
     }
 
     #[test]
@@ -237,6 +259,13 @@ mod tests {
         assert_eq!(row.cover_image_id.as_deref(), Some("t1"));
         assert_eq!(row.authors, vec!["Kentaro Miura".to_string()]);
         assert!(row.release_date.is_none());
+        assert_eq!(
+            row.extra_file_sizes,
+            BTreeMap::from([
+                ("kepub_default".to_string(), 999),
+                ("default".to_string(), 16227),
+            ])
+        );
         assert_eq!(by_entitlement_id(rows).len(), 1);
     }
 

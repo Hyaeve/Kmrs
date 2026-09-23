@@ -95,12 +95,9 @@ impl KoboProxy {
             }
         }
         if let Some(token) = sync_token {
-            if token.raw_kobo_sync_token.trim().is_empty() {
-                return Err(ProxyError::Internal(
-                    "request must include sync token, but no raw Kobo sync token found".into(),
-                ));
+            if !token.raw_kobo_sync_token.trim().is_empty() {
+                request = request.header("x-kobo-synctoken", &token.raw_kobo_sync_token);
             }
-            request = request.header("x-kobo-synctoken", &token.raw_kobo_sync_token);
         }
         if let Some(body) = body {
             request = request.body(body);
