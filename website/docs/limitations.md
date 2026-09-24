@@ -4,7 +4,7 @@ title: Known limitations
 
 # Known limitations
 
-Places where kmrs deviates from the Java version. Scope exclusions are intentional and not listed: no web UI in the standalone binary (the docker image bundles the kmweb UI), and no actuator endpoints or metrics that only expose JVM/Spring internals (beans, conditions, env, configprops, loggers, mappings, heapdump, threaddump, `jvm.*`/`system.*`/`http.server.requests` meters and the like).
+Places where kmrs has not matched the Java version and does not plan to — accepted gaps. Improvements and intentional behavior differences are listed under [Enhancements](./enhancements.md). Scope exclusions are intentional and not listed here either: no web UI in the standalone binary (the docker image bundles the kmweb UI), and no actuator endpoints or metrics that only expose JVM/Spring internals (beans, conditions, env, configprops, loggers, mappings, heapdump, threaddump, `jvm.*`/`system.*`/`http.server.requests` meters and the like).
 
 ## Media formats
 

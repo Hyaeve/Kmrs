@@ -4,7 +4,7 @@ title: Compatibility
 
 # Compatibility
 
-The compatibility target is **komga 1.27.1**: the Flyway migrations, the OpenAPI document, and the behavior fixtures are taken from that release, and API behavior is ported from it. Known deviations are listed under [Known limitations](./limitations.md).
+The compatibility target is **komga 1.27.1**: the Flyway migrations, the OpenAPI document, and the behavior fixtures are taken from that release, and API behavior is ported from it. Improvements and intentional behavior differences are listed under [Enhancements](./enhancements.md); accepted gaps under [Known limitations](./limitations.md).
 
 ## Differential test harness
 

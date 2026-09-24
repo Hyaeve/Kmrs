@@ -14,6 +14,7 @@
 # port = 25600 # env: SERVER_PORT; CLI: --port
 # session-timeout = "7d" # env: SERVER_SERVLET_SESSION_TIMEOUT; "500ms"/"10s"/"30m"/"1h"/"7d", bare integer = seconds
 # context-path = "/" # env: SERVER_SERVLET_CONTEXT_PATH; URL prefix, empty = root
+# sort-locale = "zh-CN" # env: KOMGA_SORT_LOCALE; BCP47 language tag for ICU sorting, empty/absent = root collation
 
 [cors]
 # allowed-origins = [] # env: KOMGA_CORS_ALLOWEDORIGINS (comma-separated)

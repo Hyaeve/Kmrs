@@ -25,3 +25,4 @@ The docker image bundles [kmweb](https://github.com/kmworks/kmweb), a React web 
 On top of drop-in compatibility, kmrs adds improvements the Java version does not have:
 
 - **Search**: simplified ↔ traditional Chinese cross-search and CJK boundary unigrams (e.g. `3月` matches `3月的狮子`). See [Search](./search.md).
+- **Sorting**: natural sort of numbered titles ("Page 2" < "Page 10") with a configurable ICU locale (`server.sort-locale`). The full list: [Enhancements](./enhancements.md).

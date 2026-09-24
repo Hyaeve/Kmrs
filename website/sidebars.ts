@@ -8,6 +8,7 @@ const sidebars: SidebarsConfig = {
     'webui',
     'search',
     'compatibility',
+    'enhancements',
     'limitations',
     'development',
   ],

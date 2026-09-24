@@ -17,6 +17,7 @@ Every key below is commented out at its default value; uncomment to change it. A
 # port = 25600 # env: SERVER_PORT; CLI: --port
 # session-timeout = "7d" # env: SERVER_SERVLET_SESSION_TIMEOUT; "500ms"/"10s"/"30m"/"1h"/"7d", bare integer = seconds
 # context-path = "/" # env: SERVER_SERVLET_CONTEXT_PATH; URL prefix, empty = root
+# sort-locale = "zh-CN" # env: KOMGA_SORT_LOCALE; BCP47 language tag for ICU sorting, empty/absent = root collation
 
 [cors]
 # allowed-origins = [] # env: KOMGA_CORS_ALLOWEDORIGINS (comma-separated)
@@ -37,6 +38,9 @@ Every key below is commented out at its default value; uncomment to change it. A
 
 [tasks-db]
 # file = "<config-dir>/tasks.sqlite" # env: KOMGA_TASKSDB_FILE; same keys as [database], env prefix KOMGA_TASKSDB
+
+[kmrs-db]
+# file = "<config-dir>/kmrs.sqlite" # per-book series metadata contributions for DB-only series refresh; env: KOMGA_KMRSDB_FILE; same keys as [database], env prefix KOMGA_KMRSDB
 
 [search]
 # data-directory = "<config-dir>/lucene" # tantivy index; env: KOMGA_LUCENE_DATA_DIRECTORY
