@@ -154,29 +154,7 @@ fn split_into_segments(value: &str) -> Vec<Segment> {
             segments.push(Segment::Text(text));
         }
     }
-    merge_segments(segments)
-}
-
-/// Merges adjacent text segments. `split_into_segments` produces strictly
-/// alternating, non-empty segments (the empty string returns before
-/// segmenting), so no empty-text or empty-result fallback is needed.
-fn merge_segments(segments: Vec<Segment>) -> Vec<Segment> {
-    let mut result = Vec::new();
-    for segment in segments {
-        match segment {
-            Segment::Text(text) => {
-                if let Some(Segment::Text(prev)) = result.last_mut() {
-                    prev.push_str(&text);
-                } else {
-                    result.push(Segment::Text(text));
-                }
-            }
-            Segment::Number(num) => {
-                result.push(Segment::Number(num));
-            }
-        }
-    }
-    result
+    segments
 }
 
 /// Digit runs compare by value without integer parsing: leading zeros ignored,
