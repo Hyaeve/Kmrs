@@ -12,6 +12,7 @@ fn main() {
     for (dir, out_name) in [
         ("migrations", "migrations_main.rs"),
         ("migrations_tasks", "migrations_tasks.rs"),
+        ("migrations_kmrs", "migrations_kmrs.rs"),
     ] {
         let mut names: Vec<String> = fs::read_dir(dir)
             .unwrap_or_else(|e| panic!("cannot read {dir}: {e}"))

@@ -503,6 +503,10 @@ pub fn delete_one(state: &AppState, book: &Book) -> komga_db::Result<()> {
 
     ReadProgressDao::new(state.db.clone()).delete_by_book(&book.id)?;
     remove_books_from_all_readlists(state, std::slice::from_ref(&book.id))?;
+    komga_db::dao::series_metadata_contribution::SeriesMetadataContributionDao::new(
+        state.kmrs_db.clone(),
+    )
+    .delete_by_book_ids(std::slice::from_ref(&book.id))?;
     MediaDao::new(state.db.clone()).delete(&book.id)?;
     ThumbnailBookDao::new(state.db.clone()).delete_by_book_id(&book.id)?;
     BookMetadataDao::new(state.db.clone()).delete(&book.id)?;
@@ -533,6 +537,10 @@ pub fn delete_many(state: &AppState, books: &[Book]) -> komga_db::Result<()> {
 
     ReadProgressDao::new(state.db.clone()).delete_by_books(&book_ids)?;
     remove_books_from_all_readlists(state, &book_ids)?;
+    komga_db::dao::series_metadata_contribution::SeriesMetadataContributionDao::new(
+        state.kmrs_db.clone(),
+    )
+    .delete_by_book_ids(&book_ids)?;
     let media_dao = MediaDao::new(state.db.clone());
     let metadata_dao = BookMetadataDao::new(state.db.clone());
     let book_dao = BookDao::new(state.db.clone());
@@ -646,9 +654,13 @@ mod tests {
     use super::*;
     use crate::auth;
     use crate::settings::SettingsProvider;
+    use crate::state::test_kmrs_db;
     use komga_core::model::library::{Library, ScanInterval, SeriesCover};
     use komga_core::model::user::{KomgaUser, UserRole};
     use komga_core::time_codec::format_datetime;
+    use komga_db::dao::series_metadata_contribution::{
+        SeriesMetadataContributionDao, SeriesMetadataContributionSource,
+    };
     use komga_db::pool::Database;
     use komga_db::{Migrator, Placeholders};
     use std::sync::Arc;
@@ -681,6 +693,7 @@ mod tests {
             db,
             task_db,
             tasks_db,
+            kmrs_db: test_kmrs_db(),
             search_index: test_search_index(),
             kepub: crate::service::kepub::KepubConverter::new(tempfile::tempdir().unwrap().keep()),
             kobo_proxy: crate::service::kobo_proxy::KoboProxy::new(),
@@ -1515,6 +1528,18 @@ mod tests {
             )
             .unwrap();
 
+        // a persisted series contribution must be cleaned up too
+        let contribution_source = SeriesMetadataContributionSource {
+            book_id: book.id.clone(),
+            file_last_modified_seconds: 1,
+            file_size: 1,
+            media_type: "application/zip".into(),
+            media_modified_seconds: 1,
+        };
+        SeriesMetadataContributionDao::new(state.kmrs_db.clone())
+            .upsert("COMICINFO", &contribution_source, "ABSENT", None)
+            .unwrap();
+
         let mut rx = state.events.subscribe();
         delete_one(&state, &book).unwrap();
 
@@ -1527,6 +1552,16 @@ mod tests {
         assert_eq!(count("READLIST_BOOK"), 0);
         assert_eq!(count("MEDIA"), 0);
         assert_eq!(count("BOOK"), 0);
+        let contributions: i64 = state
+            .kmrs_db
+            .ro()
+            .query_row(
+                "SELECT COUNT(*) FROM SERIES_METADATA_CONTRIBUTION",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(contributions, 0);
         assert!(matches!(rx.try_recv(), Ok(DomainEvent::BookDeleted(_))));
     }
 
@@ -1556,6 +1591,24 @@ mod tests {
                 .unwrap();
         }
 
+        // persisted series contributions must be cleaned up too
+        let dao = SeriesMetadataContributionDao::new(state.kmrs_db.clone());
+        for book in [&book1, &book2] {
+            dao.upsert(
+                "COMICINFO",
+                &SeriesMetadataContributionSource {
+                    book_id: book.id.clone(),
+                    file_last_modified_seconds: 1,
+                    file_size: 1,
+                    media_type: "application/zip".into(),
+                    media_modified_seconds: 1,
+                },
+                "ABSENT",
+                None,
+            )
+            .unwrap();
+        }
+
         delete_many(&state, &[book1, book2]).unwrap();
         let count: i64 = state
             .db
@@ -1569,6 +1622,16 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM READ_PROGRESS", [], |r| r.get(0))
             .unwrap();
         assert_eq!(count, 0);
+        let contributions: i64 = state
+            .kmrs_db
+            .ro()
+            .query_row(
+                "SELECT COUNT(*) FROM SERIES_METADATA_CONTRIBUTION",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(contributions, 0);
     }
 
     #[test]

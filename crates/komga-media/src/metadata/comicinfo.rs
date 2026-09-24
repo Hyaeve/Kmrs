@@ -242,21 +242,57 @@ static CAPABILITIES: LazyLock<BTreeSet<BookMetadataPatchCapability>> = LazyLock:
     .collect()
 });
 
+/// Outcome of reading a book's ComicInfo.xml.
+pub enum ComicInfoRead {
+    /// No ComicInfo.xml entry in the book.
+    Missing,
+    /// The entry is listed but the archive/file could not be read (e.g. a transient
+    /// I/O error); the caller should not persist a contribution so the next refresh
+    /// retries.
+    Unreadable,
+    /// The entry was read but the XML could not be parsed.
+    ParseError,
+    /// The entry was read and parsed.
+    Parsed(Box<ComicInfo>),
+}
+
 pub struct ComicInfoProvider;
 
 impl ComicInfoProvider {
-    /// `getComicInfo`: the file must be listed in media.files; parse failures yield None.
-    fn get_comic_info(book_path: &Path, media: &Media) -> Option<ComicInfo> {
+    /// `getComicInfo`: the file must be listed in media.files; missing, unreadable and
+    /// unparsable documents all yield `None`.
+    pub fn get_comic_info(book_path: &Path, media: &Media) -> Option<ComicInfo> {
+        match Self::read_comic_info(book_path, media) {
+            ComicInfoRead::Parsed(comic_info) => Some(*comic_info),
+            _ => None,
+        }
+    }
+
+    /// Like `get_comic_info`, but reports why the document is unavailable so the caller
+    /// can distinguish a transient read failure from a missing or corrupt document.
+    pub fn read_comic_info(book_path: &Path, media: &Media) -> ComicInfoRead {
         if !media.files.iter().any(|f| f.file_name == COMIC_INFO) {
             tracing::debug!("Book does not contain any {COMIC_INFO} file");
-            return None;
+            return ComicInfoRead::Missing;
         }
-        let content = container::get_file_content(book_path, media, COMIC_INFO).ok()?;
-        Self::get_comic_info_from_bytes(&content)
+        let content = match container::get_file_content(book_path, media, COMIC_INFO) {
+            Ok(content) => content,
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to read {COMIC_INFO} from {}: {e}",
+                    book_path.display()
+                );
+                return ComicInfoRead::Unreadable;
+            }
+        };
+        match Self::get_comic_info_from_bytes(&content) {
+            Some(comic_info) => ComicInfoRead::Parsed(Box::new(comic_info)),
+            None => ComicInfoRead::ParseError,
+        }
     }
 
     /// Parse raw ComicInfo.xml bytes captured during analysis; parse failures yield None.
-    fn get_comic_info_from_bytes(content: &[u8]) -> Option<ComicInfo> {
+    pub fn get_comic_info_from_bytes(content: &[u8]) -> Option<ComicInfo> {
         match quick_xml::de::from_reader::<_, ComicInfo>(content) {
             Ok(comic_info) => Some(comic_info),
             Err(e) => {
@@ -441,63 +477,91 @@ impl SeriesMetadataFromBookProvider for ComicInfoProvider {
         append_volume_to_title: bool,
     ) -> Option<SeriesMetadataPatch> {
         let comic_info = Self::get_comic_info(book_path, media)?;
+        Some(series_patch_from_comic_info(
+            &comic_info,
+            append_volume_to_title,
+        ))
+    }
 
-        let reading_direction = match comic_info.manga {
-            Some(Manga::No) => Some(ReadingDirection::LeftToRight),
-            Some(Manga::YesAndRightToLeft) => Some(ReadingDirection::RightToLeft),
-            _ => None,
-        };
+    fn get_series_metadata_from_book_with_sources(
+        &self,
+        book_path: &Path,
+        media: &Media,
+        append_volume_to_title: bool,
+        sources: Option<&crate::CapturedMetadataSources>,
+    ) -> Option<SeriesMetadataPatch> {
+        // reuse the raw ComicInfo.xml captured during analysis when available, so the
+        // refresh does not re-open the book; fall back to the file otherwise
+        let comic_info = match sources.and_then(|s| s.comicinfo.as_deref()) {
+            Some(bytes) => Self::get_comic_info_from_bytes(bytes),
+            None => Self::get_comic_info(book_path, media),
+        }?;
+        Some(series_patch_from_comic_info(
+            &comic_info,
+            append_volume_to_title,
+        ))
+    }
+}
 
-        let genres: Option<BTreeSet<String>> = comic_info.genre.as_deref().and_then(|genre| {
-            let genres: BTreeSet<String> = genre
+pub fn series_patch_from_comic_info(
+    comic_info: &ComicInfo,
+    append_volume_to_title: bool,
+) -> SeriesMetadataPatch {
+    let reading_direction = match comic_info.manga {
+        Some(Manga::No) => Some(ReadingDirection::LeftToRight),
+        Some(Manga::YesAndRightToLeft) => Some(ReadingDirection::RightToLeft),
+        _ => None,
+    };
+
+    let genres: Option<BTreeSet<String>> = comic_info.genre.as_deref().and_then(|genre| {
+        let genres: BTreeSet<String> = genre
+            .split(',')
+            .filter_map(|g| non_blank(Some(g.trim())).map(str::to_string))
+            .collect();
+        if genres.is_empty() {
+            None
+        } else {
+            Some(genres)
+        }
+    });
+
+    let series = if append_volume_to_title {
+        compute_series_from_series_and_volume(comic_info.series.as_deref(), comic_info.volume)
+    } else {
+        comic_info.series.clone()
+    };
+
+    let language = comic_info.language_iso.as_deref().and_then(|iso| {
+        if bcp47::is_valid(iso) {
+            Some(bcp47::normalize(iso))
+        } else {
+            None
+        }
+    });
+
+    let collections: BTreeSet<String> = comic_info
+        .series_group
+        .as_deref()
+        .map(|group| {
+            group
                 .split(',')
                 .filter_map(|g| non_blank(Some(g.trim())).map(str::to_string))
-                .collect();
-            if genres.is_empty() {
-                None
-            } else {
-                Some(genres)
-            }
-        });
-
-        let series = if append_volume_to_title {
-            compute_series_from_series_and_volume(comic_info.series.as_deref(), comic_info.volume)
-        } else {
-            comic_info.series.clone()
-        };
-
-        let language = comic_info.language_iso.as_deref().and_then(|iso| {
-            if bcp47::is_valid(iso) {
-                Some(bcp47::normalize(iso))
-            } else {
-                None
-            }
-        });
-
-        let collections: BTreeSet<String> = comic_info
-            .series_group
-            .as_deref()
-            .map(|group| {
-                group
-                    .split(',')
-                    .filter_map(|g| non_blank(Some(g.trim())).map(str::to_string))
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        Some(SeriesMetadataPatch {
-            title: series.clone(),
-            title_sort: series,
-            status: None,
-            summary: None,
-            reading_direction,
-            publisher: non_blank(comic_info.publisher.as_deref()).map(str::to_string),
-            age_rating: comic_info.age_rating.and_then(AgeRating::age_rating),
-            language,
-            genres,
-            total_book_count: comic_info.count,
-            collections,
+                .collect()
         })
+        .unwrap_or_default();
+
+    SeriesMetadataPatch {
+        title: series.clone(),
+        title_sort: series,
+        status: None,
+        summary: None,
+        reading_direction,
+        publisher: non_blank(comic_info.publisher.as_deref()).map(str::to_string),
+        age_rating: comic_info.age_rating.and_then(AgeRating::age_rating),
+        language,
+        genres,
+        total_book_count: comic_info.count,
+        collections,
     }
 }
 

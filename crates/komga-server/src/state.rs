@@ -15,6 +15,9 @@ pub struct AppState {
     /// by background task execution so it never contends with API connections.
     pub task_db: Database,
     pub tasks_db: Database,
+    /// Per-book persisted series metadata contributions (`kmrs.sqlite`), read/written
+    /// by book and series metadata refresh; never touches the main database.
+    pub kmrs_db: Database,
     pub sessions: SessionStore,
     pub settings: Arc<SettingsProvider>,
     pub tsid: Arc<TsidFactory>,
@@ -35,6 +38,19 @@ pub(crate) fn test_search_index() -> Arc<komga_search::SearchIndex> {
         komga_search::SearchIndex::open(&tempfile::tempdir().unwrap().keep())
             .expect("test search index"),
     )
+}
+
+/// An in-memory `kmrs.sqlite` with the kmrs migrations applied, for tests.
+#[cfg(test)]
+pub(crate) fn test_kmrs_db() -> Database {
+    let kmrs_db = Database::open_in_memory(false).unwrap();
+    komga_db::Migrator::new(
+        &komga_db::kmrs_migrations(),
+        komga_db::Placeholders::default(),
+    )
+    .migrate(&kmrs_db.rw())
+    .unwrap();
+    kmrs_db
 }
 
 impl AppState {

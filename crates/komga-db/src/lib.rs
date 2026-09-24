@@ -40,3 +40,17 @@ pub fn tasks_migrations() -> Vec<migrate::Migration> {
         })
         .collect()
 }
+
+/// Migration list for the kmrs database (kmrs.sqlite): per-book persisted series metadata
+/// contributions.
+pub fn kmrs_migrations() -> Vec<migrate::Migration> {
+    let sql: &[migrate::SqlMigration] = include!(concat!(env!("OUT_DIR"), "/migrations_kmrs.rs"));
+    sql.iter()
+        .map(|m| {
+            migrate::Migration::Sql(migrate::SqlMigration {
+                file_name: m.file_name,
+                sql: m.sql,
+            })
+        })
+        .collect()
+}

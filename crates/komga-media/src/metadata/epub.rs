@@ -31,17 +31,54 @@ fn relator_role(code: &str) -> Option<&'static str> {
     })
 }
 
+/// Outcome of locating the OPF package document inside an EPUB archive.
+enum PackageFile {
+    /// The archive could not be read (e.g. a transient I/O error).
+    Unreadable,
+    /// The archive was read but is structurally invalid (no OPF path, bad encoding).
+    Invalid,
+    /// The OPF document text was read.
+    Readable(String),
+}
+
+/// Locate the OPF document text via META-INF/container.xml's rootfile, reporting
+/// whether the failure was a read error or a structurally invalid document.
+fn read_package_file(book_path: &Path) -> PackageFile {
+    let container = match crate::zip::get_entry_bytes(book_path, CONTAINER_XML) {
+        Ok(container) => container,
+        Err(_) => return PackageFile::Unreadable,
+    };
+    let container = match String::from_utf8(container) {
+        Ok(container) => container,
+        Err(_) => return PackageFile::Invalid,
+    };
+    let doc = match roxmltree::Document::parse(&container) {
+        Ok(doc) => doc,
+        Err(_) => return PackageFile::Invalid,
+    };
+    let Some(full_path) = doc
+        .descendants()
+        .find(|n| n.has_tag_name("rootfile"))
+        .and_then(|n| n.attribute("full-path"))
+    else {
+        return PackageFile::Invalid;
+    };
+    let bytes = match crate::zip::get_entry_bytes(book_path, full_path) {
+        Ok(bytes) => bytes,
+        Err(_) => return PackageFile::Unreadable,
+    };
+    match String::from_utf8(bytes) {
+        Ok(package) => PackageFile::Readable(package),
+        Err(_) => PackageFile::Invalid,
+    }
+}
+
 /// `getPackageFileContent`: the OPF document text located via META-INF/container.xml's rootfile.
 fn get_package_file_content(book_path: &Path) -> Option<String> {
-    let container = crate::zip::get_entry_bytes(book_path, CONTAINER_XML).ok()?;
-    let container = String::from_utf8(container).ok()?;
-    let doc = roxmltree::Document::parse(&container).ok()?;
-    let full_path = doc
-        .descendants()
-        .find(|n| n.has_tag_name("rootfile"))?
-        .attribute("full-path")?;
-    let bytes = crate::zip::get_entry_bytes(book_path, full_path).ok()?;
-    String::from_utf8(bytes).ok()
+    match read_package_file(book_path) {
+        PackageFile::Readable(package) => Some(package),
+        _ => None,
+    }
 }
 
 /// jsoup `Node.text()` collapses whitespace runs into single spaces and trims.
@@ -316,52 +353,116 @@ impl SeriesMetadataFromBookProvider for EpubMetadataProvider {
             return None;
         }
         let package_file = get_package_file_content(book_path)?;
-        let opf = Opf::parse(&package_file)?;
-
-        let series = opf
-            .meta_with("belongs-to-collection", None)
-            .next()
-            .and_then(|n| n.text())
-            .map(jsoup_text)
-            .filter(|s| !s.is_empty());
-        let publisher = opf.first_text("publisher");
-        let language = opf.first_text("language").and_then(|l| {
-            if bcp47::is_valid(&l) {
-                Some(bcp47::normalize(&l))
-            } else {
-                None
-            }
-        });
-        let genres: BTreeSet<String> = opf
-            .children_named("subject")
-            .filter_map(|n| n.text())
-            .map(jsoup_text)
-            .filter(|s| !s.is_empty())
-            .collect();
-        let direction = opf.spine_progression().and_then(|ppd| match ppd {
-            "rtl" => Some(ReadingDirection::RightToLeft),
-            "ltr" => Some(ReadingDirection::LeftToRight),
-            _ => None,
-        });
-
-        Some(SeriesMetadataPatch {
-            title: series.clone(),
-            title_sort: series,
-            status: None,
-            summary: None,
-            reading_direction: direction,
-            publisher,
-            age_rating: None,
-            language,
-            genres: if genres.is_empty() {
-                None
-            } else {
-                Some(genres)
-            },
-            total_book_count: None,
-            collections: BTreeSet::new(),
-        })
+        series_patch_from_package(&package_file)
     }
+
+    fn get_series_metadata_from_book_with_sources(
+        &self,
+        book_path: &Path,
+        media: &Media,
+        _append_volume_to_title: bool,
+        sources: Option<&crate::CapturedMetadataSources>,
+    ) -> Option<SeriesMetadataPatch> {
+        if media.media_type.as_deref() != Some(EPUB_MEDIA_TYPE) {
+            return None;
+        }
+        // reuse the OPF document captured during analysis when available, so the refresh
+        // does not re-open the book; fall back to the file otherwise
+        let package_file = match sources.and_then(|s| s.epub_opf.as_deref()) {
+            Some(bytes) => std::borrow::Cow::Borrowed(std::str::from_utf8(bytes).ok()?),
+            None => std::borrow::Cow::Owned(get_package_file_content(book_path)?),
+        };
+        series_patch_from_package(&package_file)
+    }
+}
+
+/// Outcome of reading an EPUB's OPF package document.
+pub enum EpubPackageRead {
+    /// The archive could not be read (e.g. a transient I/O error); the caller should
+    /// not persist a contribution so the next refresh retries.
+    Unreadable,
+    /// The document was read but is structurally invalid (no OPF path, bad encoding,
+    /// unparsable OPF).
+    Invalid,
+    /// The OPF was read and parsed.
+    Parsed(SeriesMetadataPatch),
+}
+
+/// Like `get_series_metadata_from_book_with_sources`, but reports why the package is
+/// unavailable so the caller can distinguish a transient read failure from an invalid
+/// document.
+pub fn read_epub_series_patch(
+    book_path: &Path,
+    media: &Media,
+    sources: Option<&crate::CapturedMetadataSources>,
+) -> EpubPackageRead {
+    if media.media_type.as_deref() != Some(EPUB_MEDIA_TYPE) {
+        return EpubPackageRead::Invalid;
+    }
+    let package_file: std::borrow::Cow<'_, str> = match sources.and_then(|s| s.epub_opf.as_deref())
+    {
+        Some(bytes) => match std::str::from_utf8(bytes) {
+            Ok(package) => std::borrow::Cow::Borrowed(package),
+            Err(_) => return EpubPackageRead::Invalid,
+        },
+        None => match read_package_file(book_path) {
+            PackageFile::Unreadable => return EpubPackageRead::Unreadable,
+            PackageFile::Invalid => return EpubPackageRead::Invalid,
+            PackageFile::Readable(package) => std::borrow::Cow::Owned(package),
+        },
+    };
+    match series_patch_from_package(&package_file) {
+        Some(patch) => EpubPackageRead::Parsed(patch),
+        None => EpubPackageRead::Invalid,
+    }
+}
+
+fn series_patch_from_package(package_file: &str) -> Option<SeriesMetadataPatch> {
+    let opf = Opf::parse(package_file)?;
+
+    let series = opf
+        .meta_with("belongs-to-collection", None)
+        .next()
+        .and_then(|n| n.text())
+        .map(jsoup_text)
+        .filter(|s| !s.is_empty());
+    let publisher = opf.first_text("publisher");
+    let language = opf.first_text("language").and_then(|l| {
+        if bcp47::is_valid(&l) {
+            Some(bcp47::normalize(&l))
+        } else {
+            None
+        }
+    });
+    let genres: BTreeSet<String> = opf
+        .children_named("subject")
+        .filter_map(|n| n.text())
+        .map(jsoup_text)
+        .filter(|s| !s.is_empty())
+        .collect();
+    let direction = opf.spine_progression().and_then(|ppd| match ppd {
+        "rtl" => Some(ReadingDirection::RightToLeft),
+        "ltr" => Some(ReadingDirection::LeftToRight),
+        _ => None,
+    });
+
+    Some(SeriesMetadataPatch {
+        title: series.clone(),
+        title_sort: series,
+        status: None,
+        summary: None,
+        reading_direction: direction,
+        publisher,
+        age_rating: None,
+        language,
+        genres: if genres.is_empty() {
+            None
+        } else {
+            Some(genres)
+        },
+        total_book_count: None,
+        collections: BTreeSet::new(),
+    })
 }
 
 impl MetadataProvider for EpubMetadataProvider {

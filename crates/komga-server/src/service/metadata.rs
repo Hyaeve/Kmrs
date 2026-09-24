@@ -12,27 +12,36 @@ use crate::service::{book, collection, readlist, series as series_service};
 use crate::state::AppState;
 use komga_core::model::book::{Book, BookMetadata};
 use komga_core::model::library::Library;
-use komga_core::model::series::Series;
+use komga_core::model::media::{Media, MediaStatus};
+use komga_core::model::series::{ReadingDirection, Series, SeriesStatus};
 use komga_core::model::thumbnail::{ThumbnailBook, ThumbnailSeries, ThumbnailType};
 use komga_core::task::BookMetadataPatchCapability;
 use komga_db::dao::book::{BookDao, BookMetadataDao};
 use komga_db::dao::library::LibraryDao;
 use komga_db::dao::media::MediaDao;
 use komga_db::dao::series::{BookMetadataAggregationDao, SeriesMetadataDao};
+use komga_db::dao::series_metadata_contribution::{
+    SeriesMetadataContributionDao, SeriesMetadataContributionSource,
+};
 use komga_db::Result;
 use komga_media::metadata::artwork;
 use komga_media::metadata::barcode::IsbnBarcodeProvider;
-use komga_media::metadata::comicinfo::ComicInfoProvider;
-use komga_media::metadata::epub::EpubMetadataProvider;
+use komga_media::metadata::comicinfo::{ComicInfoProvider, ComicInfoRead};
+use komga_media::metadata::epub::{EpubMetadataProvider, EpubPackageRead};
 use komga_media::metadata::mylar::{compute_one_shot_patch, MylarSeriesProvider};
 use komga_media::metadata::patch::{
     aggregate as aggregate_parts, apply_book_patch, apply_series_patch, most_frequent,
     AggregationParts, BookMetadataPatch, BookMetadataProvider, MetadataPatchTarget,
-    MetadataProvider, SeriesMetadataFromBookProvider, SeriesMetadataPatch, SeriesMetadataProvider,
+    MetadataProvider, SeriesMetadataPatch, SeriesMetadataProvider,
 };
 use komga_media::CapturedMetadataSources;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
+
+/// Persisted provider names in `SERIES_METADATA_CONTRIBUTION`.
+const COMICINFO_PROVIDER: &str = "COMICINFO";
+const EPUB_PROVIDER: &str = "EPUB";
 
 fn library_of(state: &AppState, library_id: &str) -> Result<Library> {
     LibraryDao::new(state.db.clone())
@@ -88,10 +97,12 @@ pub fn refresh_book_metadata_with_sources(
             continue;
         }
         if !(provider.should_library_handle_patch(&library, MetadataPatchTarget::Book)
-            || provider.should_library_handle_patch(&library, MetadataPatchTarget::ReadList))
+            || provider.should_library_handle_patch(&library, MetadataPatchTarget::ReadList)
+            || provider.should_library_handle_patch(&library, MetadataPatchTarget::Series)
+            || provider.should_library_handle_patch(&library, MetadataPatchTarget::Collection))
         {
             tracing::info!(
-                "Library is not set to import book or read lists metadata for this provider, skipping: {name}"
+                "Library is not set to import metadata for this provider, skipping: {name}"
             );
             continue;
         }
@@ -109,6 +120,12 @@ pub fn refresh_book_metadata_with_sources(
                     readlist::add_book_to_read_list(state, &entry.name, book, entry.number)?;
                 }
             }
+        }
+
+        // persist the per-book series contribution so series-level refresh can aggregate
+        // without re-opening the book file (kmrs.sqlite)
+        if media.status == MediaStatus::Ready {
+            upsert_series_metadata_contributions(state, book, &media, &library, name, sources)?;
         }
     }
 
@@ -134,54 +151,100 @@ fn handle_patch_for_book_metadata(
 }
 
 /// `SeriesMetadataLifecycle.refreshMetadata`.
+///
+/// Series metadata from books is aggregated from the per-book contributions persisted in
+/// `kmrs.sqlite` by book refresh, without opening any book file. Books without a fresh
+/// contribution (e.g. right after an upgrade the table is empty) are backfilled from
+/// their files once through the same upsert path, so later refreshes aggregate from the
+/// DB alone.
 pub fn refresh_series_metadata(state: &AppState, series: &Series) -> Result<()> {
     tracing::info!("Refresh metadata for series: {series:?}");
     let library = library_of(state, &series.library_id)?;
     let mut changed = false;
 
-    let from_book_providers: Vec<(&str, Box<dyn SeriesMetadataFromBookProvider>)> = vec![
-        ("ComicInfoProvider", Box::new(ComicInfoProvider)),
-        ("EpubMetadataProvider", Box::new(EpubMetadataProvider)),
-    ];
-    for (name, provider) in &from_book_providers {
-        if !(provider.should_library_handle_patch(&library, MetadataPatchTarget::Series)
-            || provider.should_library_handle_patch(&library, MetadataPatchTarget::Collection))
-        {
-            tracing::info!(
-                "Library is not set to import series or collection metadata for this provider, skipping: {name}"
-            );
-            continue;
-        }
+    // --- ComicInfo (series + collection targets) ---
+    let comicinfo_provider = ComicInfoProvider;
+    let comicinfo_enabled = comicinfo_provider
+        .should_library_handle_patch(&library, MetadataPatchTarget::Series)
+        || comicinfo_provider
+            .should_library_handle_patch(&library, MetadataPatchTarget::Collection);
+    // --- EPUB (series target) ---
+    let epub_provider = EpubMetadataProvider;
+    let epub_enabled =
+        epub_provider.should_library_handle_patch(&library, MetadataPatchTarget::Series);
+    // one DB query shared by both provider branches
+    let contribution_sources = if comicinfo_enabled || epub_enabled {
+        Some(load_series_contribution_sources(state, &series.id)?)
+    } else {
+        None
+    };
 
-        let books = BookDao::new(state.db.clone()).find_by_series_id(&series.id)?;
-        let mut patches: Vec<SeriesMetadataPatch> = vec![];
-        for book in &books {
-            let media = MediaDao::new(state.db.clone())
-                .find_by_id(&book.id)?
-                .ok_or_else(|| {
-                    komga_db::Error::EnumValue(format!("no media for book {}", book.id))
-                })?;
-            if let Some(patch) = provider.get_series_metadata_from_book(
-                &book_path(book),
-                &media,
-                library.import_comicinfo_series_append_volume,
-            ) {
-                patches.push(patch);
-            }
-        }
-
-        let collection_names: BTreeSet<String> = patches
+    if comicinfo_enabled {
+        let comicinfo_sources: Vec<SeriesMetadataContributionSource> = contribution_sources
+            .as_deref()
+            .unwrap_or_default()
             .iter()
-            .flat_map(|p| p.collections.iter().cloned())
+            .filter(|s| supports_comicinfo(&s.media_type))
+            .cloned()
             .collect();
-        if provider.should_library_handle_patch(&library, MetadataPatchTarget::Series) {
-            handle_patch_for_series_metadata(state, patches, series)?;
-            changed = true;
-        }
-        if provider.should_library_handle_patch(&library, MetadataPatchTarget::Collection) {
-            for name in collection_names {
-                collection::add_series_to_collection(state, &name, series)?;
+        let snapshot = match load_complete_snapshot(state, COMICINFO_PROVIDER, &comicinfo_sources)?
+        {
+            ContributionSnapshot::Complete(contributions) => Some(contributions),
+            ContributionSnapshot::Incomplete { missing } => {
+                tracing::warn!(
+                        "incomplete comicinfo contribution snapshot for series {} ({} books), backfilling from files",
+                        series.id,
+                        missing.len()
+                    );
+                backfill_missing_contributions(state, &library, &missing, "ComicInfoProvider")?;
+                match load_complete_snapshot(state, COMICINFO_PROVIDER, &comicinfo_sources)? {
+                    ContributionSnapshot::Complete(contributions) => Some(contributions),
+                    ContributionSnapshot::Incomplete { .. } => {
+                        tracing::warn!(
+                                "comicinfo contributions still incomplete after backfill for series {}, skipping until book refresh",
+                                series.id
+                            );
+                        None
+                    }
+                }
             }
+        };
+        if let Some(contributions) = snapshot {
+            changed |= aggregate_comicinfo_contributions(state, &library, series, &contributions)?;
+        }
+    }
+
+    if epub_enabled {
+        let epub_sources: Vec<SeriesMetadataContributionSource> = contribution_sources
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .filter(|s| supports_epub(&s.media_type))
+            .cloned()
+            .collect();
+        let snapshot = match load_complete_snapshot(state, EPUB_PROVIDER, &epub_sources)? {
+            ContributionSnapshot::Complete(contributions) => Some(contributions),
+            ContributionSnapshot::Incomplete { missing } => {
+                tracing::warn!(
+                    "incomplete epub contribution snapshot for series {} ({} books), backfilling from files",
+                    series.id,
+                    missing.len()
+                );
+                backfill_missing_contributions(state, &library, &missing, "EpubMetadataProvider")?;
+                match load_complete_snapshot(state, EPUB_PROVIDER, &epub_sources)? {
+                    ContributionSnapshot::Complete(contributions) => Some(contributions),
+                    ContributionSnapshot::Incomplete { .. } => {
+                        tracing::warn!(
+                            "epub contributions still incomplete after backfill for series {}, skipping until book refresh",
+                            series.id
+                        );
+                        None
+                    }
+                }
+            }
+        };
+        if let Some(contributions) = snapshot {
+            changed |= aggregate_epub_contributions(state, &library, series, &contributions)?;
         }
     }
 
@@ -211,6 +274,423 @@ pub fn refresh_series_metadata(state: &AppState, series: &Series) -> Result<()> 
             .send(DomainEvent::SeriesUpdated(series.clone()));
     }
     Ok(())
+}
+
+// --- persisted series metadata contributions (kmrs.sqlite) ---
+// Payload JSON uses `serde(tag = "provider", rename_all = "SCREAMING_SNAKE_CASE")` with
+// snake_case patch fields.
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "provider", rename_all = "SCREAMING_SNAKE_CASE")]
+enum PersistedContribution {
+    ComicInfo {
+        plain: Box<PersistedSeriesMetadataPatch>,
+        append_volume: Box<PersistedSeriesMetadataPatch>,
+    },
+    Epub {
+        patch: Box<PersistedSeriesMetadataPatch>,
+    },
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct PersistedSeriesMetadataPatch {
+    title: Option<String>,
+    title_sort: Option<String>,
+    status: Option<String>,
+    summary: Option<String>,
+    reading_direction: Option<String>,
+    publisher: Option<String>,
+    age_rating: Option<i32>,
+    language: Option<String>,
+    genres: Option<Vec<String>>,
+    total_book_count: Option<i32>,
+    collections: Vec<String>,
+}
+
+impl PersistedSeriesMetadataPatch {
+    fn persist(patch: &SeriesMetadataPatch) -> Self {
+        Self {
+            title: patch.title.clone(),
+            title_sort: patch.title_sort.clone(),
+            status: patch.status.map(|s| s.as_str().to_string()),
+            summary: patch.summary.clone(),
+            reading_direction: patch.reading_direction.map(|d| d.as_str().to_string()),
+            publisher: patch.publisher.clone(),
+            age_rating: patch.age_rating,
+            language: patch.language.clone(),
+            genres: patch.genres.clone().map(|g| g.into_iter().collect()),
+            total_book_count: patch.total_book_count,
+            collections: patch.collections.iter().cloned().collect(),
+        }
+    }
+
+    fn into_patch(self) -> SeriesMetadataPatch {
+        SeriesMetadataPatch {
+            title: self.title,
+            title_sort: self.title_sort,
+            status: self.status.and_then(|s| SeriesStatus::from_str(&s)),
+            summary: self.summary,
+            reading_direction: self
+                .reading_direction
+                .and_then(|d| ReadingDirection::from_str(&d)),
+            publisher: self.publisher,
+            age_rating: self.age_rating,
+            language: self.language,
+            genres: self.genres.map(|g| g.into_iter().collect()),
+            total_book_count: self.total_book_count,
+            collections: self.collections.into_iter().collect(),
+        }
+    }
+}
+
+impl PersistedContribution {
+    fn into_contribution(self, provider: &str) -> Option<SeriesMetadataContribution> {
+        match (provider, self) {
+            (
+                COMICINFO_PROVIDER,
+                PersistedContribution::ComicInfo {
+                    plain,
+                    append_volume,
+                },
+            ) => Some(SeriesMetadataContribution::ComicInfo {
+                plain: plain.into_patch(),
+                append_volume: append_volume.into_patch(),
+            }),
+            (EPUB_PROVIDER, PersistedContribution::Epub { patch }) => {
+                Some(SeriesMetadataContribution::Epub {
+                    patch: patch.into_patch(),
+                })
+            }
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum SeriesMetadataContribution {
+    ComicInfo {
+        plain: SeriesMetadataPatch,
+        append_volume: SeriesMetadataPatch,
+    },
+    Epub {
+        patch: SeriesMetadataPatch,
+    },
+}
+
+enum ContributionSnapshot {
+    Complete(Vec<SeriesMetadataContribution>),
+    /// Books with a missing, stale or unparsable contribution row, so the caller can
+    /// backfill them from the book files.
+    Incomplete {
+        missing: Vec<SeriesMetadataContributionSource>,
+    },
+}
+
+/// Loads the persisted contributions for one provider and validates their source
+/// fingerprints against the current book/media state. Books with a missing, stale or
+/// unparsable row are returned as `Incomplete { missing }` so the caller can backfill
+/// them from the book files; otherwise the snapshot is `Complete` with the valid
+/// contributions.
+fn load_complete_snapshot(
+    state: &AppState,
+    provider: &str,
+    sources: &[SeriesMetadataContributionSource],
+) -> Result<ContributionSnapshot> {
+    let book_ids: Vec<String> = sources.iter().map(|s| s.book_id.clone()).collect();
+    let rows =
+        SeriesMetadataContributionDao::new(state.kmrs_db.clone()).load_rows(provider, &book_ids)?;
+    let mut contributions = vec![];
+    let mut missing = vec![];
+    for source in sources {
+        let Some(row) = rows.get(&source.book_id) else {
+            missing.push(source.clone());
+            continue;
+        };
+        let fresh = row.file_last_modified_seconds == source.file_last_modified_seconds
+            && row.file_size == source.file_size
+            && row.media_type == source.media_type
+            && row.media_modified_seconds == source.media_modified_seconds
+            && row.payload_format_version
+                == komga_db::dao::series_metadata_contribution::PAYLOAD_FORMAT_VERSION;
+        if !fresh {
+            missing.push(source.clone());
+            continue;
+        }
+        match row.outcome.as_str() {
+            "ABSENT" => {}
+            "PRESENT" => {
+                let Some(payload) = row.payload.as_deref() else {
+                    missing.push(source.clone());
+                    continue;
+                };
+                let contribution = serde_json::from_str::<PersistedContribution>(payload)
+                    .ok()
+                    .and_then(|c| c.into_contribution(provider));
+                let Some(contribution) = contribution else {
+                    missing.push(source.clone());
+                    continue;
+                };
+                contributions.push(contribution);
+            }
+            _ => missing.push(source.clone()),
+        }
+    }
+    if missing.is_empty() {
+        Ok(ContributionSnapshot::Complete(contributions))
+    } else {
+        Ok(ContributionSnapshot::Incomplete { missing })
+    }
+}
+
+/// Backfills contribution rows for books whose snapshot entry is missing or stale, by
+/// re-reading each book file once (file fallback). Rows are written through the same
+/// upsert path as book refresh, so a later refresh aggregates from the DB alone.
+fn backfill_missing_contributions(
+    state: &AppState,
+    library: &Library,
+    missing: &[SeriesMetadataContributionSource],
+    provider_name: &str,
+) -> Result<()> {
+    let book_dao = BookDao::new(state.db.clone());
+    let media_dao = MediaDao::new(state.db.clone());
+    for source in missing {
+        let Some(book) = book_dao.find_by_id(&source.book_id)? else {
+            continue;
+        };
+        let Some(media) = media_dao.find_by_id(&source.book_id)? else {
+            continue;
+        };
+        if media.status != MediaStatus::Ready {
+            continue;
+        }
+        upsert_series_metadata_contributions(state, &book, &media, library, provider_name, None)?;
+    }
+    Ok(())
+}
+
+/// Applies the aggregated ComicInfo contributions to the series (series + collection
+/// targets). Returns whether anything changed.
+fn aggregate_comicinfo_contributions(
+    state: &AppState,
+    library: &Library,
+    series: &Series,
+    contributions: &[SeriesMetadataContribution],
+) -> Result<bool> {
+    let provider = ComicInfoProvider;
+    let patches: Vec<SeriesMetadataPatch> = contributions
+        .iter()
+        .filter_map(|c| match c {
+            SeriesMetadataContribution::ComicInfo {
+                plain,
+                append_volume,
+            } => Some(if library.import_comicinfo_series_append_volume {
+                append_volume.clone()
+            } else {
+                plain.clone()
+            }),
+            SeriesMetadataContribution::Epub { .. } => None,
+        })
+        .collect();
+    let collection_names: BTreeSet<String> = patches
+        .iter()
+        .flat_map(|p| p.collections.iter().cloned())
+        .collect();
+    let mut changed = false;
+    if provider.should_library_handle_patch(library, MetadataPatchTarget::Series) {
+        handle_patch_for_series_metadata(state, patches, series)?;
+        changed = true;
+    }
+    if provider.should_library_handle_patch(library, MetadataPatchTarget::Collection) {
+        for name in collection_names {
+            collection::add_series_to_collection(state, &name, series)?;
+        }
+    }
+    Ok(changed)
+}
+
+/// Applies the aggregated EPUB contributions to the series (series target). Returns
+/// whether anything changed.
+fn aggregate_epub_contributions(
+    state: &AppState,
+    library: &Library,
+    series: &Series,
+    contributions: &[SeriesMetadataContribution],
+) -> Result<bool> {
+    if !EpubMetadataProvider.should_library_handle_patch(library, MetadataPatchTarget::Series) {
+        return Ok(false);
+    }
+    let patches: Vec<SeriesMetadataPatch> = contributions
+        .iter()
+        .filter_map(|c| match c {
+            SeriesMetadataContribution::Epub { patch } => Some(patch.clone()),
+            SeriesMetadataContribution::ComicInfo { .. } => None,
+        })
+        .collect();
+    handle_patch_for_series_metadata(state, patches, series)?;
+    Ok(true)
+}
+
+/// DB-only load of the series' book sources (READY, non-deleted) — no file I/O.
+/// Unordered, matching the previous `BookDao::find_by_series_id` aggregation input.
+fn load_series_contribution_sources(
+    state: &AppState,
+    series_id: &str,
+) -> Result<Vec<SeriesMetadataContributionSource>> {
+    let conn = state.db.ro();
+    let mut stmt = conn.prepare(
+        r#"
+        SELECT b.ID                                            AS BOOK_ID,
+               unixepoch(b.FILE_LAST_MODIFIED)                 AS FILE_LAST_MODIFIED,
+               b.FILE_SIZE                                     AS FILE_SIZE,
+               COALESCE(m.MEDIA_TYPE, 'application/octet-stream') AS MEDIA_TYPE,
+               unixepoch(m.LAST_MODIFIED_DATE)                 AS MEDIA_LAST_MODIFIED
+        FROM BOOK b
+        JOIN MEDIA m ON m.BOOK_ID = b.ID
+        WHERE b.SERIES_ID = ?
+          AND b.DELETED_DATE IS NULL
+          AND m.STATUS = 'READY'
+        "#,
+    )?;
+    let rows = stmt.query_map([series_id], |row| {
+        Ok(SeriesMetadataContributionSource {
+            book_id: row.get("BOOK_ID")?,
+            file_last_modified_seconds: row.get("FILE_LAST_MODIFIED")?,
+            file_size: row.get("FILE_SIZE")?,
+            media_type: row.get("MEDIA_TYPE")?,
+            media_modified_seconds: row.get("MEDIA_LAST_MODIFIED")?,
+        })
+    })?;
+    rows.collect::<rusqlite::Result<_>>().map_err(Into::into)
+}
+
+/// Content-type support sets used to pick the provider for a book's media type.
+/// Matches what `komga_media::detect` actually stores (plain `application/zip` for
+/// CBZ, `application/x-rar-compressed; version=4/5` for CBR) plus defensive
+/// `vnd.comicbook*` / bare `application/x-rar-compressed` arms that the detector does
+/// not produce today, so CBR books keep their ComicInfo series contributions.
+fn supports_comicinfo(media_type: &str) -> bool {
+    matches!(
+        media_type,
+        komga_media::detect::APPLICATION_ZIP
+            | "application/vnd.comicbook+zip"
+            | komga_media::detect::APPLICATION_EPUB
+            | komga_media::detect::APPLICATION_RAR_4
+            | komga_media::detect::APPLICATION_RAR_5
+            | "application/x-rar-compressed"
+            | "application/vnd.comicbook-rar"
+    )
+}
+
+fn supports_epub(media_type: &str) -> bool {
+    matches!(media_type, komga_media::detect::APPLICATION_EPUB)
+}
+
+/// Serializes the PRESENT payload for a parsed ComicInfo document.
+fn comicinfo_present_contribution(
+    library: &Library,
+    document: &komga_media::metadata::comicinfo::ComicInfo,
+) -> Result<(&'static str, Option<String>)> {
+    let plain = komga_media::metadata::comicinfo::series_patch_from_comic_info(document, false);
+    let append_volume = komga_media::metadata::comicinfo::series_patch_from_comic_info(
+        document,
+        library.import_comicinfo_series_append_volume,
+    );
+    let payload = serde_json::to_string(&PersistedContribution::ComicInfo {
+        plain: Box::new(PersistedSeriesMetadataPatch::persist(&plain)),
+        append_volume: Box::new(PersistedSeriesMetadataPatch::persist(&append_volume)),
+    })
+    .map_err(|e| komga_db::Error::EnumValue(format!("serialize contribution: {e}")))?;
+    Ok(("PRESENT", Some(payload)))
+}
+
+/// Persists the series metadata contribution of one book: a missing or unparsable
+/// document is stored as ABSENT, while an entry that is listed but unreadable (e.g. a
+/// transient I/O error) is left without a row so the next refresh retries it. A parsed
+/// document always stores a PRESENT payload (empty fields stay empty). Gated on the
+/// library import switches of the corresponding provider.
+fn upsert_series_metadata_contributions(
+    state: &AppState,
+    book: &Book,
+    media: &Media,
+    library: &Library,
+    provider_name: &str,
+    sources: Option<&CapturedMetadataSources>,
+) -> Result<()> {
+    let source = SeriesMetadataContributionSource {
+        book_id: book.id.clone(),
+        file_last_modified_seconds: book.file_last_modified.unix_timestamp(),
+        file_size: book.file_size,
+        media_type: media
+            .media_type
+            .clone()
+            .unwrap_or_else(|| "application/octet-stream".to_string()),
+        media_modified_seconds: media.last_modified_date.unix_timestamp(),
+    };
+    let dao = SeriesMetadataContributionDao::new(state.kmrs_db.clone());
+    match provider_name {
+        "ComicInfoProvider" => {
+            if !(library.import_comicinfo_series || library.import_comicinfo_collection) {
+                return Ok(());
+            }
+            // parse the document once (captured bytes from analysis, file otherwise): a
+            // missing or unparsable ComicInfo.xml contributes ABSENT, never an empty
+            // PRESENT; an entry that is listed but unreadable (transient I/O) is left
+            // without a row so the next refresh retries it
+            let (outcome, payload) = match sources.and_then(|s| s.comicinfo.as_deref()) {
+                Some(bytes) => match ComicInfoProvider::get_comic_info_from_bytes(bytes) {
+                    Some(document) => comicinfo_present_contribution(library, &document)?,
+                    None => ("ABSENT", None),
+                },
+                None => match ComicInfoProvider::read_comic_info(&book_path(book), media) {
+                    ComicInfoRead::Missing | ComicInfoRead::ParseError => ("ABSENT", None),
+                    ComicInfoRead::Unreadable => {
+                        tracing::warn!(
+                            "ComicInfo.xml listed but unreadable for book {}, leaving it missing for the next refresh",
+                            book.id
+                        );
+                        return Ok(());
+                    }
+                    ComicInfoRead::Parsed(document) => {
+                        comicinfo_present_contribution(library, &document)?
+                    }
+                },
+            };
+            dao.upsert(COMICINFO_PROVIDER, &source, outcome, payload.as_deref())
+        }
+        "EpubMetadataProvider" => {
+            if !library.import_epub_series {
+                return Ok(());
+            }
+            // a non-EPUB media type or a structurally invalid package document
+            // contributes ABSENT, never an empty PRESENT; an unreadable archive
+            // (transient I/O) is left without a row so the next refresh retries it
+            let (outcome, payload) = match komga_media::metadata::epub::read_epub_series_patch(
+                &book_path(book),
+                media,
+                sources,
+            ) {
+                EpubPackageRead::Parsed(patch) => {
+                    let payload = serde_json::to_string(&PersistedContribution::Epub {
+                        patch: Box::new(PersistedSeriesMetadataPatch::persist(&patch)),
+                    })
+                    .map_err(|e| {
+                        komga_db::Error::EnumValue(format!("serialize contribution: {e}"))
+                    })?;
+                    ("PRESENT", Some(payload))
+                }
+                EpubPackageRead::Unreadable => {
+                    tracing::warn!(
+                        "EPUB package unreadable for book {}, leaving it missing for the next refresh",
+                        book.id
+                    );
+                    return Ok(());
+                }
+                EpubPackageRead::Invalid => ("ABSENT", None),
+            };
+            dao.upsert(EPUB_PROVIDER, &source, outcome, payload.as_deref())
+        }
+        _ => Ok(()),
+    }
 }
 
 fn handle_patch_for_series_metadata(
@@ -390,6 +870,7 @@ mod tests {
     use komga_core::time_codec::{now_utc, parse_date};
     use komga_db::dao::collection::CollectionDao;
     use komga_db::dao::readlist::ReadListDao;
+    use komga_db::dao::series_metadata_contribution::SeriesMetadataContributionDao;
     use komga_db::dao::thumbnail::{ThumbnailBookDao, ThumbnailSeriesDao};
     use komga_db::pool::Database;
     use std::io::Write;
@@ -752,6 +1233,159 @@ mod tests {
     }
 
     #[test]
+    fn support_filters_match_detected_media_types() {
+        assert!(supports_comicinfo(komga_media::detect::APPLICATION_ZIP));
+        assert!(supports_comicinfo("application/vnd.comicbook+zip"));
+        assert!(supports_comicinfo(komga_media::detect::APPLICATION_EPUB));
+        assert!(supports_comicinfo(komga_media::detect::APPLICATION_RAR_4));
+        assert!(supports_comicinfo(komga_media::detect::APPLICATION_RAR_5));
+        assert!(supports_comicinfo("application/x-rar-compressed"));
+        assert!(supports_comicinfo("application/vnd.comicbook-rar"));
+        assert!(!supports_comicinfo("application/pdf"));
+        assert!(supports_epub(komga_media::detect::APPLICATION_EPUB));
+        assert!(!supports_epub("application/x-mobipocket-ebook"));
+    }
+
+    #[test]
+    fn corrupt_comicinfo_stores_absent_contribution() {
+        let state = series_service::tests::test_state();
+        let root = visible_tempdir("series-corrupt");
+        let library = library("lib-13", &root);
+        seed_library(&state.db, &library);
+        let (_, books) = seed_series_with_books(
+            &state,
+            "lib-13",
+            "Alpha",
+            &root.join("alpha"),
+            &[("v01", Some("this is not a ComicInfo document"))],
+        );
+
+        for book in &books {
+            refresh_book_metadata(&state, book, &BookMetadataPatchCapability::all()).unwrap();
+        }
+        // a corrupt ComicInfo.xml must not be persisted as an empty PRESENT
+        let dao = SeriesMetadataContributionDao::new(state.kmrs_db.clone());
+        let rows = dao
+            .load_rows(
+                COMICINFO_PROVIDER,
+                &books.iter().map(|b| b.id.clone()).collect::<Vec<_>>(),
+            )
+            .unwrap();
+        let row = rows.get(&books[0].id).unwrap();
+        assert_eq!(row.outcome, "ABSENT");
+        assert_eq!(row.payload, None);
+    }
+
+    #[test]
+    fn series_refresh_backfills_empty_contributions_from_files() {
+        // upgrade scenario: no book refreshed yet, so the contribution table is empty
+        let state = series_service::tests::test_state();
+        let root = visible_tempdir("series-backfill");
+        let library = library("lib-14", &root);
+        seed_library(&state.db, &library);
+        let (series, books) = seed_series_with_books(
+            &state,
+            "lib-14",
+            "Alpha",
+            &root.join("alpha"),
+            &[
+                ("v01", Some(COMIC_INFO_FULL)),
+                ("v02", Some(COMIC_INFO_FULL)),
+            ],
+        );
+
+        refresh_series_metadata(&state, &series).unwrap();
+
+        // series metadata was aggregated from the files (backfill) and applied
+        let metadata = series_metadata(&state, &series.id);
+        assert_eq!(metadata.title, "Alpha Series (2)");
+        assert_eq!(metadata.total_book_count, Some(7));
+        // every READY book now has a contribution row, so later refreshes are DB-only
+        let dao = SeriesMetadataContributionDao::new(state.kmrs_db.clone());
+        let rows = dao
+            .load_rows(
+                COMICINFO_PROVIDER,
+                &books.iter().map(|b| b.id.clone()).collect::<Vec<_>>(),
+            )
+            .unwrap();
+        assert_eq!(rows.len(), books.len());
+        assert!(rows.values().all(|r| r.outcome == "PRESENT"));
+    }
+
+    #[test]
+    fn series_refresh_reads_only_missing_books() {
+        let state = series_service::tests::test_state();
+        let root = visible_tempdir("series-partial");
+        let library = library("lib-15", &root);
+        seed_library(&state.db, &library);
+        let (series, books) = seed_series_with_books(
+            &state,
+            "lib-15",
+            "Alpha",
+            &root.join("alpha"),
+            &[
+                ("v01", Some(COMIC_INFO_FULL)),
+                ("v02", Some(COMIC_INFO_FULL)),
+            ],
+        );
+
+        // refresh only the first book: it gets a contribution row, the second stays missing
+        refresh_book_metadata(&state, &books[0], &BookMetadataPatchCapability::all()).unwrap();
+        // remove the first book's file: the backfill must not read it (DB contribution reused)
+        std::fs::remove_file(root.join("alpha").join("v01.cbz")).unwrap();
+
+        refresh_series_metadata(&state, &series).unwrap();
+
+        // both contributions participate in the aggregation; only the missing book
+        // (v02) was read from disk
+        let metadata = series_metadata(&state, &series.id);
+        assert_eq!(metadata.title, "Alpha Series (2)");
+        let dao = SeriesMetadataContributionDao::new(state.kmrs_db.clone());
+        let rows = dao
+            .load_rows(
+                COMICINFO_PROVIDER,
+                &books.iter().map(|b| b.id.clone()).collect::<Vec<_>>(),
+            )
+            .unwrap();
+        assert_eq!(rows.len(), books.len());
+    }
+
+    #[test]
+    fn unreadable_comicinfo_is_not_persisted() {
+        // a ComicInfo.xml that is listed in media.files but cannot be read (transient
+        // I/O) must not be latched as a fresh ABSENT: the book stays without a row so
+        // the next refresh retries
+        let state = series_service::tests::test_state();
+        let root = visible_tempdir("series-unreadable");
+        let library = library("lib-16", &root);
+        seed_library(&state.db, &library);
+        let (series, books) = seed_series_with_books(
+            &state,
+            "lib-16",
+            "Alpha",
+            &root.join("alpha"),
+            &[("v01", Some(COMIC_INFO_FULL))],
+        );
+
+        // corrupt the archive on disk; media.files still lists ComicInfo.xml
+        std::fs::write(root.join("alpha").join("v01.cbz"), b"not a zip archive").unwrap();
+        refresh_book_metadata(&state, &books[0], &BookMetadataPatchCapability::all()).unwrap();
+
+        let dao = SeriesMetadataContributionDao::new(state.kmrs_db.clone());
+        let rows = dao
+            .load_rows(COMICINFO_PROVIDER, &[books[0].id.clone()])
+            .unwrap();
+        assert!(rows.is_empty(), "unreadable entry must not be persisted");
+
+        // series refresh: the backfill hits the same read error and skips, no panic
+        refresh_series_metadata(&state, &series).unwrap();
+        assert!(dao
+            .load_rows(COMICINFO_PROVIDER, &[books[0].id.clone()])
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
     fn refresh_series_metadata_aggregates_and_creates_collections() {
         let state = series_service::tests::test_state();
         let root = visible_tempdir("series-refresh");
@@ -773,13 +1407,19 @@ mod tests {
                 "<Genre>fantasy, seinen</Genre>",
             )
             .replace("<AgeRating>MA 15+</AgeRating>", "<AgeRating>M</AgeRating>");
-        let (series, _) = seed_series_with_books(
+        let (series, books) = seed_series_with_books(
             &state,
             "lib-4",
             "Alpha",
             &root.join("alpha"),
             &[("v01", Some(&comic_a)), ("v02", Some(&comic_b))],
         );
+
+        // series refresh aggregates DB-persisted contributions, so each book must be
+        // refreshed first (the analyze -> book refresh chain does exactly this)
+        for book in &books {
+            refresh_book_metadata(&state, book, &BookMetadataPatchCapability::all()).unwrap();
+        }
 
         let mut rx = state.events.subscribe();
         refresh_series_metadata(&state, &series).unwrap();
@@ -823,7 +1463,7 @@ mod tests {
         let mut library = library("lib-5", &root);
         library.import_comicinfo_series_append_volume = false;
         seed_library(&state.db, &library);
-        let (series, _) = seed_series_with_books(
+        let (series, books) = seed_series_with_books(
             &state,
             "lib-5",
             "Alpha",
@@ -831,8 +1471,120 @@ mod tests {
             &[("v01", Some(COMIC_INFO_FULL))],
         );
 
+        for book in &books {
+            refresh_book_metadata(&state, book, &BookMetadataPatchCapability::all()).unwrap();
+        }
+
         refresh_series_metadata(&state, &series).unwrap();
         assert_eq!(series_metadata(&state, &series.id).title, "Alpha Series");
+    }
+
+    #[test]
+    fn book_refresh_persists_contributions_and_series_refresh_reuses_them_without_io() {
+        let state = series_service::tests::test_state();
+        let root = visible_tempdir("series-persist");
+        let library = library("lib-11", &root);
+        seed_library(&state.db, &library);
+
+        let comic_a = COMIC_INFO_FULL.replace(
+            "<Genre>action, fantasy</Genre>",
+            "<Genre>action, drama</Genre>",
+        );
+        let comic_b = COMIC_INFO_FULL.replace(
+            "<Genre>action, fantasy</Genre>",
+            "<Genre>fantasy, seinen</Genre>",
+        );
+        let (series, books) = seed_series_with_books(
+            &state,
+            "lib-11",
+            "Alpha",
+            &root.join("alpha"),
+            &[("v01", Some(&comic_a)), ("v02", Some(&comic_b))],
+        );
+
+        // book refresh persists one contribution per book into kmrs.sqlite
+        for book in &books {
+            refresh_book_metadata(&state, book, &BookMetadataPatchCapability::all()).unwrap();
+        }
+        let dao = SeriesMetadataContributionDao::new(state.kmrs_db.clone());
+        let rows = dao
+            .load_rows(
+                COMICINFO_PROVIDER,
+                &books.iter().map(|b| b.id.clone()).collect::<Vec<_>>(),
+            )
+            .unwrap();
+        assert_eq!(rows.len(), 2);
+        assert!(rows.values().all(|r| r.outcome == "PRESENT"));
+
+        // delete the book files: series refresh must still aggregate from the DB alone
+        std::fs::remove_file(root.join("alpha").join("v01.cbz")).unwrap();
+        std::fs::remove_file(root.join("alpha").join("v02.cbz")).unwrap();
+
+        refresh_series_metadata(&state, &series).unwrap();
+        let metadata = series_metadata(&state, &series.id);
+        assert_eq!(metadata.title, "Alpha Series (2)");
+        assert_eq!(
+            metadata.genres,
+            ["action", "drama", "fantasy", "seinen"]
+                .into_iter()
+                .map(String::from)
+                .collect::<BTreeSet<_>>()
+        );
+        assert_eq!(metadata.total_book_count, Some(7));
+        assert!(CollectionDao::new(state.db.clone())
+            .find_by_name("Alpha Universe")
+            .unwrap()
+            .is_some());
+    }
+
+    #[test]
+    fn stale_contribution_is_backfilled_from_file() {
+        let state = series_service::tests::test_state();
+        let root = visible_tempdir("series-stale");
+        let library = library("lib-12", &root);
+        seed_library(&state.db, &library);
+        let (series, books) = seed_series_with_books(
+            &state,
+            "lib-12",
+            "Alpha",
+            &root.join("alpha"),
+            &[("v01", Some(COMIC_INFO_FULL))],
+        );
+
+        for book in &books {
+            refresh_book_metadata(&state, book, &BookMetadataPatchCapability::all()).unwrap();
+        }
+        // bump FILE_SIZE in the main DB so the persisted fingerprint no longer matches:
+        // the snapshot turns Incomplete and the stale row is backfilled from the file
+        state
+            .db
+            .rw()
+            .execute(
+                "UPDATE BOOK SET FILE_SIZE = 999 WHERE ID = ?",
+                rusqlite::params![books[0].id],
+            )
+            .unwrap();
+
+        refresh_series_metadata(&state, &series).unwrap();
+
+        // the stale contribution was re-read from the file and the aggregation applied
+        assert_eq!(
+            series_metadata(&state, &series.id).title,
+            "Alpha Series (2)"
+        );
+        assert!(CollectionDao::new(state.db.clone())
+            .find_by_name("Alpha Universe")
+            .unwrap()
+            .is_some());
+        // the backfill rewrote the row with the current fingerprint
+        let dao = SeriesMetadataContributionDao::new(state.kmrs_db.clone());
+        let rows = dao
+            .load_rows(
+                COMICINFO_PROVIDER,
+                &books.iter().map(|b| b.id.clone()).collect::<Vec<_>>(),
+            )
+            .unwrap();
+        assert_eq!(rows.get(&books[0].id).unwrap().file_size, 999);
     }
 
     #[test]

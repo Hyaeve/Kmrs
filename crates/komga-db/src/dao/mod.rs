@@ -20,6 +20,7 @@ pub mod page_hash;
 pub mod read_progress;
 pub mod readlist;
 pub mod series;
+pub mod series_metadata_contribution;
 pub mod settings;
 pub mod sidecar;
 pub mod sync_point;

@@ -624,6 +624,22 @@ pub trait SeriesMetadataFromBookProvider: MetadataProvider {
         media: &Media,
         append_volume_to_title: bool,
     ) -> Option<SeriesMetadataPatch>;
+
+    /// Like 'get_series_metadata_from_book', but may reuse the raw metadata documents
+    /// captured during analysis (ComicInfo.xml / EPUB OPF bytes) instead of re-opening the
+    /// book file. The default implementation ignores the sources and reads the file;
+    /// providers that support the handoff override it and fall back to the file when a
+    /// document is absent.
+    fn get_series_metadata_from_book_with_sources(
+        &self,
+        book_path: &Path,
+        media: &Media,
+        append_volume_to_title: bool,
+        sources: Option<&crate::CapturedMetadataSources>,
+    ) -> Option<SeriesMetadataPatch> {
+        let _ = sources;
+        self.get_series_metadata_from_book(book_path, media, append_volume_to_title)
+    }
 }
 
 pub trait SeriesMetadataProvider: MetadataProvider {

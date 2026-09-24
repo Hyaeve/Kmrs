@@ -15,6 +15,7 @@ pub struct FileConfig {
     pub cors: Option<FileCors>,
     pub database: Option<FileDatabase>,
     pub tasks_db: Option<FileDatabase>,
+    pub kmrs_db: Option<FileDatabase>,
     pub search: Option<FileSearch>,
     pub fonts: Option<FileFonts>,
     pub books: Option<FileBooks>,
@@ -261,6 +262,13 @@ pub fn render(file: &FileConfig, config: &ServerConfig, source: Option<&Path>) -
         file.tasks_db.as_ref(),
         &config.tasks_db,
         "KOMGA_TASKSDB",
+    );
+    render_database(
+        &mut out,
+        "kmrs-db",
+        file.kmrs_db.as_ref(),
+        &config.kmrs_db,
+        "KOMGA_KMRSDB",
     );
 
     out.push_str("[search]\n");

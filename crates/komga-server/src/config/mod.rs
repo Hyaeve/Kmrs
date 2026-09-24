@@ -48,6 +48,7 @@ pub struct ServerConfig {
     pub port: u16,
     pub database: DatabaseConfig,
     pub tasks_db: DatabaseConfig,
+    pub kmrs_db: DatabaseConfig,
     /// defaults to 7 days
     pub session_timeout: Duration,
     pub cors_allowed_origins: Vec<String>,
@@ -208,6 +209,13 @@ impl ServerConfig {
             config_dir.join("tasks.sqlite"),
             false,
         )?;
+        let kmrs_db = merge_database(
+            file.and_then(|f| f.kmrs_db.as_ref()),
+            env,
+            "KOMGA_KMRSDB",
+            config_dir.join("kmrs.sqlite"),
+            false,
+        )?;
 
         let port = cli
             .port
@@ -243,6 +251,7 @@ impl ServerConfig {
             port,
             database,
             tasks_db,
+            kmrs_db,
             session_timeout,
             cors_allowed_origins: env_list(env, "KOMGA_CORS_ALLOWEDORIGINS")
                 .or_else(|| {

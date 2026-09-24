@@ -1319,6 +1319,7 @@ mod tests {
     use crate::auth;
     use crate::config::ServerConfig;
     use crate::settings::SettingsProvider;
+    use crate::state::test_kmrs_db;
     use crate::state::test_search_index;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
@@ -1362,6 +1363,7 @@ mod tests {
             tsid: Arc::new(komga_core::tsid::TsidFactory::new_random_node()),
             events: crate::events::event_bus(),
             search_index: test_search_index(),
+            kmrs_db: test_kmrs_db(),
             kepub: crate::service::kepub::KepubConverter::new(tempfile::tempdir().unwrap().keep()),
             kobo_proxy: crate::service::kobo_proxy::KoboProxy::new(),
             webui_dir: crate::webui::WebuiDir::default(),

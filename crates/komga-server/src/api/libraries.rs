@@ -373,6 +373,8 @@ pub(crate) mod test_support {
     use crate::auth;
     use crate::settings::SettingsProvider;
     #[cfg(test)]
+    use crate::state::test_kmrs_db;
+    #[cfg(test)]
     use crate::state::test_search_index;
     use crate::state::AppState;
     use axum::body::Body;
@@ -410,6 +412,7 @@ pub(crate) mod test_support {
                 db: db.clone(),
                 task_db: task_db.clone(),
                 tasks_db: tasks_db.clone(),
+                kmrs_db: test_kmrs_db(),
                 sessions: auth::SessionStore::new(std::time::Duration::from_secs(3600)),
                 settings: Arc::new(SettingsProvider::load(db.clone())),
                 tsid: Arc::new(komga_core::tsid::TsidFactory::new_random_node()),
@@ -501,6 +504,7 @@ pub(crate) mod test_support {
             port: 25600,
             database: Default::default(),
             tasks_db: Default::default(),
+            kmrs_db: Default::default(),
             session_timeout: std::time::Duration::from_secs(3600),
             cors_allowed_origins: vec![],
             page_hashing: 3,

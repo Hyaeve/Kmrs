@@ -636,6 +636,7 @@ pub(crate) mod tests {
     use crate::auth::{sha512_hex, SessionStore};
     use crate::config::ServerConfig;
     use crate::settings::SettingsProvider;
+    use crate::state::test_kmrs_db;
     use axum::http::{HeaderMap, Request, StatusCode};
     use komga_core::model::user::{ApiKey, ContentRestrictions, KomgaUser, UserRole};
     use komga_core::time_codec::now_utc;
@@ -674,6 +675,7 @@ pub(crate) mod tests {
             task_db,
             tasks_db,
             search_index: test_search_index(),
+            kmrs_db: test_kmrs_db(),
             kepub: crate::service::kepub::KepubConverter::new(tempfile::tempdir().unwrap().keep()),
             kobo_proxy: crate::service::kobo_proxy::KoboProxy::new(),
             webui_dir: crate::webui::WebuiDir::default(),

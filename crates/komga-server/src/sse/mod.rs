@@ -408,6 +408,7 @@ mod tests {
     use super::*;
     use crate::auth;
     use crate::settings::SettingsProvider;
+    use crate::state::test_kmrs_db;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use http_body_util::BodyExt;
@@ -441,6 +442,7 @@ mod tests {
             db: db.clone(),
             task_db: task_db.clone(),
             tasks_db: tasks_db.clone(),
+            kmrs_db: test_kmrs_db(),
             sessions: auth::SessionStore::new(Duration::from_secs(3600)),
             settings: Arc::new(SettingsProvider::load(db.clone())),
             tsid: Arc::new(komga_core::tsid::TsidFactory::new_random_node()),

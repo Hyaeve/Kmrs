@@ -621,6 +621,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::config::ServerConfig;
     use crate::settings::SettingsProvider;
+    use crate::state::test_kmrs_db;
     use komga_core::model::media::MediaStatus;
     use komga_core::model::user::{ContentRestrictions, KomgaUser};
     use komga_core::tsid::TsidFactory;
@@ -657,6 +658,7 @@ pub(crate) mod tests {
             port: 0,
             database: db_config(true),
             tasks_db: db_config(false),
+            kmrs_db: db_config(false),
             session_timeout: std::time::Duration::from_secs(3600),
             cors_allowed_origins: vec![],
             page_hashing: 3,
@@ -683,6 +685,7 @@ pub(crate) mod tests {
             db,
             task_db,
             tasks_db,
+            kmrs_db: test_kmrs_db(),
             config: Arc::new(config),
             search_index: test_search_index(),
             kepub: crate::service::kepub::KepubConverter::new(tempfile::tempdir().unwrap().keep()),

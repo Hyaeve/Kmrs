@@ -42,6 +42,7 @@ async fn main() -> anyhow::Result<()> {
     // reads/writes never share pool slots with HTTP/API requests.
     let task_db = Database::open(&config.database).context("open task database pools")?;
     let tasks_db = Database::open(&config.tasks_db).context("open tasks database")?;
+    let kmrs_db = Database::open(&config.kmrs_db).context("open kmrs database")?;
 
     {
         let migrations = komga_db::main_migrations();
@@ -55,6 +56,10 @@ async fn main() -> anyhow::Result<()> {
         Migrator::new(&tasks_migrations, config.migration_placeholders.clone())
             .migrate(&tasks_db.rw())
             .context("tasks db migration")?;
+        let kmrs_migrations = komga_db::kmrs_migrations();
+        Migrator::new(&kmrs_migrations, config.migration_placeholders.clone())
+            .migrate(&kmrs_db.rw())
+            .context("kmrs db migration")?;
     }
 
     let task_notify: service::TaskNotify = std::sync::Arc::new(tokio::sync::Notify::new());
@@ -92,6 +97,7 @@ async fn main() -> anyhow::Result<()> {
         db,
         task_db,
         tasks_db,
+        kmrs_db,
         config: Arc::new(config.clone()),
     };
 

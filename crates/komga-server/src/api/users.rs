@@ -423,6 +423,7 @@ async fn delete_api_key(
 mod tests {
     use super::*;
     use crate::settings::SettingsProvider;
+    use crate::state::test_kmrs_db;
     use axum::body::Body;
     use axum::http::Request;
     use komga_core::model::user::ApiKey;
@@ -457,6 +458,7 @@ mod tests {
             db,
             task_db,
             tasks_db,
+            kmrs_db: test_kmrs_db(),
             sessions: crate::auth::SessionStore::new(config.session_timeout),
             tsid: Arc::new(komga_core::tsid::TsidFactory::new_random_node()),
             events: crate::events::event_bus(),

@@ -1058,6 +1058,7 @@ mod tests {
     use crate::auth;
     use crate::config::ServerConfig;
     use crate::settings::SettingsProvider;
+    use crate::state::test_kmrs_db;
     use axum::body::Body;
     use axum::http::{HeaderMap, Request, StatusCode};
     use komga_core::model::user::{ContentRestrictions, KomgaUser, UserRole};
@@ -1095,6 +1096,7 @@ mod tests {
             db,
             task_db,
             tasks_db,
+            kmrs_db: test_kmrs_db(),
             sessions: auth::SessionStore::new(config.session_timeout),
             tsid: Arc::new(komga_core::tsid::TsidFactory::new_random_node()),
             events: crate::events::event_bus(),

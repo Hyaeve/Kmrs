@@ -42,10 +42,10 @@ pub fn get_dimension(bytes: &[u8]) -> Option<(u32, u32)> {
 
 /// `BookAnalyser.isSuitableCoverImage`: whether a page image is a good cover candidate.
 ///
-/// Ported from komga-rust `is_suitable_cover_image` (archive cover selection). Oversized
-/// images (>10 MB or a dimension >5000 px) are accepted without inspection; images that
-/// fail to decode, or that are almost entirely white or black (≥95% of sampled pixels),
-/// are rejected so a blank/placeholder first page can be skipped in favor of a later one.
+/// Archive cover selection: oversized images (>10 MB or a dimension >5000 px) are
+/// accepted without inspection; images that fail to decode, or that are almost entirely
+/// white or black (≥95% of sampled pixels), are rejected so a blank/placeholder first
+/// page can be skipped in favor of a later one.
 pub fn is_suitable_cover_image(bytes: &[u8]) -> bool {
     const MAX_IMAGE_SIZE: usize = 10 * 1024 * 1024;
     const MAX_DIMENSION: u32 = 5000;

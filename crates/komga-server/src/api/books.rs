@@ -2153,6 +2153,7 @@ mod tests {
     use super::*;
     use crate::auth::SessionStore;
     use crate::settings::SettingsProvider;
+    use crate::state::test_kmrs_db;
     use axum::middleware;
     use komga_core::model::book::BookMetadata;
     use komga_core::model::library::Library;
@@ -2223,6 +2224,7 @@ mod tests {
             db,
             task_db,
             tasks_db,
+            kmrs_db: test_kmrs_db(),
             sessions: SessionStore::new(config.session_timeout),
             tsid: Arc::new(TsidFactory::new_random_node()),
             events: crate::events::event_bus(),

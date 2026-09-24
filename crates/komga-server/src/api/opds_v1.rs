@@ -1574,6 +1574,7 @@ mod tests {
     use crate::config::ServerConfig;
     use crate::http;
     use crate::settings::SettingsProvider;
+    use crate::state::test_kmrs_db;
     use axum::body::Body;
     use axum::http::Request;
     use axum::http::StatusCode;
@@ -1615,6 +1616,7 @@ mod tests {
             port: 0,
             database: db_config(true),
             tasks_db: db_config(false),
+            kmrs_db: db_config(false),
             session_timeout: std::time::Duration::from_secs(3600),
             cors_allowed_origins: vec![],
             page_hashing: 3,
@@ -1641,6 +1643,7 @@ mod tests {
             db,
             task_db,
             tasks_db,
+            kmrs_db: test_kmrs_db(),
             config: Arc::new(config),
             search_index: crate::state::test_search_index(),
             kepub: crate::service::kepub::KepubConverter::new(tempfile::tempdir().unwrap().keep()),
