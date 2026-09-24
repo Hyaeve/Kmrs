@@ -327,6 +327,55 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn patch_accepts_string_numbers_from_legacy_webui() {
+        let state = test_state();
+        seed_admin(&state);
+        // the legacy WebUI serializes v-text-field number inputs as JSON strings
+        let body = serde_json::json!({
+            "taskPoolSize": "4",
+            "serverPort": "8080",
+            "koboPort": "17878",
+            "rememberMeDurationDays": "30",
+            "deleteEmptyCollections": "true",
+            "deleteEmptyReadLists": "0",
+            "koboProxy": "1"
+        });
+        let (status, _, _) = call(
+            &state,
+            router(),
+            Request::patch("/api/v1/settings")
+                .header("X-API-Key", "k")
+                .header("Content-Type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let s = state.settings.get();
+        assert_eq!(s.task_pool_size, 4);
+        assert_eq!(s.server_port, Some(8080));
+        assert_eq!(s.kobo_port, Some(17878));
+        assert_eq!(s.remember_me_duration.as_secs() / 86_400, 30);
+        assert!(s.delete_empty_collections);
+        assert!(!s.delete_empty_readlists);
+        assert!(s.kobo_proxy);
+
+        // non-numeric strings are still rejected
+        let body = serde_json::json!({"taskPoolSize": "abc"});
+        let (status, _, _) = call(
+            &state,
+            router(),
+            Request::patch("/api/v1/settings")
+                .header("X-API-Key", "k")
+                .header("Content-Type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await;
+        assert!(!status.is_success());
+    }
+
+    #[tokio::test]
     async fn patch_violations_and_renew_key() {
         let state = test_state();
         seed_admin(&state);

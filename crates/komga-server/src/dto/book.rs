@@ -1,6 +1,7 @@
 //! `BookMetadataUpdateDto.kt` (+ `AuthorUpdateDto.kt`): book metadata PATCH body, with the
 //! `patch` merge semantics of `BookMetadataUpdateDto.patch`.
 
+use crate::dto::loose::loose_f32_opt;
 use crate::dto::series::{author_of, web_link_violations, WebLinkUpdateDto};
 use crate::error::Violation;
 use komga_core::model::book::BookMetadata;
@@ -41,6 +42,7 @@ pub struct BookMetadataUpdateDto {
     pub summary_lock: Option<bool>,
     pub number: Option<String>,
     pub number_lock: Option<bool>,
+    #[serde(deserialize_with = "loose_f32_opt")]
     pub number_sort: Option<f32>,
     pub number_sort_lock: Option<bool>,
     #[serde(deserialize_with = "deserialize_some_date")]
@@ -309,5 +311,25 @@ mod tests {
         assert!(!is_valid_isbn13("9781234567890")); // bad check digit
         assert!(!is_valid_isbn13("9771234567897")); // bad prefix
         assert!(!is_valid_isbn13("123"));
+    }
+
+    #[test]
+    fn number_sort_accepts_string_and_rejects_non_finite() {
+        // the legacy WebUI serializes v-text-field number inputs as JSON strings
+        let dto: BookMetadataUpdateDto = serde_json::from_str(r#"{"numberSort":"1.5"}"#).unwrap();
+        assert_eq!(dto.number_sort, Some(1.5));
+
+        // native numbers and explicit null keep working
+        let dto: BookMetadataUpdateDto = serde_json::from_str(r#"{"numberSort":2.0}"#).unwrap();
+        assert_eq!(dto.number_sort, Some(2.0));
+        let dto: BookMetadataUpdateDto = serde_json::from_str(r#"{"numberSort":null}"#).unwrap();
+        assert_eq!(dto.number_sort, None);
+
+        // non-numeric / non-finite values are still rejected
+        assert!(serde_json::from_str::<BookMetadataUpdateDto>(r#"{"numberSort":"abc"}"#).is_err());
+        assert!(serde_json::from_str::<BookMetadataUpdateDto>(r#"{"numberSort":"NaN"}"#).is_err());
+        assert!(
+            serde_json::from_str::<BookMetadataUpdateDto>(r#"{"numberSort":"Infinity"}"#).is_err()
+        );
     }
 }

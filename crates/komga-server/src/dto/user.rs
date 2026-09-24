@@ -1,5 +1,6 @@
 //! DTOs for User/ApiKey/AuthenticationActivity, aligned with komga `interfaces/api/rest/dto/`.
 
+use crate::dto::loose::loose_i32;
 use komga_core::model::user::{AllowExclude, ApiKey, AuthenticationActivity, KomgaUser};
 use komga_core::time_codec;
 use serde::{Deserialize, Serialize};
@@ -86,6 +87,7 @@ pub struct UserUpdateDto {
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 pub struct AgeRestrictionUpdateDto {
+    #[serde(deserialize_with = "loose_i32")]
     pub age: i32,
     pub restriction: AllowExcludeDto,
 }
@@ -179,4 +181,35 @@ impl From<&AuthenticationActivity> for AuthenticationActivityDto {
 #[derive(Debug, Deserialize)]
 pub struct PasswordUpdateDto {
     pub password: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn age_restriction_accepts_string_numbers() {
+        // the legacy WebUI serializes v-text-field number inputs as JSON strings
+        let dto: AgeRestrictionUpdateDto =
+            serde_json::from_str(r#"{"age":"15","restriction":"ALLOW_ONLY"}"#).unwrap();
+        assert_eq!(dto.age, 15);
+
+        let dto: AgeRestrictionUpdateDto =
+            serde_json::from_str(r#"{"age":18,"restriction":"EXCLUDE"}"#).unwrap();
+        assert_eq!(dto.age, 18);
+
+        assert!(serde_json::from_str::<AgeRestrictionUpdateDto>(
+            r#"{"age":"abc","restriction":"ALLOW_ONLY"}"#
+        )
+        .is_err());
+        assert!(serde_json::from_str::<AgeRestrictionUpdateDto>(
+            r#"{"age":"3000000000","restriction":"ALLOW_ONLY"}"#
+        )
+        .is_err());
+        // age is required
+        assert!(
+            serde_json::from_str::<AgeRestrictionUpdateDto>(r#"{"restriction":"ALLOW_ONLY"}"#)
+                .is_err()
+        );
+    }
 }

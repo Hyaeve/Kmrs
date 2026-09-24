@@ -1,6 +1,7 @@
 //! `SeriesMetadataUpdateDto.kt` (+ shared update DTOs): metadata PATCH body with `isSet`
 //! semantics (double Option: outer None = absent, Some(None) = explicit null clear).
 
+use crate::dto::loose::loose_some_i32;
 use crate::error::Violation;
 use komga_core::model::common::{Author, WebLink};
 use komga_core::model::series::{AlternateTitle, ReadingDirection, SeriesMetadata, SeriesStatus};
@@ -47,7 +48,7 @@ pub struct SeriesMetadataUpdateDto {
     #[serde(deserialize_with = "deserialize_some")]
     pub reading_direction: Option<Option<ReadingDirection>>,
     pub reading_direction_lock: Option<bool>,
-    #[serde(deserialize_with = "deserialize_some")]
+    #[serde(deserialize_with = "loose_some_i32")]
     pub age_rating: Option<Option<i32>>,
     pub age_rating_lock: Option<bool>,
     pub language: Option<String>,
@@ -58,7 +59,7 @@ pub struct SeriesMetadataUpdateDto {
     #[serde(deserialize_with = "deserialize_some")]
     pub tags: Option<Option<BTreeSet<String>>>,
     pub tags_lock: Option<bool>,
-    #[serde(deserialize_with = "deserialize_some")]
+    #[serde(deserialize_with = "loose_some_i32")]
     pub total_book_count: Option<Option<i32>>,
     pub total_book_count_lock: Option<bool>,
     #[serde(deserialize_with = "deserialize_some")]
@@ -398,6 +399,27 @@ mod tests {
     fn valid_language_and_isbn_pass() {
         let dto: SeriesMetadataUpdateDto = serde_json::from_str(r#"{"language":"en-US"}"#).unwrap();
         assert!(dto.violations().is_empty());
+    }
+
+    #[test]
+    fn numeric_isset_fields_accept_string_numbers() {
+        // the legacy WebUI serializes v-text-field number inputs as JSON strings
+        let dto: SeriesMetadataUpdateDto =
+            serde_json::from_str(r#"{"ageRating":"18","totalBookCount":"41"}"#).unwrap();
+        assert_eq!(dto.age_rating, Some(Some(18)));
+        assert_eq!(dto.total_book_count, Some(Some(41)));
+
+        // native numbers keep working, explicit null still clears
+        let dto: SeriesMetadataUpdateDto =
+            serde_json::from_str(r#"{"ageRating":12,"totalBookCount":null}"#).unwrap();
+        assert_eq!(dto.age_rating, Some(Some(12)));
+        assert_eq!(dto.total_book_count, Some(None));
+
+        // non-numeric strings are still rejected
+        assert!(serde_json::from_str::<SeriesMetadataUpdateDto>(r#"{"ageRating":"abc"}"#).is_err());
+        assert!(
+            serde_json::from_str::<SeriesMetadataUpdateDto>(r#"{"totalBookCount":1.5}"#).is_err()
+        );
     }
 
     #[test]

@@ -5,6 +5,7 @@ pub mod common;
 pub mod kobo;
 pub mod koreader;
 pub mod library;
+pub mod loose;
 pub mod oauth2;
 pub mod page_hash;
 pub mod readlist;

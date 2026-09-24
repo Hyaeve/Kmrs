@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::dto::loose::{loose_bool_opt, loose_i64_opt, loose_some_u16};
 use crate::settings::ThumbnailSize;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -121,18 +122,24 @@ where
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SettingsUpdateDto {
+    #[serde(deserialize_with = "loose_bool_opt")]
     pub delete_empty_collections: Option<bool>,
+    #[serde(deserialize_with = "loose_bool_opt")]
     pub delete_empty_read_lists: Option<bool>,
+    #[serde(deserialize_with = "loose_i64_opt")]
     pub remember_me_duration_days: Option<i64>,
+    #[serde(deserialize_with = "loose_bool_opt")]
     pub renew_remember_me_key: Option<bool>,
     pub thumbnail_size: Option<ThumbnailSizeDto>,
+    #[serde(deserialize_with = "loose_i64_opt")]
     pub task_pool_size: Option<i64>,
-    #[serde(deserialize_with = "deserialize_some")]
+    #[serde(deserialize_with = "loose_some_u16")]
     pub server_port: Option<Option<u16>>,
     #[serde(deserialize_with = "deserialize_some")]
     pub server_context_path: Option<Option<String>>,
+    #[serde(deserialize_with = "loose_bool_opt")]
     pub kobo_proxy: Option<bool>,
-    #[serde(deserialize_with = "deserialize_some")]
+    #[serde(deserialize_with = "loose_some_u16")]
     pub kobo_port: Option<Option<u16>>,
     #[serde(deserialize_with = "deserialize_some")]
     pub kepubify_path: Option<Option<String>>,
