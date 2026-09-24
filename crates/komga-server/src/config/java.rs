@@ -193,6 +193,7 @@ impl JavaConfig {
                 port: server.port,
                 context_path: servlet.context_path,
                 session_timeout: servlet.session.and_then(|s| s.timeout),
+                sort_locale: None,
             });
         }
 

@@ -10,5 +10,8 @@ serde_json.workspace = true
 thiserror.workspace = true
 time.workspace = true
 unicode-normalization = "0.1"
+icu_collator.workspace = true
+icu_locale.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]

@@ -37,6 +37,10 @@ async fn main() -> anyhow::Result<()> {
     let config = config::ServerConfig::load(&cli)?;
     std::fs::create_dir_all(&config.config_dir).context("create config dir")?;
 
+    // Sort locale must be set before any collator is constructed (lazily on the
+    // first connection collation registration); later calls are ignored.
+    komga_core::sort_locale::set_sort_locale(config.sort_locale.clone());
+
     let db = Database::open(&config.database).context("open main database")?;
     // Dedicated pools over the same file for background task execution; task
     // reads/writes never share pool slots with HTTP/API requests.

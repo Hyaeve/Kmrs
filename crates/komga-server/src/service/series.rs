@@ -44,8 +44,11 @@ pub fn sort_books(state: &AppState, series: &Series) -> Result<()> {
             Ok((book, metadata))
         })
         .collect::<Result<Vec<_>>>()?;
+    // The comparison input is preprocessed with the Kotlin sortBooks key
+    // (trim → stripAccents → collapse whitespace) and ordered with the same
+    // comparator as the COLLATION_UNICODE_3 SQL collation.
     sorted.sort_by(|a, b| {
-        natural_sort::compare(
+        komga_core::sort_locale::compare_natural(
             &natural_sort::series_sort_key(&a.0.name),
             &natural_sort::series_sort_key(&b.0.name),
         )
@@ -671,6 +674,7 @@ pub(crate) mod tests {
             webui_dir: None,
             webui_auto_update: false,
             webui_update_interval: std::time::Duration::from_secs(24 * 3600),
+            sort_locale: None,
         };
         AppState {
             sessions: crate::auth::SessionStore::new(config.session_timeout),

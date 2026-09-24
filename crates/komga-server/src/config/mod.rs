@@ -64,6 +64,9 @@ pub struct ServerConfig {
     /// track the latest kmweb release into <config-dir>/webui and serve that instead
     pub webui_auto_update: bool,
     pub webui_update_interval: Duration,
+    /// BCP47 locale for ICU-based sorting (authors, publishers, genres, tags, ...);
+    /// None/empty = `und` (UCA root), reproducing the legacy hard-coded behavior.
+    pub sort_locale: Option<String>,
     /// substituted into the SQL migrations
     pub migration_placeholders: Placeholders,
 }
@@ -234,6 +237,10 @@ impl ServerConfig {
             .or_else(|| server.and_then(|s| s.context_path.clone()))
             .filter(|v| !v.is_empty());
 
+        let sort_locale = env_string(env, "KOMGA_SORT_LOCALE")
+            .or_else(|| server.and_then(|s| s.sort_locale.clone()))
+            .filter(|v| !v.is_empty());
+
         Ok(Self {
             lucene_dir: env_path(env, "KOMGA_LUCENE_DATADIRECTORY")
                 .or_else(|| {
@@ -253,6 +260,7 @@ impl ServerConfig {
             tasks_db,
             kmrs_db,
             session_timeout,
+            sort_locale,
             cors_allowed_origins: env_list(env, "KOMGA_CORS_ALLOWEDORIGINS")
                 .or_else(|| {
                     file.and_then(|f| f.cors.as_ref())
@@ -844,6 +852,30 @@ issuer-uri = "https://github.com"
             &env(&[("SERVER_SERVLET_SESSION_TIMEOUT", "1d")]),
         );
         assert_eq!(config.session_timeout, Duration::from_secs(86400));
+    }
+
+    #[test]
+    fn sort_locale_from_env_and_file() {
+        // default: None -> `und` (UCA root) collation
+        let config = resolve("", Cli::default(), &[]);
+        assert_eq!(config.sort_locale, None);
+        // env var wins over the file
+        let config = resolve(
+            "[server]\nsort-locale = \"de-AT\"\n",
+            Cli::default(),
+            &env(&[("KOMGA_SORT_LOCALE", "zh-CN")]),
+        );
+        assert_eq!(config.sort_locale.as_deref(), Some("zh-CN"));
+        // file value applies when no env var is set
+        let config = resolve(
+            "[server]\nsort-locale = \"de_AT.UTF-8\"\n",
+            Cli::default(),
+            &[],
+        );
+        assert_eq!(config.sort_locale.as_deref(), Some("de_AT.UTF-8"));
+        // empty values are filtered out (treated as unset)
+        let config = resolve("", Cli::default(), &env(&[("KOMGA_SORT_LOCALE", "")]));
+        assert_eq!(config.sort_locale, None);
     }
 
     #[test]

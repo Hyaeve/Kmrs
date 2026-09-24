@@ -402,7 +402,7 @@ impl ReferentialDao {
             q.where_in("SERIES.LIBRARY_ID", ids);
         }
         q.where_raw("LANGUAGE <> ''");
-        q.order_by("LANGUAGE");
+        q.order_by(&format!("LANGUAGE {U3}"));
         self.fetch_strings(q)
     }
 
@@ -420,7 +420,7 @@ impl ReferentialDao {
         if let Some(ids) = filter_library_ids {
             q.where_in("SERIES.LIBRARY_ID", ids);
         }
-        q.order_by("LANGUAGE");
+        q.order_by(&format!("LANGUAGE {U3}"));
         self.fetch_strings(q)
     }
 
@@ -442,7 +442,7 @@ impl ReferentialDao {
         if let Some(ids) = filter_library_ids {
             q.where_in("SERIES.LIBRARY_ID", ids);
         }
-        q.order_by("LANGUAGE");
+        q.order_by(&format!("LANGUAGE {U3}"));
         self.fetch_strings(q)
     }
 
@@ -1169,10 +1169,11 @@ impl ReferentialDao {
             .collect())
     }
 
-    /// UNION tag queries: jOOQ `fetchSet` then a stable sort by stripAccents + lowercase
+    /// UNION tag queries: jOOQ `fetchSet`, sorted with the same ICU-based
+    /// natural sort as the `COLLATION_UNICODE_3` SQL collation.
     fn fetch_sorted_tags(&self, sql: &str, params: Vec<Value>) -> Result<Vec<String>> {
         let mut tags = self.fetch_map(sql, params, |row| row.get::<_, String>(0))?;
-        tags.sort_by_key(|t| strip_accents(t).to_lowercase());
+        tags.sort_by(|a, b| komga_core::sort_locale::compare_natural(a, b));
         Ok(tags)
     }
 

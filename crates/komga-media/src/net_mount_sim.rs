@@ -9,7 +9,7 @@
 
 use crate::analyzer::zip_entries_from;
 use crate::{detect, hash, image};
-use komga_core::natural_sort;
+use komga_core::sort_locale::compare_natural;
 use std::cell::RefCell;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -181,7 +181,7 @@ fn analyze_old(path: &Path, stats: &Rc<RefCell<Stats>>) -> Vec<(String, Option<(
         };
         entries.push((name, dimension));
     }
-    entries.sort_by(|a, b| natural_sort::compare(&a.0, &b.0));
+    entries.sort_by(|a, b| compare_natural(&a.0, &b.0));
     entries
 }
 

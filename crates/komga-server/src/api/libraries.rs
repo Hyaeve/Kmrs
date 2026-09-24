@@ -517,6 +517,7 @@ pub(crate) mod test_support {
             webui_dir: None,
             webui_auto_update: false,
             webui_update_interval: std::time::Duration::from_secs(24 * 3600),
+            sort_locale: None,
         }
     }
 

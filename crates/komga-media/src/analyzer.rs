@@ -10,8 +10,8 @@ use crate::{container, detect, hash, image, pdf};
 use container::PageContent;
 use komga_core::dto::progression::{R2Location, R2Locator};
 use komga_core::model::media::{BookPage, Media, MediaFile, MediaFileSubType, MediaStatus};
-use komga_core::natural_sort;
 use komga_core::search::MediaProfile;
+use komga_core::sort_locale::compare_natural;
 use komga_core::time_codec;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -805,7 +805,7 @@ pub(crate) fn zip_entries_from<R: std::io::Read + std::io::Seek>(
             file_size: Some(file_size),
         });
     }
-    entries.sort_by(|a, b| natural_sort::compare(&a.name, &b.name));
+    entries.sort_by(|a, b| compare_natural(&a.name, &b.name));
     Ok(entries)
 }
 
@@ -875,7 +875,7 @@ fn get_rar_entries(
             file_size: Some(unpacked_size),
         });
     }
-    entries.sort_by(|a, b| natural_sort::compare(&a.name, &b.name));
+    entries.sort_by(|a, b| compare_natural(&a.name, &b.name));
     Ok(entries)
 }
 

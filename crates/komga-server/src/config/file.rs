@@ -39,6 +39,7 @@ pub struct FileServer {
     pub port: Option<u16>,
     pub context_path: Option<String>,
     pub session_timeout: Option<ConfigDuration>,
+    pub sort_locale: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -231,6 +232,14 @@ pub fn render(file: &FileConfig, config: &ServerConfig, source: Option<&Path>) -
         format!(
             "context-path = {} # env: SERVER_SERVLET_CONTEXT_PATH; URL prefix, empty = root",
             q(config.server_context_path.as_deref().unwrap_or("/"))
+        ),
+    );
+    push_line(
+        &mut out,
+        fserver.and_then(|s| s.sort_locale.as_ref()).is_some(),
+        format!(
+            "sort-locale = {} # env: KOMGA_SORT_LOCALE; BCP47 language tag for ICU sorting (e.g. \"zh-CN\"), empty/absent = root collation",
+            q(config.sort_locale.as_deref().unwrap_or(""))
         ),
     );
     out.push('\n');

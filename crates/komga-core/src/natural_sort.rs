@@ -1,5 +1,14 @@
-//! A semantics-exact replica of grey-panther natural-comparator 1.1's `CaseInsensitiveSimpleNaturalComparator`.
-//! It determines page order within archives and book numbering within series, so it must match the Java version exactly.
+//! grey-panther natural-comparator 1.1's `CaseInsensitiveSimpleNaturalComparator`
+//! replica, kept for its auxiliary functions:
+//! - `strip_accents` backs the `UDF_STRIP_ACCENTS` SQL function
+//!   (commons-lang3 behavior);
+//! - `series_sort_key` is the Kotlin `SeriesLifecycle.sortBooks` sort key
+//!   (trim → stripAccents → collapse whitespace), applied before the ICU
+//!   comparison in `sort_books`.
+//!
+//! The comparator itself is deprecated in favor of `sort_locale::compare_natural`,
+//! so page order and book numbering follow the same total order as the
+//! `COLLATION_UNICODE_3` SQL collation.
 //!
 //! Semantics (checked against the `AbstractSimpleNaturalComparator.compare` source):
 //! - Scans UTF-16 code unit by code unit; `isDigit` covers only ASCII 0-9.
@@ -11,6 +20,7 @@
 
 use std::cmp::Ordering;
 
+#[deprecated(note = "use sort_locale::compare_natural instead")]
 pub fn compare(a: &str, b: &str) -> Ordering {
     let s1: Vec<u16> = a.encode_utf16().collect();
     let s2: Vec<u16> = b.encode_utf16().collect();
@@ -102,6 +112,7 @@ pub fn series_sort_key(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #![allow(deprecated)] // compare is kept as the Java-compat baseline
     use super::*;
 
     #[test]

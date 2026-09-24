@@ -1941,10 +1941,13 @@ dependencies = [
 name = "komga-core"
 version = "0.9.2"
 dependencies = [
+ "icu_collator",
+ "icu_locale",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
  "time",
+ "tracing",
  "unicode-normalization",
 ]
 
