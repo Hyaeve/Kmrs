@@ -107,12 +107,13 @@ pub fn compare_tertiary(left: &str, right: &str) -> Ordering {
 // ---- ICU-based natural sort (numeric segments by value, text by ICU) ----
 //
 // Modeled on komga-rust's `compare_book_names`: the string is split into
-// alternating text/numeric segments (ASCII digits, optional one decimal point);
-// numeric segments compare by value, text segments compare with the configured
-// ICU tertiary collator (plus canonical-equivalence tie-break), and a numeric
-// segment always sorts before text. Registered as the `COLLATION_UNICODE_3`
-// SQLite collation and used for in-memory sorting, so "Page 2" sorts before
-// "Page 10" while still following the configured sort locale for text.
+// alternating text/numeric segments (numeric = runs of ASCII digits, a decimal
+// point staying in text); numeric segments compare by value, text segments
+// compare with the configured ICU tertiary collator (plus
+// canonical-equivalence tie-break), and a numeric segment always sorts before
+// text. Registered as the `COLLATION_UNICODE_3` SQLite collation and used for
+// in-memory sorting, so "Page 2" sorts before "Page 10" while still following
+// the configured sort locale for text.
 
 enum Segment {
     Text(String),
@@ -128,23 +129,16 @@ fn split_into_segments(value: &str) -> Vec<Segment> {
     let mut chars = normalized.chars().peekable();
     while let Some(&ch) = chars.peek() {
         if ch.is_ascii_digit() {
+            // Numeric segments are runs of ASCII digits only: a decimal point is
+            // NOT part of a number ("1.5" vs "1.10" compares 5 < 10), matching
+            // how Explorer/Finder and the grey-panther natural comparator sort
+            // file names.
             let mut num_str = String::new();
             while let Some(&d) = chars.peek() {
                 if d.is_ascii_digit() {
                     num_str.push(chars.next().unwrap());
                 } else {
                     break;
-                }
-            }
-            if chars.peek() == Some(&'.') {
-                chars.next();
-                num_str.push('.');
-                while let Some(&d) = chars.peek() {
-                    if d.is_ascii_digit() {
-                        num_str.push(chars.next().unwrap());
-                    } else {
-                        break;
-                    }
                 }
             }
             segments.push(Segment::Number(num_str));
@@ -185,46 +179,14 @@ fn merge_segments(segments: Vec<Segment>) -> Vec<Segment> {
     result
 }
 
+/// Digit runs compare by value without integer parsing: leading zeros ignored,
+/// then length, then lexicographic (no overflow).
 fn compare_numeric_strings(a: &str, b: &str) -> Ordering {
-    let (a_int, a_frac) = match a.split_once('.') {
-        Some((int, frac)) => (int, Some(frac)),
-        None => (a, None),
-    };
-    let (b_int, b_frac) = match b.split_once('.') {
-        Some((int, frac)) => (int, Some(frac)),
-        None => (b, None),
-    };
-    let a_int = a_int.trim_start_matches('0');
-    let b_int = b_int.trim_start_matches('0');
-    let a_int = if a_int.is_empty() { "0" } else { a_int };
-    let b_int = if b_int.is_empty() { "0" } else { b_int };
-    let int_cmp = a_int.len().cmp(&b_int.len()).then_with(|| a_int.cmp(b_int));
-    if int_cmp != Ordering::Equal {
-        return int_cmp;
-    }
-    match (a_frac, b_frac) {
-        (Some(a_frac), Some(b_frac)) => {
-            let max_len = a_frac.len().max(b_frac.len());
-            let a_frac = format!("{:0<width$}", a_frac, width = max_len);
-            let b_frac = format!("{:0<width$}", b_frac, width = max_len);
-            a_frac.cmp(&b_frac)
-        }
-        (None, None) => Ordering::Equal,
-        (Some(a_frac), None) => {
-            if a_frac.chars().all(|c| c == '0') {
-                Ordering::Equal
-            } else {
-                Ordering::Greater
-            }
-        }
-        (None, Some(b_frac)) => {
-            if b_frac.chars().all(|c| c == '0') {
-                Ordering::Equal
-            } else {
-                Ordering::Less
-            }
-        }
-    }
+    let a = a.trim_start_matches('0');
+    let b = b.trim_start_matches('0');
+    let a = if a.is_empty() { "0" } else { a };
+    let b = if b.is_empty() { "0" } else { b };
+    a.len().cmp(&b.len()).then_with(|| a.cmp(b))
 }
 
 fn compare_segments(left: &[Segment], right: &[Segment]) -> Ordering {
@@ -249,9 +211,9 @@ fn compare_segments(left: &[Segment], right: &[Segment]) -> Ordering {
 /// `COLLATION_UNICODE_3` SQLite collation.
 ///
 /// A final raw-string tie-break on the original inputs makes this a total
-/// order: numeric ties (`a01` vs `a1`, `Vol 1.5` vs `Vol 1.50`) and
-/// whitespace-normalized ties (`Page  2` vs `Page 2`) get a deterministic
-/// order, which SQLite's unstable `ORDER BY` needs at pagination boundaries.
+/// order: numeric ties (`a01` vs `a1`) and whitespace-normalized ties
+/// (`Page  2` vs `Page 2`) get a deterministic order, which SQLite's unstable
+/// `ORDER BY` needs at pagination boundaries.
 pub fn compare_natural(left: &str, right: &str) -> Ordering {
     compare_segments(&split_into_segments(left), &split_into_segments(right))
         .then_with(|| left.cmp(right))
@@ -338,9 +300,12 @@ mod tests {
         assert_eq!(compare_natural("10", "2"), Ordering::Greater);
         assert_eq!(compare_natural("Page 2", "Page 10"), Ordering::Less);
         assert_eq!(compare_natural("Vol 2", "Vol 10"), Ordering::Less);
-        // decimals compare by value with right-aligned fraction
-        assert_eq!(compare_natural("Vol 1.5", "Vol 1.10"), Ordering::Greater);
-        // numeric ties fall back to the raw strings (total order)
+        // a decimal point is not part of a number: "1.5" vs "1.10" orders by
+        // the digit runs after the dot (5 < 10), matching Explorer/Finder and
+        // the grey-panther natural comparator
+        assert_eq!(compare_natural("Vol 1.5", "Vol 1.10"), Ordering::Less);
+        assert_eq!(compare_natural("Vol 1.10", "Vol 1.5"), Ordering::Greater);
+        // "1.50" vs "1.5": digit runs compare 50 > 5
         assert_eq!(compare_natural("Vol 1.5", "Vol 1.50"), Ordering::Less);
         assert_eq!(compare_natural("Vol 1.50", "Vol 1.5"), Ordering::Greater);
         // leading zeros are numerically equal; the raw fallback decides
