@@ -30,3 +30,4 @@ Improvements kmrs adds on top of Java parity, plus intentional behavior differen
 Intentional differences from the Java behavior:
 
 - Page order and series book numbering are case-sensitive; the Java natural comparator is case-insensitive.
+- `/api/v1/books/{bookId}/next` and `/previous` break `numberSort` ties by book id, matching the On Deck selection order; the Java version orders and seeks by `numberSort` alone, so navigation between books with duplicate `numberSort` is unstable and can diverge from On Deck ([gotson/komga#2182](https://github.com/gotson/komga/pull/2182)).

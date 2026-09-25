@@ -221,12 +221,17 @@ impl BookDtoDao {
         };
         let (cmp, dir) = if next { (">", "ASC") } else { ("<", "DESC") };
         let (from, mut params) = select_from(user_id, &BTreeSet::new());
+        // BOOK.ID breaks number_sort ties so navigation stays stable and matches On Deck ordering
         let sql = format!(
-            "{SELECT_CLAUSE} {from} WHERE BOOK.SERIES_ID = ? AND BOOK_METADATA.NUMBER_SORT {cmp} ? \
-             ORDER BY BOOK_METADATA.NUMBER_SORT {dir} LIMIT 1"
+            "{SELECT_CLAUSE} {from} WHERE BOOK.SERIES_ID = ? \
+             AND (BOOK_METADATA.NUMBER_SORT {cmp} ? \
+                  OR (BOOK_METADATA.NUMBER_SORT = ? AND BOOK.ID {cmp} ?)) \
+             ORDER BY BOOK_METADATA.NUMBER_SORT {dir}, BOOK.ID {dir} LIMIT 1"
         );
         params.push(Value::Text(series_id));
         params.push(Value::Real(number_sort as f64));
+        params.push(Value::Real(number_sort as f64));
+        params.push(Value::Text(book_id.to_string()));
         Ok(fetch_and_map(&conn, &sql, params)?.into_iter().next())
     }
 
@@ -1672,6 +1677,48 @@ mod tests {
         assert!(d.find_previous_in_series("b1", "u1").unwrap().is_none());
         // unknown book id is an internal error, mirroring Kotlin's fetchOne()!!
         assert!(d.find_next_in_series("nope", "u1").is_err());
+    }
+
+    #[test]
+    fn sibling_series_navigation_breaks_number_sort_ties_by_book_id() {
+        let db = base_db();
+        let conn = db.rw();
+        insert_series(&conn, "s9", "l1", 4, false);
+        insert_series_metadata(&conn, "s9", "Zeta", "P1", None);
+        for (id, sort) in [("c1", 1.0), ("c2", 2.0), ("c3", 2.0), ("c4", 3.0)] {
+            insert_book(
+                &conn,
+                id,
+                "s9",
+                "l1",
+                100,
+                &format!("hash-{id}"),
+                false,
+                false,
+            );
+            insert_media(&conn, id, "READY", "application/zip", 10);
+            insert_book_metadata(&conn, id, id, sort, None);
+        }
+        drop(conn);
+
+        let d = dao(&db);
+        // c2 and c3 tie on number_sort: the smaller book id comes first in both directions
+        assert_eq!(
+            d.find_next_in_series("c2", "u1").unwrap().map(|b| b.id),
+            Some("c3".to_string())
+        );
+        assert_eq!(
+            d.find_previous_in_series("c3", "u1").unwrap().map(|b| b.id),
+            Some("c2".to_string())
+        );
+        assert_eq!(
+            d.find_next_in_series("c3", "u1").unwrap().map(|b| b.id),
+            Some("c4".to_string())
+        );
+        assert_eq!(
+            d.find_previous_in_series("c2", "u1").unwrap().map(|b| b.id),
+            Some("c1".to_string())
+        );
     }
 
     fn readlist(id: &str, ordered: bool) -> ReadList {
