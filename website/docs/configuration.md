@@ -61,7 +61,7 @@ Every key below is commented out at its default value; uncomment to change it. A
 
 [kobo]
 # sync-item-limit = 100 # env: KOMGA_KOBO_SYNCITEMLIMIT
-# kepubify-path = "/usr/local/bin/kepubify" # env: KOMGA_KOBO_KEPUBIFY_PATH
+# kepubify-path = "/usr/local/bin/kepubify" # env: KOMGA_KOBO_KEPUBIFYPATH
 
 
 [webhooks]
