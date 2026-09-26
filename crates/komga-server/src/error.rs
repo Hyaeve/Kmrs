@@ -174,7 +174,10 @@ impl IntoResponse for ApiError {
             ApiError::Violations(violations) => {
                 (StatusCode::BAD_REQUEST, Json(ViolationsBody { violations })).into_response()
             }
+            // Spring logs the uncaught exception behind a 500; without this the detail
+            // (e.g. which archive entry failed to decompress) only exists in the response body
             ApiError::Internal(message) => {
+                tracing::error!("{message}");
                 let body = ErrorBody {
                     timestamp: now_timestamp(),
                     status: 500,
