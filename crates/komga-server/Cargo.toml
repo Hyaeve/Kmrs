@@ -45,9 +45,10 @@ rusqlite.workspace = true
 crc32fast.workspace = true
 tokio-util = { version = "0.7", features = ["io"] }
 tokio-stream = "0.1"
+futures-util = "0.3"
 flate2.workspace = true
 tar.workspace = true
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots", "json", "gzip"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots", "json", "gzip", "stream"] }
 
 # unix-only: the `profiling` feature is inert on Windows (jemalloc has no MSVC support),
 # so release builds can pass --features profiling to every target

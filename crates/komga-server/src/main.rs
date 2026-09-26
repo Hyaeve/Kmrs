@@ -13,6 +13,7 @@ mod service;
 mod settings;
 mod sse;
 mod state;
+mod webhook;
 #[allow(dead_code)]
 mod webpub;
 mod webui;
@@ -113,6 +114,7 @@ async fn main() -> anyhow::Result<()> {
     }
     search_index::check_on_startup(&state, search_rebuild);
     search_index::consume_events(state.clone());
+    webhook::consume_events(state.clone());
 
     let app = build_router(state.clone());
 

@@ -58,6 +58,7 @@ pub struct ServerConfig {
     pub kepubify_path: Option<PathBuf>,
     /// configurationSource of the settings DTO
     pub server_context_path: Option<String>,
+    pub webhooks: WebhookConfig,
     pub oauth2: OAuth2Config,
     /// built web UI (e.g. kmweb's dist/) served at / with SPA fallback; None = no web UI (default)
     pub webui_dir: Option<PathBuf>,
@@ -69,6 +70,22 @@ pub struct ServerConfig {
     pub sort_locale: Option<String>,
     /// substituted into the SQL migrations
     pub migration_placeholders: Placeholders,
+}
+
+/// Outbound generic JSON webhooks. Empty `endpoints` disables delivery entirely.
+/// Each endpoint has its own URL, event filter, and optional secret.
+/// Not part of Java parity.
+#[derive(Debug, Clone, Default)]
+pub struct WebhookConfig {
+    pub endpoints: Vec<WebhookEndpoint>,
+    pub timeout: Duration,
+}
+
+#[derive(Debug, Clone)]
+pub struct WebhookEndpoint {
+    pub url: String,
+    pub events: Vec<String>,
+    pub secret: Option<String>,
 }
 
 /// OAuth2/OIDC client registrations. When empty, OAuth2 login is disabled (providers endpoint
@@ -293,6 +310,48 @@ impl ServerConfig {
                 file.and_then(|f| f.kobo.as_ref())
                     .and_then(|k| k.kepubify_path.clone())
             }),
+            webhooks: {
+                // Per-endpoint format from file (if present)
+                let mut endpoints = Vec::new();
+                if let Some(file_webhooks) = file.and_then(|f| f.webhooks.as_ref()) {
+                    if let Some(file_endpoints) = &file_webhooks.endpoints {
+                        for ep in file_endpoints {
+                            endpoints.push(WebhookEndpoint {
+                                url: ep.url.clone(),
+                                events: ep.events.clone().unwrap_or_default(),
+                                secret: ep.secret.clone().filter(|s| !s.is_empty()),
+                            });
+                        }
+                    }
+                }
+                // Env var fallback: used only when file has no [[webhooks.endpoints]].
+                // For simple cases, comma-separated URLs with shared events/secret.
+                if endpoints.is_empty() {
+                    if let Some(urls) = env_list(env, "KOMGA_WEBHOOKS_URLS") {
+                        let events = env_list(env, "KOMGA_WEBHOOKS_EVENTS").unwrap_or_default();
+                        let secret =
+                            env_string(env, "KOMGA_WEBHOOKS_SECRET").filter(|s| !s.is_empty());
+                        for url in urls {
+                            endpoints.push(WebhookEndpoint {
+                                url,
+                                events: events.clone(),
+                                secret: secret.clone(),
+                            });
+                        }
+                    }
+                }
+                WebhookConfig {
+                    endpoints,
+                    timeout: env_duration(env, "KOMGA_WEBHOOKS_TIMEOUT")
+                        .transpose()?
+                        .or_else(|| {
+                            file.and_then(|f| f.webhooks.as_ref())
+                                .and_then(|w| w.timeout)
+                                .map(|d| d.0)
+                        })
+                        .unwrap_or(Duration::from_secs(10)),
+                }
+            },
             server_context_path,
             oauth2: merge_oauth2(file.and_then(|f| f.oauth2.as_ref()), env),
             webui_dir: env_path(env, "KOMGA_WEBUI_DIR")
@@ -708,6 +767,137 @@ kepubify-path = "/usr/local/bin/kepubify"
             config.kepubify_path,
             Some(std::path::PathBuf::from("/opt/kepubify"))
         );
+    }
+
+    #[test]
+    fn webhooks_defaults_file_and_env() {
+        let config = resolve("", Cli::default(), &[]);
+        assert!(config.webhooks.endpoints.is_empty());
+        assert_eq!(config.webhooks.timeout, Duration::from_secs(10));
+
+        let config = resolve(
+            r#"
+[webhooks]
+timeout = "5s"
+[[webhooks.endpoints]]
+url = "https://a.example/hook"
+events = ["BookAdded"]
+secret = "file-secret"
+
+[[webhooks.endpoints]]
+url = "https://b.example/hook"
+events = ["BookAdded"]
+secret = "file-secret"
+"#,
+            Cli::default(),
+            &[],
+        );
+        assert_eq!(config.webhooks.endpoints.len(), 2);
+        assert_eq!(config.webhooks.endpoints[0].url, "https://a.example/hook");
+        assert_eq!(
+            config.webhooks.endpoints[0].events,
+            vec!["BookAdded".to_string()]
+        );
+        assert_eq!(
+            config.webhooks.endpoints[0].secret.as_deref(),
+            Some("file-secret")
+        );
+        assert_eq!(config.webhooks.endpoints[1].url, "https://b.example/hook");
+        assert_eq!(
+            config.webhooks.endpoints[1].events,
+            vec!["BookAdded".to_string()]
+        );
+        assert_eq!(
+            config.webhooks.endpoints[1].secret.as_deref(),
+            Some("file-secret")
+        );
+        assert_eq!(config.webhooks.timeout, Duration::from_secs(5));
+
+        // Env var override (comma-separated URLs with shared events/secret)
+        let config = resolve(
+            "",
+            Cli::default(),
+            &env(&[
+                (
+                    "KOMGA_WEBHOOKS_URLS",
+                    "https://a.example/hook, https://b.example/hook",
+                ),
+                ("KOMGA_WEBHOOKS_EVENTS", "BookAdded, SeriesAdded"),
+                ("KOMGA_WEBHOOKS_TIMEOUT", "3s"),
+                ("KOMGA_WEBHOOKS_SECRET", "env-secret"),
+            ]),
+        );
+        assert_eq!(config.webhooks.endpoints.len(), 2);
+        assert_eq!(config.webhooks.endpoints[0].url, "https://a.example/hook");
+        assert_eq!(
+            config.webhooks.endpoints[0].events,
+            vec!["BookAdded".to_string(), "SeriesAdded".to_string()]
+        );
+        assert_eq!(
+            config.webhooks.endpoints[0].secret.as_deref(),
+            Some("env-secret")
+        );
+        assert_eq!(config.webhooks.endpoints[1].url, "https://b.example/hook");
+        assert_eq!(
+            config.webhooks.endpoints[1].events,
+            vec!["BookAdded".to_string(), "SeriesAdded".to_string()]
+        );
+        assert_eq!(
+            config.webhooks.endpoints[1].secret.as_deref(),
+            Some("env-secret")
+        );
+        assert_eq!(config.webhooks.timeout, Duration::from_secs(3));
+
+        // an empty secret means unsigned, whether from file or env.
+        let config = resolve(
+            r#"
+[webhooks]
+[[webhooks.endpoints]]
+url = "https://example.com/hook"
+secret = ""
+"#,
+            Cli::default(),
+            &env(&[("KOMGA_WEBHOOKS_SECRET", "")]),
+        );
+        assert_eq!(config.webhooks.endpoints[0].secret, None);
+    }
+
+    #[test]
+    fn webhooks_per_endpoint_format() {
+        let config = resolve(
+            r#"
+[webhooks]
+timeout = "5s"
+[[webhooks.endpoints]]
+url = "https://a.example/hook"
+events = ["BookAdded", "SeriesAdded"]
+secret = "secret-a"
+
+[[webhooks.endpoints]]
+url = "https://b.example/hook"
+events = ["BookAdded"]
+# no secret = unsigned
+"#,
+            Cli::default(),
+            &[],
+        );
+        assert_eq!(config.webhooks.endpoints.len(), 2);
+        assert_eq!(config.webhooks.endpoints[0].url, "https://a.example/hook");
+        assert_eq!(
+            config.webhooks.endpoints[0].events,
+            vec!["BookAdded".to_string(), "SeriesAdded".to_string()]
+        );
+        assert_eq!(
+            config.webhooks.endpoints[0].secret.as_deref(),
+            Some("secret-a")
+        );
+        assert_eq!(config.webhooks.endpoints[1].url, "https://b.example/hook");
+        assert_eq!(
+            config.webhooks.endpoints[1].events,
+            vec!["BookAdded".to_string()]
+        );
+        assert_eq!(config.webhooks.endpoints[1].secret, None);
+        assert_eq!(config.webhooks.timeout, Duration::from_secs(5));
     }
 
     #[test]

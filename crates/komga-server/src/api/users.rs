@@ -5,6 +5,7 @@ use crate::auth::RequireAuth;
 use crate::dto::common::{Page, Pageable};
 use crate::dto::user::*;
 use crate::error::{ApiError, Violation};
+use crate::events::DomainEvent;
 use crate::http::pagination::{QueryExt, QueryPageable};
 use crate::state::AppState;
 use axum::extract::{Path, State};
@@ -86,6 +87,11 @@ async fn update_my_password(
     user.password =
         bcrypt::hash(&body.password, 10).map_err(|e| ApiError::Internal(e.to_string()))?;
     dao.update(&user)?;
+    // changing your own password keeps the current session (KomgaUserLifecycle semantics)
+    let _ = state.events.send(DomainEvent::UserUpdated {
+        user,
+        expire_session: false,
+    });
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -204,6 +210,7 @@ async fn update_user(
     let mut existing = dao
         .find_by_id(&id)?
         .ok_or_else(|| ApiError::not_found(""))?;
+    let before = existing.clone();
 
     if let Some(roles) = &patch.roles {
         // komga NPEs on explicit null (roles!!); aligned here as a 500
@@ -243,8 +250,18 @@ async fn update_user(
     );
 
     dao.update(&existing)?;
-    // permission/sharing changes invalidate all sessions of this user (KomgaUserLifecycle semantics)
-    state.sessions.invalidate_user(&id);
+    // only permission/sharing changes invalidate sessions (KomgaUserLifecycle semantics)
+    let expire_sessions = before.roles != existing.roles
+        || before.restrictions != existing.restrictions
+        || before.shared_all_libraries != existing.shared_all_libraries
+        || before.shared_libraries_ids != existing.shared_libraries_ids;
+    if expire_sessions {
+        state.sessions.invalidate_user(&id);
+    }
+    let _ = state.events.send(DomainEvent::UserUpdated {
+        user: existing,
+        expire_session: expire_sessions,
+    });
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -263,6 +280,11 @@ async fn delete_user(
         .ok_or_else(|| ApiError::not_found(""))?;
     dao.delete(&id, &user.email)?;
     state.sessions.invalidate_user(&id);
+    // Java publishes UserUpdated (not UserDeleted) on delete, with sessions expired
+    let _ = state.events.send(DomainEvent::UserUpdated {
+        user,
+        expire_session: true,
+    });
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -284,9 +306,14 @@ async fn update_password_by_id(
         bcrypt::hash(&body.password, 10).map_err(|e| ApiError::Internal(e.to_string()))?;
     dao.update(&user)?;
     // changing someone else's password invalidates their sessions; changing your own does not
-    if auth.0.user.id != id {
+    let expire_sessions = auth.0.user.id != id;
+    if expire_sessions {
         state.sessions.invalidate_user(&id);
     }
+    let _ = state.events.send(DomainEvent::UserUpdated {
+        user,
+        expire_session: expire_sessions,
+    });
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -778,5 +805,157 @@ mod tests {
             activity.api_key_comment.as_deref(),
             Some(expected_comment.as_str())
         );
+    }
+
+    fn seed_plain_user(state: &AppState, email: &str) -> String {
+        UserDao::new(state.db.clone())
+            .insert(&KomgaUser {
+                id: String::new(),
+                email: email.to_string(),
+                password: bcrypt::hash("pass", 10).unwrap(),
+                roles: BTreeSet::new(),
+                shared_libraries_ids: BTreeSet::new(),
+                shared_all_libraries: true,
+                restrictions: ContentRestrictions::default(),
+                created_date: now_utc(),
+                last_modified_date: now_utc(),
+            })
+            .unwrap()
+    }
+
+    async fn call_with_body(
+        state: &AppState,
+        method: &str,
+        uri: &str,
+        body: serde_json::Value,
+    ) -> StatusCode {
+        let request = Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("X-API-Key", "secret")
+            .header("Content-Type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        test_router(state.clone())
+            .oneshot(request)
+            .await
+            .unwrap()
+            .status()
+    }
+
+    /// Next `UserUpdated` on the bus; anything else (notably `UserDeleted`) fails the test.
+    async fn next_user_updated(
+        rx: &mut tokio::sync::broadcast::Receiver<crate::events::DomainEvent>,
+    ) -> (String, bool) {
+        let event = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        match event {
+            crate::events::DomainEvent::UserUpdated {
+                user,
+                expire_session,
+            } => (user.id, expire_session),
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn update_user_roles_expires_sessions_and_emits() {
+        let (state, _rx) = test_state();
+        seed_user(&state, "admin@b.c");
+        let target = seed_plain_user(&state, "user@b.c");
+        let sid = state.sessions.create(&target);
+        let mut events = state.events.subscribe();
+
+        let status = call_with_body(
+            &state,
+            "PATCH",
+            &format!("/api/v2/users/{target}"),
+            serde_json::json!({"roles": ["ADMIN"]}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+
+        assert_eq!(next_user_updated(&mut events).await, (target.clone(), true));
+        assert!(state.sessions.get(&sid).is_none());
+    }
+
+    #[tokio::test]
+    async fn update_user_noop_keeps_sessions_and_emits_unexpired() {
+        let (state, _rx) = test_state();
+        seed_user(&state, "admin@b.c");
+        let target = seed_plain_user(&state, "user@b.c");
+        let sid = state.sessions.create(&target);
+        let mut events = state.events.subscribe();
+
+        let status = call_with_body(
+            &state,
+            "PATCH",
+            &format!("/api/v2/users/{target}"),
+            serde_json::json!({}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+
+        assert_eq!(
+            next_user_updated(&mut events).await,
+            (target.clone(), false)
+        );
+        assert!(state.sessions.get(&sid).is_some());
+    }
+
+    #[tokio::test]
+    async fn delete_user_emits_updated_expired_not_deleted() {
+        let (state, _rx) = test_state();
+        seed_user(&state, "admin@b.c");
+        let target = seed_plain_user(&state, "user@b.c");
+        let mut events = state.events.subscribe();
+
+        let request = Request::builder()
+            .method("DELETE")
+            .uri(format!("/api/v2/users/{target}"))
+            .header("X-API-Key", "secret")
+            .body(Body::empty())
+            .unwrap();
+        let status = test_router(state.clone())
+            .oneshot(request)
+            .await
+            .unwrap()
+            .status();
+        assert_eq!(status, StatusCode::NO_CONTENT);
+
+        // Java parity: delete publishes UserUpdated (not UserDeleted) with sessions expired
+        assert_eq!(next_user_updated(&mut events).await, (target, true));
+    }
+
+    #[tokio::test]
+    async fn password_change_flag_follows_whose_password() {
+        let (state, _rx) = test_state();
+        let admin = seed_user(&state, "admin@b.c");
+        let target = seed_plain_user(&state, "user@b.c");
+        let mut events = state.events.subscribe();
+
+        // admin changes someone else's password: sessions expire
+        let status = call_with_body(
+            &state,
+            "PATCH",
+            &format!("/api/v2/users/{target}/password"),
+            serde_json::json!({"password": "newpass123"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert_eq!(next_user_updated(&mut events).await, (target, true));
+
+        // changing your own password keeps the session
+        let status = call_with_body(
+            &state,
+            "PATCH",
+            "/api/v2/users/me/password",
+            serde_json::json!({"password": "newpass123"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert_eq!(next_user_updated(&mut events).await, (admin, false));
     }
 }

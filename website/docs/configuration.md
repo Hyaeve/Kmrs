@@ -63,6 +63,27 @@ Every key below is commented out at its default value; uncomment to change it. A
 # sync-item-limit = 100 # env: KOMGA_KOBO_SYNCITEMLIMIT
 # kepubify-path = "/usr/local/bin/kepubify" # env: KOMGA_KOBO_KEPUBIFY_PATH
 
+
+[webhooks]
+# generic JSON POST webhooks on library events (kmrs enhancement, no Java equivalent)
+# Per-endpoint configuration (each endpoint has its own URL, events, secret):
+# [[webhooks.endpoints]]
+# url = "https://example.com/webhook1"
+# events = ["BookAdded", "SeriesAdded"]  # empty = all events
+# secret = "hmac-secret"  # empty = unsigned
+#
+# [[webhooks.endpoints]]
+# url = "https://example.com/webhook2"
+# events = ["BookAdded"]
+# secret = ""
+#
+# timeout = "10s" # per-request POST timeout. env: KOMGA_WEBHOOKS_TIMEOUT
+#
+# Precedence: [[webhooks.endpoints]] in TOML file takes priority.
+# If no endpoints are defined in the file, env vars are used as fallback:
+# KOMGA_WEBHOOKS_URLS (comma-separated), KOMGA_WEBHOOKS_EVENTS,
+# KOMGA_WEBHOOKS_SECRET, KOMGA_WEBHOOKS_TIMEOUT
+
 [oauth2]
 # account-creation = false # env: KOMGA_OAUTH2ACCOUNTCREATION
 # oidc-email-verification = true # env: KOMGA_OIDCMAILVERIFICATION

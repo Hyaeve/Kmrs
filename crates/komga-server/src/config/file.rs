@@ -21,6 +21,7 @@ pub struct FileConfig {
     pub books: Option<FileBooks>,
     pub libraries: Option<FileLibraries>,
     pub kobo: Option<FileKobo>,
+    pub webhooks: Option<FileWebhooks>,
     pub oauth2: Option<FileOAuth2>,
     pub webui: Option<FileWebui>,
 }
@@ -94,6 +95,22 @@ pub struct FileLibraries {
 pub struct FileKobo {
     pub sync_item_limit: Option<u32>,
     pub kepubify_path: Option<PathBuf>,
+}
+
+/// Outbound generic JSON webhooks (kmrs enhancement, no Java equivalent).
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct FileWebhooks {
+    pub endpoints: Option<Vec<FileWebhookEndpoint>>,
+    pub timeout: Option<ConfigDuration>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct FileWebhookEndpoint {
+    pub url: String,
+    pub events: Option<Vec<String>>,
+    pub secret: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -390,6 +407,30 @@ pub fn render(file: &FileConfig, config: &ServerConfig, source: Option<&Path>) -
             "# kepubify-path = \"/usr/local/bin/kepubify\" # env: KOMGA_KOBO_KEPUBIFYPATH\n",
         ),
     }
+    out.push('\n');
+
+    out.push_str("[webhooks]\n");
+    out.push_str(
+        "# generic JSON POST webhooks on library events (kmrs enhancement, no Java equivalent)\n",
+    );
+    out.push_str("# Per-endpoint configuration (each with its own URL, events, secret):\n");
+    out.push_str("# [[webhooks.endpoints]]\n");
+    out.push_str("# url = \"https://example.com/webhook1\"\n");
+    out.push_str("# events = [\"BookAdded\", \"SeriesAdded\"]  # empty = all events\n");
+    out.push_str("# secret = \"hmac-secret\"  # empty = unsigned\n");
+    out.push_str("#\n");
+    out.push_str("# [[webhooks.endpoints]]\n");
+    out.push_str("# url = \"https://example.com/webhook2\"\n");
+    out.push_str("# events = [\"BookAdded\"]\n");
+    out.push_str("# secret = \"\"\n");
+    push_line(
+        &mut out,
+        file.webhooks.as_ref().and_then(|w| w.timeout).is_some(),
+        format!(
+            "timeout = {} # per-request POST timeout. env: KOMGA_WEBHOOKS_TIMEOUT",
+            q(&format_duration(config.webhooks.timeout))
+        ),
+    );
     out.push('\n');
 
     let foauth2 = file.oauth2.as_ref();

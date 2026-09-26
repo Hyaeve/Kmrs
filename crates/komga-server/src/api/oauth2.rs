@@ -523,6 +523,7 @@ mod tests {
             kobo_sync_item_limit: 100,
             kepubify_path: None,
             server_context_path: None,
+            webhooks: Default::default(),
             migration_placeholders: Default::default(),
             oauth2,
             webui_dir: None,
