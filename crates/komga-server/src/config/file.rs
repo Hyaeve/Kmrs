@@ -27,8 +27,8 @@ pub struct FileConfig {
     pub komf: Option<FileKomf>,
 }
 
-/// Optional preset for the komf integration; the integration can also be set up
-/// at runtime via `PUT /api/v1/komf/integration` (kmrs enhancement, no Java equivalent).
+/// Optional preset for the komf integration, surfaced as form defaults in the admin UI;
+/// nothing is provisioned until an admin confirms via `PUT /api/v1/komf/integration`.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct FileKomf {
@@ -514,7 +514,8 @@ pub fn render(file: &FileConfig, config: &ServerConfig, source: Option<&Path>) -
 
     out.push_str("[komf]\n");
     out.push_str(
-        "# one-click setup of a komf metadata fetcher (kmrs enhancement, no Java equivalent);\n\
+        "# komf metadata fetcher integration (kmrs enhancement, no Java equivalent);\n\
+         # pre-fills the setup form in the admin UI — nothing is provisioned until an admin confirms\n\
          # komf's API has no authentication — only point this at a trusted network\n",
     );
     match &config.komf_url {

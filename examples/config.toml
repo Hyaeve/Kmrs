@@ -107,7 +107,8 @@
 # update-interval = "1d" # env: KOMGA_WEBUI_UPDATEINTERVAL
 
 [komf]
-# one-click setup of a komf metadata fetcher (kmrs enhancement, no Java equivalent);
+# komf metadata fetcher integration (kmrs enhancement, no Java equivalent);
+# pre-fills the setup form in the admin UI — nothing is provisioned until an admin confirms
 # komf's API has no authentication — only point this at a trusted network
 # url = "http://komf:8085" # env: KOMGA_KOMF_URL
 # base-url = "http://kmrs:25600" # env: KOMGA_KOMF_BASEURL

@@ -23,6 +23,37 @@ An existing komga `/config` directory (with `database.sqlite` / `tasks.sqlite`) 
 
 The image bundles the kmweb UI at `/webui` and serves it at `/`, so `http://<host>:25600/` works in a browser immediately. Run with an empty `KOMGA_WEBUI_DIR=` to disable the UI.
 
+## Docker Compose
+
+A compose stack can also carry [komf](https://github.com/dyphire/komf-rs) (the metadata fetcher) as a sidecar:
+
+```yaml
+services:
+  kmrs:
+    image: ghcr.io/kmworks/kmrs:latest
+    container_name: kmrs
+    user: "1000:1000"
+    ports:
+      - "25600:25600"
+    volumes:
+      - ./config:/config
+      - ./data:/data
+    environment:
+      # optional: pre-fills the komf integration form in the admin UI
+      - KOMGA_KOMF_URL=http://komf:8085
+      - KOMGA_KOMF_BASEURL=http://kmrs:25600
+    restart: unless-stopped
+
+  komf:
+    image: ghcr.io/dyphire/komf-rs:latest
+    container_name: komf
+    volumes:
+      - ./komf-config:/config
+    restart: unless-stopped
+```
+
+komf's port is deliberately not published: its API has no authentication, and only kmrs needs to reach it. Once the stack is up, open the integrations page in the admin UI (or call `PUT /api/v1/komf/integration` with the same two URLs) and confirm — kmrs mints an API key and provisions komf itself; komf then calls back in Komga mode and starts matching metadata.
+
 ## Prebuilt binaries
 
 Download the archive for your platform from the [latest release](https://github.com/kmworks/kmrs/releases/latest) (Linux, macOS, Windows; x86_64 and aarch64).

@@ -82,10 +82,11 @@ fn http_url(field: &str, value: Option<&str>) -> Result<String, Violation> {
 
 async fn integration_dto(state: &AppState) -> Result<KomfIntegrationDto, ApiError> {
     let Some(row) = KomfIntegrationDao::new(state.kmrs_db.clone()).get()? else {
+        // unconfigured: surface the config-file preset so the admin UI can pre-fill the form
         return Ok(KomfIntegrationDto {
             configured: false,
-            url: None,
-            base_url: None,
+            url: state.config.komf_url.clone(),
+            base_url: state.config.komf_base_url.clone(),
             state: None,
             last_error: None,
             komf_reachable: false,
@@ -105,7 +106,7 @@ async fn integration_dto(state: &AppState) -> Result<KomfIntegrationDto, ApiErro
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api::libraries::test_support::{insert_api_key, insert_user, TestApp};
+    use crate::api::libraries::test_support::{insert_api_key, insert_user, test_config, TestApp};
     use axum::routing::{get, patch};
     use std::sync::{Arc, Mutex};
 
@@ -169,6 +170,28 @@ mod tests {
         assert_eq!(
             body,
             serde_json::json!({"configured": false, "komfReachable": false})
+        );
+    }
+
+    #[tokio::test]
+    async fn get_returns_preset_as_form_defaults_when_unconfigured() {
+        let mut config = test_config();
+        config.komf_url = Some("http://komf:8085".into());
+        config.komf_base_url = Some("http://kmrs:25600".into());
+        let app = TestApp::with_config(router(), config);
+        let admin = insert_user(&app.state.db, "admin@x.c", true, true, &[]);
+        insert_api_key(&app.state.db, &admin, "k-admin");
+
+        let (status, body) = app.get_json("/api/v1/komf/integration", "k-admin").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            body,
+            serde_json::json!({
+                "configured": false,
+                "url": "http://komf:8085",
+                "baseUrl": "http://kmrs:25600",
+                "komfReachable": false
+            })
         );
     }
 

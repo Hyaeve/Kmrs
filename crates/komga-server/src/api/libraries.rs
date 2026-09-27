@@ -395,6 +395,13 @@ pub(crate) mod test_support {
 
     impl TestApp {
         pub(crate) fn new(routes: axum::Router<AppState>) -> Self {
+            Self::with_config(routes, test_config())
+        }
+
+        pub(crate) fn with_config(
+            routes: axum::Router<AppState>,
+            config: crate::config::ServerConfig,
+        ) -> Self {
             let db = Database::open_in_memory(true).unwrap();
             let migrations = komga_db::main_migrations();
             Migrator::new(&migrations, Placeholders::default())
@@ -408,7 +415,7 @@ pub(crate) mod test_support {
                 .migrate(&tasks_db.rw())
                 .unwrap();
             let state = AppState {
-                config: Arc::new(test_config()),
+                config: Arc::new(config),
                 db: db.clone(),
                 task_db: task_db.clone(),
                 tasks_db: tasks_db.clone(),
@@ -496,7 +503,7 @@ pub(crate) mod test_support {
         }
     }
 
-    fn test_config() -> crate::config::ServerConfig {
+    pub(crate) fn test_config() -> crate::config::ServerConfig {
         crate::config::ServerConfig {
             config_dir: PathBuf::new(),
             lucene_dir: PathBuf::new(),
