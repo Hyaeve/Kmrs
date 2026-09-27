@@ -178,6 +178,21 @@ impl<'a> Opf<'a> {
         })
     }
 
+    /// OPF 2 `<meta name=".." content=".."/>` lookup, tried in the given order. The Java
+    /// version only reads the EPUB 3 `property` form, so calibre-style series metadata
+    /// (`calibre:series`, bare `series`, …) would otherwise be lost.
+    fn meta_content(&self, names: &[&str]) -> Option<String> {
+        names.iter().find_map(|name| {
+            self.metadata_children()
+                .into_iter()
+                .find(|n| n.has_tag_name("meta") && n.attribute("name") == Some(*name))
+                .and_then(|n| n.attribute("content"))
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+        })
+    }
+
     fn spine_progression(&'a self) -> Option<&'a str> {
         self.doc
             .descendants()
@@ -320,7 +335,8 @@ fn book_patch_from_package(package_file: &str) -> Option<BookMetadataPatch> {
                 .find(|n| n.attribute("refines") == Some(format!("#{id}").as_str()))
         })
         .and_then(|n| n.text())
-        .map(jsoup_text);
+        .map(jsoup_text)
+        .or_else(|| opf.meta_content(&["calibre:series_index", "series_index"]));
 
     Some(BookMetadataPatch {
         title,
@@ -425,7 +441,8 @@ fn series_patch_from_package(package_file: &str) -> Option<SeriesMetadataPatch> 
         .next()
         .and_then(|n| n.text())
         .map(jsoup_text)
-        .filter(|s| !s.is_empty());
+        .filter(|s| !s.is_empty())
+        .or_else(|| opf.meta_content(&["calibre:series", "series"]));
     let publisher = opf.first_text("publisher");
     let language = opf.first_text("language").and_then(|l| {
         if bcp47::is_valid(&l) {
@@ -698,6 +715,95 @@ mod tests {
         );
         assert_eq!(patch.reading_direction, Some(ReadingDirection::RightToLeft));
         assert!(patch.collections.is_empty() && patch.status.is_none());
+    }
+
+    fn opf2(body: &str) -> String {
+        format!(
+            r##"<?xml version='1.0' encoding='utf-8'?>
+<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="uuid_id" version="2.0">
+  <metadata xmlns:opf="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/">
+    {body}
+  </metadata>
+  <manifest/>
+  <spine/>
+</package>"##
+        )
+    }
+
+    #[test]
+    fn epub2_name_content_series() {
+        let dir = std::env::temp_dir().join("kmrs-epub-8");
+        std::fs::create_dir_all(&dir).unwrap();
+        let book = write_epub(
+            &dir,
+            "book.epub",
+            &opf2(
+                r##"
+    <dc:title>青春猪头少年不会梦到兔女郎学姐</dc:title>
+    <meta name="series" content="青春猪头少年系列" />
+    <meta name="series_index" content="13" />
+            "##,
+            ),
+        );
+        let book_patch = provider()
+            .get_book_metadata_from_book(&book, &media())
+            .unwrap();
+        assert_eq!(book_patch.number.as_deref(), Some("13"));
+        assert_eq!(book_patch.number_sort, Some(13.0));
+        let series_patch = provider()
+            .get_series_metadata_from_book(&book, &media(), true)
+            .unwrap();
+        assert_eq!(series_patch.title.as_deref(), Some("青春猪头少年系列"));
+    }
+
+    #[test]
+    fn epub2_calibre_series() {
+        let dir = std::env::temp_dir().join("kmrs-epub-9");
+        std::fs::create_dir_all(&dir).unwrap();
+        let book = write_epub(
+            &dir,
+            "book.epub",
+            &opf2(
+                r##"
+    <dc:title>Some Book</dc:title>
+    <meta name="calibre:series" content="Calibre Series" />
+    <meta name="calibre:series_index" content="2.5" />
+            "##,
+            ),
+        );
+        let book_patch = provider()
+            .get_book_metadata_from_book(&book, &media())
+            .unwrap();
+        assert_eq!(book_patch.number.as_deref(), Some("2.5"));
+        assert_eq!(book_patch.number_sort, Some(2.5));
+        let series_patch = provider()
+            .get_series_metadata_from_book(&book, &media(), true)
+            .unwrap();
+        assert_eq!(series_patch.title.as_deref(), Some("Calibre Series"));
+    }
+
+    #[test]
+    fn epub3_series_wins_over_epub2() {
+        let dir = std::env::temp_dir().join("kmrs-epub-10");
+        std::fs::create_dir_all(&dir).unwrap();
+        let book = write_epub(
+            &dir,
+            "book.epub",
+            &opf(r##"
+    <opf:meta property="belongs-to-collection" id="col-1">EPUB3 Series</opf:meta>
+    <opf:meta refines="#col-1" property="group-position">4</opf:meta>
+    <opf:meta name="series" content="EPUB2 Series" />
+    <opf:meta name="series_index" content="9" />
+            "##),
+        );
+        let book_patch = provider()
+            .get_book_metadata_from_book(&book, &media())
+            .unwrap();
+        assert_eq!(book_patch.number.as_deref(), Some("4"));
+        let series_patch = provider()
+            .get_series_metadata_from_book(&book, &media(), true)
+            .unwrap();
+        assert_eq!(series_patch.title.as_deref(), Some("EPUB3 Series"));
     }
 
     #[test]
