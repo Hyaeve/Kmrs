@@ -3,6 +3,7 @@ pub mod client_settings;
 pub mod collection;
 pub mod common;
 pub mod kobo;
+pub mod komf;
 pub mod koreader;
 pub mod library;
 pub mod loose;

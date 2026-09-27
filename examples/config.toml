@@ -37,7 +37,7 @@
 # file = "<config-dir>/tasks.sqlite" # env: KOMGA_TASKSDB_FILE; same keys as [database], env prefix KOMGA_TASKSDB
 
 [kmrs-db]
-# file = "<config-dir>/kmrs.sqlite" # per-book series metadata contributions for DB-only series refresh; env: KOMGA_KMRSDB_FILE; same keys as [database], env prefix KOMGA_KMRSDB
+# file = "<config-dir>/kmrs.sqlite" # kmrs-private state (per-book series metadata contributions, komf integration); env: KOMGA_KMRSDB_FILE; same keys as [database], env prefix KOMGA_KMRSDB
 
 [search]
 # data-directory = "<config-dir>/lucene" # tantivy index; env: KOMGA_LUCENE_DATA_DIRECTORY
@@ -105,3 +105,9 @@
 # dir = "/path/to/kmweb/dist" # env: KOMGA_WEBUI_DIR
 # auto-update = false # track the latest kmweb release into <config-dir>/webui; env: KOMGA_WEBUI_AUTOUPDATE
 # update-interval = "1d" # env: KOMGA_WEBUI_UPDATEINTERVAL
+
+[komf]
+# one-click setup of a komf metadata fetcher (kmrs enhancement, no Java equivalent);
+# komf's API has no authentication — only point this at a trusted network
+# url = "http://komf:8085" # env: KOMGA_KOMF_URL
+# base-url = "http://kmrs:25600" # env: KOMGA_KOMF_BASEURL

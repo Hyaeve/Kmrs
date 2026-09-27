@@ -17,6 +17,7 @@ pub mod fonts;
 pub mod history;
 #[allow(dead_code)]
 pub mod kobo;
+pub mod komf;
 #[allow(dead_code)]
 pub mod koreader;
 pub mod libraries;

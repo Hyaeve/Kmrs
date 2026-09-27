@@ -15,8 +15,8 @@ pub struct AppState {
     /// by background task execution so it never contends with API connections.
     pub task_db: Database,
     pub tasks_db: Database,
-    /// Per-book persisted series metadata contributions (`kmrs.sqlite`), read/written
-    /// by book and series metadata refresh; never touches the main database.
+    /// kmrs-private state (`kmrs.sqlite`): per-book series metadata contributions,
+    /// komf integration; never touches the main database.
     pub kmrs_db: Database,
     pub sessions: SessionStore,
     pub settings: Arc<SettingsProvider>,

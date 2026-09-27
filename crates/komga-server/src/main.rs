@@ -112,6 +112,7 @@ async fn main() -> anyhow::Result<()> {
     if config.webui_auto_update && config.webui_dir.is_some() {
         service::webui_updater::WebuiUpdater::start(state.clone());
     }
+    service::komf::KomfProvisioner::start(state.clone());
     search_index::check_on_startup(&state, search_rebuild);
     search_index::consume_events(state.clone());
     webhook::consume_events(state.clone());
@@ -143,6 +144,7 @@ pub fn build_router(state: AppState) -> axum::Router {
         .merge(api::collections::router())
         .merge(api::readlists::router())
         .merge(api::tasks::router())
+        .merge(api::komf::router())
         .merge(api::opds_v1::router())
         .merge(api::opds_v2::router())
         .merge(api::openapi::router())

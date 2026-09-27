@@ -529,6 +529,8 @@ mod tests {
             webui_dir: None,
             webui_auto_update: false,
             webui_update_interval: std::time::Duration::from_secs(24 * 3600),
+            komf_url: None,
+            komf_base_url: None,
             sort_locale: None,
         };
         AppState {

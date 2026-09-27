@@ -14,6 +14,7 @@ pub mod book;
 pub mod book_projection;
 pub mod collection;
 pub mod history;
+pub mod komf_integration;
 pub mod library;
 pub mod media;
 pub mod page_hash;

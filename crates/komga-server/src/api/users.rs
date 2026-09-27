@@ -406,31 +406,15 @@ async fn create_api_key(
     if dao.exists_api_key_by_comment_and_user_id(&body.comment, &auth.0.user.id)? {
         return Err(ApiError::bad_request(komga_core::error::codes::ERR_1034));
     }
-    // komga retries generation up to 10 times (guards against unique key conflicts)
-    for _ in 0..10 {
-        let plain = uuid::Uuid::new_v4().simple().to_string();
-        let api_key = komga_core::model::user::ApiKey {
-            id: String::new(),
-            user_id: auth.0.user.id.clone(),
-            key: crate::auth::sha512_hex(&plain),
-            comment: body.comment.clone(),
-            created_date: now_utc(),
-            last_modified_date: now_utc(),
-        };
-        match dao.insert_api_key(&api_key) {
-            Ok(id) => {
-                let mut dto = ApiKeyDto::of(&api_key);
-                dto.id = id;
-                dto.key = plain; // the plaintext is returned only this once
-                return Ok(Json(dto));
-            }
-            Err(_) => continue,
-        }
-    }
-    Err(ApiError::Status {
-        status: StatusCode::SERVICE_UNAVAILABLE,
-        message: "Failed to generate API key".into(),
-    })
+    let (api_key, plain) =
+        crate::service::user::mint_api_key(state.db.clone(), &auth.0.user.id, &body.comment)
+            .map_err(|_| ApiError::Status {
+                status: StatusCode::SERVICE_UNAVAILABLE,
+                message: "Failed to generate API key".into(),
+            })?;
+    let mut dto = ApiKeyDto::of(&api_key);
+    dto.key = plain; // the plaintext is returned only this once
+    Ok(Json(dto))
 }
 
 async fn delete_api_key(

@@ -65,6 +65,10 @@ pub struct ServerConfig {
     /// track the latest kmweb release into <config-dir>/webui and serve that instead
     pub webui_auto_update: bool,
     pub webui_update_interval: Duration,
+    /// komf metadata fetcher base URL; preset for the integration, runtime state lives in kmrs.sqlite
+    pub komf_url: Option<String>,
+    /// the base URL komf uses to call back into kmrs (written to komf's `komga.baseUri`)
+    pub komf_base_url: Option<String>,
     /// BCP47 locale for ICU-based sorting (authors, publishers, genres, tags, ...);
     /// None/empty = `und` (UCA root), reproducing the legacy hard-coded behavior.
     pub sort_locale: Option<String>,
@@ -374,6 +378,18 @@ impl ServerConfig {
                         .map(|d| d.0)
                 })
                 .unwrap_or(Duration::from_secs(24 * 3600)),
+            komf_url: env_string(env, "KOMGA_KOMF_URL")
+                .or_else(|| {
+                    file.and_then(|f| f.komf.as_ref())
+                        .and_then(|k| k.url.clone())
+                })
+                .filter(|v| !v.is_empty()),
+            komf_base_url: env_string(env, "KOMGA_KOMF_BASEURL")
+                .or_else(|| {
+                    file.and_then(|f| f.komf.as_ref())
+                        .and_then(|k| k.base_url.clone())
+                })
+                .filter(|v| !v.is_empty()),
             migration_placeholders: Placeholders {
                 library_file_hashing: env_bool(env, "KOMGA_FILEHASHING")
                     .or_else(|| {
@@ -935,6 +951,40 @@ events = ["BookAdded"]
         );
         assert!(config.webui_auto_update);
         assert_eq!(config.webui_update_interval, Duration::from_secs(1800));
+    }
+
+    #[test]
+    fn komf_from_file_env_and_default() {
+        let config = resolve("", Cli::default(), &[]);
+        assert_eq!(config.komf_url, None);
+        assert_eq!(config.komf_base_url, None);
+
+        let config = resolve(
+            "[komf]\nurl = \"http://komf:8085\"\nbase-url = \"http://kmrs:25600\"\n",
+            Cli::default(),
+            &[],
+        );
+        assert_eq!(config.komf_url.as_deref(), Some("http://komf:8085"));
+        assert_eq!(config.komf_base_url.as_deref(), Some("http://kmrs:25600"));
+
+        // env vars win over the file (Spring canonical form: dashes removed)
+        let config = resolve(
+            "[komf]\nurl = \"http://komf:8085\"\nbase-url = \"http://kmrs:25600\"\n",
+            Cli::default(),
+            &env(&[
+                ("KOMGA_KOMF_URL", "http://env-komf:8085"),
+                ("KOMGA_KOMF_BASEURL", "http://env-kmrs:25600"),
+            ]),
+        );
+        assert_eq!(config.komf_url.as_deref(), Some("http://env-komf:8085"));
+        assert_eq!(
+            config.komf_base_url.as_deref(),
+            Some("http://env-kmrs:25600")
+        );
+
+        // empty values are treated as unset
+        let config = resolve("[komf]\nurl = \"\"\n", Cli::default(), &[]);
+        assert_eq!(config.komf_url, None);
     }
 
     #[test]

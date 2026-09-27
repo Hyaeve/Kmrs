@@ -24,6 +24,16 @@ pub struct FileConfig {
     pub webhooks: Option<FileWebhooks>,
     pub oauth2: Option<FileOAuth2>,
     pub webui: Option<FileWebui>,
+    pub komf: Option<FileKomf>,
+}
+
+/// Optional preset for the komf integration; the integration can also be set up
+/// at runtime via `PUT /api/v1/komf/integration` (kmrs enhancement, no Java equivalent).
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct FileKomf {
+    pub url: Option<String>,
+    pub base_url: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -500,6 +510,21 @@ pub fn render(file: &FileConfig, config: &ServerConfig, source: Option<&Path>) -
             q(&format_duration(config.webui_update_interval))
         ),
     );
+    out.push('\n');
+
+    out.push_str("[komf]\n");
+    out.push_str(
+        "# one-click setup of a komf metadata fetcher (kmrs enhancement, no Java equivalent);\n\
+         # komf's API has no authentication — only point this at a trusted network\n",
+    );
+    match &config.komf_url {
+        Some(u) => out.push_str(&format!("url = {} # env: KOMGA_KOMF_URL\n", q(u))),
+        None => out.push_str("# url = \"http://komf:8085\" # env: KOMGA_KOMF_URL\n"),
+    }
+    match &config.komf_base_url {
+        Some(u) => out.push_str(&format!("base-url = {} # env: KOMGA_KOMF_BASEURL\n", q(u))),
+        None => out.push_str("# base-url = \"http://kmrs:25600\" # env: KOMGA_KOMF_BASEURL\n"),
+    }
     out.push('\n');
     out
 }

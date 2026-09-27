@@ -299,6 +299,8 @@ mod tests {
             webui_dir: webui_dir.clone(),
             webui_auto_update: true,
             webui_update_interval: std::time::Duration::from_secs(24 * 3600),
+            komf_url: None,
+            komf_base_url: None,
             sort_locale: None,
         };
         AppState {
