@@ -12,6 +12,10 @@ use std::time::Duration;
 
 pub const API_KEY_COMMENT: &str = "komf integration";
 
+/// Search crawls external providers, so proxied metadata calls get a more generous
+/// budget than the client default.
+const METADATA_PROXY_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// Serializes provision/disconnect so a manual reconfigure racing the reconciliation
 /// loop cannot mint two keys and orphan one of them.
 fn integration_lock() -> &'static tokio::sync::Mutex<()> {
@@ -68,6 +72,50 @@ impl KomfClient {
             .await?
             .error_for_status()?;
         Ok(())
+    }
+
+    /// Forwards to a komga-mode metadata endpoint. Transport failures (unreachable,
+    /// timeout) are the Err case; komf's own status codes come back in Ok so the
+    /// caller can relay them untouched.
+    pub async fn proxy_metadata(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        query: Option<&str>,
+        body: Option<&serde_json::Value>,
+    ) -> anyhow::Result<reqwest::Response> {
+        self.proxy(method, path, query, body, METADATA_PROXY_TIMEOUT)
+            .await
+    }
+
+    /// Forwards to komf's `/api/config`. Same error split as `proxy_metadata`.
+    pub async fn proxy_config(
+        &self,
+        method: reqwest::Method,
+        body: Option<&serde_json::Value>,
+    ) -> anyhow::Result<reqwest::Response> {
+        self.proxy(method, "/api/config", None, body, Duration::from_secs(10))
+            .await
+    }
+
+    async fn proxy(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        query: Option<&str>,
+        body: Option<&serde_json::Value>,
+        timeout: Duration,
+    ) -> anyhow::Result<reqwest::Response> {
+        let mut url = format!("{}{path}", self.base_url);
+        if let Some(query) = query.filter(|q| !q.is_empty()) {
+            url.push('?');
+            url.push_str(query);
+        }
+        let mut request = self.http.request(method, url).timeout(timeout);
+        if let Some(body) = body {
+            request = request.json(body);
+        }
+        Ok(request.send().await?)
     }
 }
 

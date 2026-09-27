@@ -23,3 +23,36 @@ pub struct KomfIntegrationUpdateDto {
     pub url: Option<String>,
     pub base_url: Option<String>,
 }
+
+/// komf's `POST /api/komga/metadata/identify` request; field names follow komf's DTO.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KomfIdentifyRequestDto {
+    pub library_id: Option<String>,
+    pub series_id: String,
+    pub provider: String,
+    pub provider_series_id: String,
+}
+
+/// One entry of komf's `GET /api/komga/metadata/search` response. `provider` stays a
+/// plain string: komf's provider set is open-ended (unknown values round-trip as-is).
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KomfSeriesSearchResultDto {
+    pub url: Option<String>,
+    #[serde(default)]
+    pub image_url: Option<String>,
+    pub title: String,
+    pub provider: String,
+    pub result_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+}
+
+/// komf's job handle, returned by identify and series match.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct KomfMetadataJobResponseDto {
+    pub id: String,
+}

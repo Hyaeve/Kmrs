@@ -72,6 +72,13 @@ impl ApiError {
             message: message.into(),
         }
     }
+
+    pub fn bad_gateway(message: impl Into<String>) -> Self {
+        Self::Status {
+            status: StatusCode::BAD_GATEWAY,
+            message: message.into(),
+        }
+    }
 }
 
 impl From<CodedError> for ApiError {
