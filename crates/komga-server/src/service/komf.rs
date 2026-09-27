@@ -26,6 +26,9 @@ fn integration_lock() -> &'static tokio::sync::Mutex<()> {
 pub struct KomfClient {
     base_url: String,
     http: reqwest::Client,
+    // a total timeout spans the response body, so the 10s budget of `http` would cut
+    // long-lived SSE streams; this client carries only a connect timeout
+    http_stream: reqwest::Client,
 }
 
 impl KomfClient {
@@ -35,9 +38,15 @@ impl KomfClient {
             .timeout(Duration::from_secs(10))
             .build()
             .expect("reqwest client");
+        let http_stream = reqwest::Client::builder()
+            .user_agent(concat!("kmrs/", env!("CARGO_PKG_VERSION")))
+            .connect_timeout(Duration::from_secs(10))
+            .build()
+            .expect("reqwest client");
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             http,
+            http_stream,
         }
     }
 
@@ -96,6 +105,26 @@ impl KomfClient {
     ) -> anyhow::Result<reqwest::Response> {
         self.proxy(method, "/api/config", None, body, Duration::from_secs(10))
             .await
+    }
+
+    /// Forwards to komf's jobs API (`/api/jobs`). Same error split as `proxy_metadata`.
+    pub async fn proxy_jobs(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        query: Option<&str>,
+    ) -> anyhow::Result<reqwest::Response> {
+        self.proxy(method, path, query, None, Duration::from_secs(10))
+            .await
+    }
+
+    /// Forwards to a job's SSE event stream. Same error split as `proxy_metadata`.
+    pub async fn proxy_job_events(&self, path: &str) -> anyhow::Result<reqwest::Response> {
+        Ok(self
+            .http_stream
+            .get(format!("{}{path}", self.base_url))
+            .send()
+            .await?)
     }
 
     async fn proxy(

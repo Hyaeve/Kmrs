@@ -447,17 +447,27 @@ pub(crate) mod test_support {
         }
 
         pub(crate) async fn get(&self, uri: &str, api_key: &str) -> (StatusCode, Vec<u8>) {
+            let (status, _, bytes) = self.get_response(uri, api_key).await;
+            (status, bytes)
+        }
+
+        pub(crate) async fn get_response(
+            &self,
+            uri: &str,
+            api_key: &str,
+        ) -> (StatusCode, axum::http::HeaderMap, Vec<u8>) {
             let request = Request::get(uri)
                 .header("X-API-Key", api_key)
                 .body(Body::empty())
                 .unwrap();
             let response = self.app.clone().oneshot(request).await.unwrap();
             let status = response.status();
+            let headers = response.headers().clone();
             let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
                 .await
                 .unwrap()
                 .to_vec();
-            (status, bytes)
+            (status, headers, bytes)
         }
 
         pub(crate) async fn get_json(

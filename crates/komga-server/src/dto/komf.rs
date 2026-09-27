@@ -56,3 +56,27 @@ pub struct KomfSeriesSearchResultDto {
 pub struct KomfMetadataJobResponseDto {
     pub id: String,
 }
+
+/// One entry of komf's `GET /api/jobs`. `status` stays a plain string: komf owns the
+/// enum (unknown values round-trip as-is).
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KomfJobDto {
+    pub series_id: String,
+    pub id: String,
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    pub started_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finished_at: Option<String>,
+}
+
+/// komf's `GET /api/jobs` paged response.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KomfJobPageDto {
+    pub content: Vec<KomfJobDto>,
+    pub total_pages: i32,
+    pub current_page: i32,
+}

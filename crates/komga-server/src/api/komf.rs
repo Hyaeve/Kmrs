@@ -3,12 +3,13 @@
 
 use crate::auth::RequireAuth;
 use crate::dto::komf::{
-    KomfIdentifyRequestDto, KomfIntegrationDto, KomfIntegrationUpdateDto,
-    KomfMetadataJobResponseDto, KomfSeriesSearchResultDto,
+    KomfIdentifyRequestDto, KomfIntegrationDto, KomfIntegrationUpdateDto, KomfJobDto,
+    KomfJobPageDto, KomfMetadataJobResponseDto, KomfSeriesSearchResultDto,
 };
 use crate::error::{ApiError, Violation};
 use crate::service::komf::{self, KomfClient};
 use crate::state::AppState;
+use axum::body::Body;
 use axum::extract::{Path, RawQuery, State};
 use axum::http::{Method, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -47,6 +48,12 @@ pub fn router() -> Router<AppState> {
         .route(
             "/api/v1/komf/config",
             routing::get(get_config).patch(patch_config),
+        )
+        .route("/api/v1/komf/jobs", routing::get(get_jobs))
+        .route("/api/v1/komf/jobs/{jobId}", routing::get(get_job))
+        .route(
+            "/api/v1/komf/jobs/{jobId}/events",
+            routing::get(get_job_events),
         )
 }
 
@@ -278,6 +285,59 @@ async fn patch_config(
         .await
         .map_err(komf_unreachable)?;
     Ok(empty_or_passthrough(response).await)
+}
+
+const KOMF_JOBS: &str = "/api/jobs";
+
+async fn get_jobs(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    RawQuery(query): RawQuery,
+) -> Result<Response, ApiError> {
+    auth.0.require_admin()?;
+    let row = connected_integration(&state)?;
+    let response = KomfClient::new(&row.url)
+        .proxy_jobs(Method::GET, KOMF_JOBS, query.as_deref())
+        .await
+        .map_err(komf_unreachable)?;
+    json_or_passthrough::<KomfJobPageDto>(response).await
+}
+
+async fn get_job(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(job_id): Path<String>,
+) -> Result<Response, ApiError> {
+    auth.0.require_admin()?;
+    let row = connected_integration(&state)?;
+    let response = KomfClient::new(&row.url)
+        .proxy_jobs(Method::GET, &format!("{KOMF_JOBS}/{job_id}"), None)
+        .await
+        .map_err(komf_unreachable)?;
+    json_or_passthrough::<KomfJobDto>(response).await
+}
+
+/// komf closes the event stream itself when the job finishes, so the raw byte stream
+/// is relayed instead of a buffered typed response.
+async fn get_job_events(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(job_id): Path<String>,
+) -> Result<Response, ApiError> {
+    auth.0.require_admin()?;
+    let row = connected_integration(&state)?;
+    let response = KomfClient::new(&row.url)
+        .proxy_job_events(&format!("{KOMF_JOBS}/{job_id}/events"))
+        .await
+        .map_err(komf_unreachable)?;
+    if !response.status().is_success() {
+        return Ok(passthrough(response).await);
+    }
+    Ok(Response::builder()
+        .header(axum::http::header::CONTENT_TYPE, "text/event-stream")
+        .header(axum::http::header::CACHE_CONTROL, "no-cache")
+        .body(Body::from_stream(response.bytes_stream()))
+        .unwrap())
 }
 
 /// Proxying only makes sense once provisioning succeeded; anything earlier is a
@@ -577,6 +637,36 @@ mod tests {
                         }))
                         .into_response(),
                         ("PATCH", "/api/config") => StatusCode::NO_CONTENT.into_response(),
+                        ("GET", "/api/jobs") => Json(serde_json::json!({
+                            "content": [{
+                                "seriesId": "ser-1",
+                                "id": "job-1",
+                                "status": "RUNNING",
+                                "startedAt": "2026-09-27T10:00:00Z"
+                            }],
+                            "totalPages": 3,
+                            "currentPage": 1
+                        }))
+                        .into_response(),
+                        ("GET", "/api/jobs/job-1") => Json(serde_json::json!({
+                            "seriesId": "ser-1",
+                            "id": "job-1",
+                            "status": "COMPLETED",
+                            "message": "done",
+                            "startedAt": "2026-09-27T10:00:00Z",
+                            "finishedAt": "2026-09-27T10:01:00Z"
+                        }))
+                        .into_response(),
+                        _ if method == "GET"
+                            && path.starts_with("/api/jobs/")
+                            && path.ends_with("/events") =>
+                        {
+                            (
+                                [(axum::http::header::CONTENT_TYPE, "text/event-stream")],
+                                "event: ProviderSeriesEvent\ndata: {\"type\":\"ProviderSeriesEvent\",\"provider\":\"MANGADEX\"}\n\nevent: ProviderCompletedEvent\ndata: {\"type\":\"ProviderCompletedEvent\",\"provider\":\"MANGADEX\"}\n\n",
+                            )
+                                .into_response()
+                        }
                         _ if method == "POST"
                             && path.starts_with("/api/komga/metadata/match/")
                             && path.contains("/series/") =>
@@ -661,6 +751,14 @@ mod tests {
             )
             .await;
         assert_eq!(status, StatusCode::FORBIDDEN);
+        let (status, _) = app.get_json("/api/v1/komf/jobs", "k-user").await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        let (status, _) = app.get_json("/api/v1/komf/jobs/job-1", "k-user").await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        let (status, _) = app
+            .get_json("/api/v1/komf/jobs/job-1/events", "k-user")
+            .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]
@@ -673,6 +771,12 @@ mod tests {
         assert_eq!(status, StatusCode::CONFLICT);
         let (status, _) = app
             .request_json("POST", "/api/v1/komf/match/library/l", "k-admin", None)
+            .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        let (status, _) = app.get_json("/api/v1/komf/jobs", "k-admin").await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        let (status, _) = app
+            .get_json("/api/v1/komf/jobs/job-1/events", "k-admin")
             .await;
         assert_eq!(status, StatusCode::CONFLICT);
     }
@@ -691,6 +795,9 @@ mod tests {
         let (status, body) = app.get_json("/api/v1/komf/providers", "k-admin").await;
         assert_eq!(status, StatusCode::CONFLICT);
         assert!(body["message"].as_str().unwrap().contains("error"));
+
+        let (status, _) = app.get_json("/api/v1/komf/jobs", "k-admin").await;
+        assert_eq!(status, StatusCode::CONFLICT);
     }
 
     #[tokio::test]
@@ -831,6 +938,99 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn jobs_forwards_query_and_returns_page() {
+        let app = admin_app();
+        let komf = serve_komf_proxy().await;
+        seed_connected(&app.state, &komf.url);
+
+        let (status, body) = app
+            .get_json(
+                "/api/v1/komf/jobs?status=RUNNING&pageSize=5&page=1",
+                "k-admin",
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            body,
+            serde_json::json!({
+                "content": [{
+                    "seriesId": "ser-1",
+                    "id": "job-1",
+                    "status": "RUNNING",
+                    "startedAt": "2026-09-27T10:00:00Z"
+                }],
+                "totalPages": 3,
+                "currentPage": 1
+            })
+        );
+
+        let captured = komf.captured();
+        assert_eq!(captured.len(), 1);
+        assert_eq!(captured[0].method, "GET");
+        assert_eq!(captured[0].path, "/api/jobs");
+        assert_eq!(
+            captured[0].query.as_deref(),
+            Some("status=RUNNING&pageSize=5&page=1")
+        );
+    }
+
+    #[tokio::test]
+    async fn get_job_returns_job_and_relays_404() {
+        let app = admin_app();
+        let komf = serve_komf_proxy().await;
+        seed_connected(&app.state, &komf.url);
+
+        let (status, body) = app.get_json("/api/v1/komf/jobs/job-1", "k-admin").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            body,
+            serde_json::json!({
+                "seriesId": "ser-1",
+                "id": "job-1",
+                "status": "COMPLETED",
+                "message": "done",
+                "startedAt": "2026-09-27T10:00:00Z",
+                "finishedAt": "2026-09-27T10:01:00Z"
+            })
+        );
+
+        let (status, _) = app
+            .get_json("/api/v1/komf/jobs/job-unknown", "k-admin")
+            .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        let captured = komf.captured();
+        assert_eq!(captured.len(), 2);
+        assert_eq!(captured[0].path, "/api/jobs/job-1");
+        assert_eq!(captured[1].path, "/api/jobs/job-unknown");
+    }
+
+    #[tokio::test]
+    async fn job_events_relays_the_sse_stream() {
+        let app = admin_app();
+        let komf = serve_komf_proxy().await;
+        seed_connected(&app.state, &komf.url);
+
+        let (status, headers, bytes) = app
+            .get_response("/api/v1/komf/jobs/job-1/events", "k-admin")
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            headers[axum::http::header::CONTENT_TYPE],
+            "text/event-stream"
+        );
+        assert_eq!(headers[axum::http::header::CACHE_CONTROL], "no-cache");
+        let body = String::from_utf8(bytes).unwrap();
+        assert!(body.contains("event: ProviderSeriesEvent"));
+        assert!(body.contains("event: ProviderCompletedEvent"));
+        assert!(body.contains("\"provider\":\"MANGADEX\""));
+
+        let captured = komf.captured();
+        assert_eq!(captured.len(), 1);
+        assert_eq!(captured[0].path, "/api/jobs/job-1/events");
+    }
+
+    #[tokio::test]
     async fn komf_error_is_passed_through_untouched() {
         let app = admin_app();
         let komf = serve_komf_proxy().await;
@@ -852,6 +1052,10 @@ mod tests {
             .await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(body, serde_json::json!({"message": "komf broke"}));
+
+        let (status, body) = app.get_json("/api/v1/komf/jobs/broken", "k-admin").await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(body, serde_json::json!({"message": "komf broke"}));
     }
 
     #[tokio::test]
@@ -861,6 +1065,11 @@ mod tests {
         seed_connected(&app.state, "http://127.0.0.1:1");
 
         let (status, _) = app.get_json("/api/v1/komf/providers", "k-admin").await;
+        assert_eq!(status, StatusCode::BAD_GATEWAY);
+
+        let (status, _) = app
+            .get_json("/api/v1/komf/jobs/job-1/events", "k-admin")
+            .await;
         assert_eq!(status, StatusCode::BAD_GATEWAY);
     }
 
