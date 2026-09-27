@@ -3002,6 +3002,7 @@ mod tests {
                 },
             ])
             .unwrap();
+        state.search_index.commit().unwrap();
 
         let (status, _, body) = call(
             &state,

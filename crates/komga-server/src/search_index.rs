@@ -313,14 +313,14 @@ fn rebuild_pages<T, F, W>(
         }
     };
     let pages = ((total + BATCH_SIZE as i64 - 1) / BATCH_SIZE as i64).max(1) as u32;
-    if let Err(e) = write(index, first) {
+    if let Err(e) = write(index, first).and_then(|_| index.commit()) {
         tracing::error!("rebuild index for {entity:?}: write page 0 failed: {e}");
         return;
     }
     for page in 1..pages {
         match fetch(page) {
             Ok((items, _)) => {
-                if let Err(e) = write(index, items) {
+                if let Err(e) = write(index, items).and_then(|_| index.commit()) {
                     tracing::error!("rebuild index for {entity:?}: write page {page} failed: {e}");
                     return;
                 }
@@ -404,7 +404,22 @@ fn lookup_readlist_doc(state: &AppState, readlist_id: &str) -> Option<EntityDoc>
     Some(readlist_to_document(&ReadListDto::from(&readlist)))
 }
 
-fn handle_event(state: &AppState, event: &DomainEvent) {
+fn handle_event(state: &AppState, event: &DomainEvent) -> bool {
+    match event {
+        DomainEvent::SeriesAdded(_)
+        | DomainEvent::SeriesUpdated(_)
+        | DomainEvent::SeriesDeleted(_)
+        | DomainEvent::BookAdded(_)
+        | DomainEvent::BookUpdated(_)
+        | DomainEvent::BookDeleted(_)
+        | DomainEvent::CollectionAdded(_)
+        | DomainEvent::CollectionUpdated(_)
+        | DomainEvent::CollectionDeleted(_)
+        | DomainEvent::ReadListAdded(_)
+        | DomainEvent::ReadListUpdated(_)
+        | DomainEvent::ReadListDeleted(_) => {}
+        _ => return false,
+    }
     let index = &state.search_index;
     let result: komga_search::Result<()> = (|| {
         match event {
@@ -467,19 +482,56 @@ fn handle_event(state: &AppState, event: &DomainEvent) {
     if let Err(e) = result {
         tracing::error!("search index update failed: {e}");
     }
+    true
 }
 
+/// `LuceneAsyncCommitter` debounces commits to one per 2s window (`komgaProperties.lucene.commitDelay`).
+const COMMIT_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
+
 /// Subscribes to the domain event bus and keeps the index in sync (`consumeEvents`).
+/// Events are handled serially and commits debounced: a scan emits several events
+/// per book, and each commit is a segment fsync, so batching keeps the shared
+/// blocking pool (which also serves HTTP requests) and disk from being saturated.
+/// DTO reads use the task pools, not the API pools.
 pub fn consume_events(state: AppState) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
+        let state = state.task_context();
         let mut receiver = state.events.subscribe();
+        let mut commit_at: Option<tokio::time::Instant> = None;
         loop {
-            match receiver.recv().await {
+            let event = match commit_at {
+                Some(deadline) => match tokio::time::timeout_at(deadline, receiver.recv()).await {
+                    Ok(received) => received,
+                    Err(_) => {
+                        let index = state.search_index.clone();
+                        match tokio::task::spawn_blocking(move || index.commit()).await {
+                            Ok(Ok(())) => commit_at = None,
+                            Ok(Err(e)) => {
+                                tracing::error!("search index commit failed: {e}");
+                                commit_at = Some(tokio::time::Instant::now() + COMMIT_DELAY);
+                            }
+                            Err(e) => {
+                                tracing::error!("search index commit task failed: {e}");
+                                commit_at = Some(tokio::time::Instant::now() + COMMIT_DELAY);
+                            }
+                        }
+                        continue;
+                    }
+                },
+                None => receiver.recv().await,
+            };
+            match event {
                 Ok(event) => {
                     let state = state.clone();
-                    tokio::task::spawn_blocking(move || handle_event(&state, &event))
+                    let touched = tokio::task::spawn_blocking(move || handle_event(&state, &event))
                         .await
-                        .unwrap_or_else(|e| tracing::error!("search index event task failed: {e}"));
+                        .unwrap_or_else(|e| {
+                            tracing::error!("search index event task failed: {e}");
+                            false
+                        });
+                    if touched && commit_at.is_none() {
+                        commit_at = Some(tokio::time::Instant::now() + COMMIT_DELAY);
+                    }
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                     tracing::warn!("search index event consumer lagged by {n} events");

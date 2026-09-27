@@ -81,8 +81,6 @@ pub fn wipe_index_dir(dir: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)
 }
 
-/// komga's `LuceneCommitter` is synchronous: every write is committed and becomes
-/// searchable immediately.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error(transparent)]
@@ -282,7 +280,7 @@ impl SearchIndex {
         doc.add_text(self.field(TYPE_FIELD), INDEX_VERSION_TYPE);
         doc.add_text(self.field(INDEX_VERSION_FIELD), version.to_string());
         self.writer.lock().unwrap().add_document(doc)?;
-        self.commit_and_reload()
+        self.commit()
     }
 
     /// `searchEntitiesIds`: parse `"<term> *:*"` in Lucene syntax, require the entity type,
@@ -330,31 +328,25 @@ impl SearchIndex {
         )
     }
 
+    /// Buffers new documents; they become searchable at the next `commit`.
     pub fn add_documents(&self, docs: Vec<EntityDoc>) -> Result<()> {
         let schema = self.index.schema();
+        let writer = self.writer.lock().unwrap();
         for doc in docs {
-            self.writer
-                .lock()
-                .unwrap()
-                .add_document(doc.to_tantivy(&schema))?;
+            writer.add_document(doc.to_tantivy(&schema))?;
         }
-        self.commit_and_reload()
+        Ok(())
     }
 
-    /// Lucene's `updateDocument(term, doc)`: delete by id, then add, in one commit
+    /// Lucene's `updateDocument(term, doc)`: delete by id, then add
     pub fn update_document(&self, entity: LuceneEntity, id: &str, doc: EntityDoc) -> Result<()> {
-        self.writer
-            .lock()
-            .unwrap()
-            .delete_term(Term::from_field_text(
-                self.field(entity_id_field(entity)),
-                id,
-            ));
-        self.writer
-            .lock()
-            .unwrap()
-            .add_document(doc.to_tantivy(&self.index.schema()))?;
-        self.commit_and_reload()
+        let writer = self.writer.lock().unwrap();
+        writer.delete_term(Term::from_field_text(
+            self.field(entity_id_field(entity)),
+            id,
+        ));
+        writer.add_document(doc.to_tantivy(&self.index.schema()))?;
+        Ok(())
     }
 
     pub fn delete_documents(&self, entity: LuceneEntity, id: &str) -> Result<()> {
@@ -365,7 +357,7 @@ impl SearchIndex {
                 self.field(entity_id_field(entity)),
                 id,
             ));
-        self.commit_and_reload()
+        Ok(())
     }
 
     /// `rebuildIndex` first wipes every document of the entity type
@@ -377,7 +369,7 @@ impl SearchIndex {
                 self.field(TYPE_FIELD),
                 entity_type_str(entity),
             ));
-        self.commit_and_reload()
+        Ok(())
     }
 
     /// Lucene's `IndexUpgrader` upgrades the on-disk codec; tantivy has no such concept
@@ -386,7 +378,10 @@ impl SearchIndex {
         tracing::info!("tantivy index requires no codec upgrade");
     }
 
-    fn commit_and_reload(&self) -> Result<()> {
+    /// Commits buffered writes and reloads the reader, making them searchable.
+    /// Each commit serializes a segment to disk, so callers batch writes and
+    /// commit at most once per 2s window (`LuceneAsyncCommitter`).
+    pub fn commit(&self) -> Result<()> {
         self.writer.lock().unwrap().commit()?;
         self.reader.reload()?;
         Ok(())
@@ -449,6 +444,7 @@ mod tests {
                 book("b3", &[("title", "東京クライシス"), ("author", "誰か")]),
             ])
             .unwrap();
+        index.commit().unwrap();
     }
 
     #[test]
@@ -524,6 +520,7 @@ mod tests {
         index
             .add_documents(vec![book("b1", &[("title", "我的可愛對黑岩目高不管用")])])
             .unwrap();
+        index.commit().unwrap();
         // substrings cut from the middle of the CJK run: the query's trailing unigram
         // (可愛→爱, 我的→的, 黑岩→岩) is indexed like every other character
         for term in ["可愛", "可爱", "我的", "黑岩", "目高", "我"] {
@@ -544,6 +541,7 @@ mod tests {
                 book("b3", &[("title", "3月のライオン")]),
             ])
             .unwrap();
+        index.commit().unwrap();
         // digit-anchored query: matches via the left-boundary unigram 月
         let mut ids = index
             .search_entity_ids(Some("3月"), LuceneEntity::Book)
@@ -568,6 +566,7 @@ mod tests {
                 book("b3", &[("title", "海贼王")]),
             ])
             .unwrap();
+        index.commit().unwrap();
         // both scripts index to the same simplified form, so either script hits both titles
         for term in ["名侦探柯南", "名偵探柯南"] {
             let mut ids = index
@@ -614,6 +613,7 @@ mod tests {
                 fields: vec![("name".into(), "Berserk".into())],
             }])
             .unwrap();
+        index.commit().unwrap();
         assert_eq!(
             index
                 .search_entity_ids(Some("berserk"), LuceneEntity::Collection)
@@ -639,6 +639,7 @@ mod tests {
                 book("b1", &[("title", "Berserk Deluxe")]),
             )
             .unwrap();
+        index.commit().unwrap();
         assert!(index
             .search_entity_ids(Some("volume"), LuceneEntity::Book)
             .unwrap()
@@ -650,6 +651,7 @@ mod tests {
             vec!["b1"]
         );
         index.delete_documents(LuceneEntity::Book, "b1").unwrap();
+        index.commit().unwrap();
         assert!(index
             .search_entity_ids(Some("deluxe"), LuceneEntity::Book)
             .unwrap()
@@ -661,6 +663,7 @@ mod tests {
         let (_dir, index) = index();
         seed(&index);
         index.delete_entity_type(LuceneEntity::Book).unwrap();
+        index.commit().unwrap();
         assert!(index
             .search_entity_ids(Some("berserk"), LuceneEntity::Book)
             .unwrap()
@@ -668,6 +671,7 @@ mod tests {
         index
             .add_documents(vec![book("b9", &[("title", "New Berserk")])])
             .unwrap();
+        index.commit().unwrap();
         assert_eq!(
             index
                 .search_entity_ids(Some("berserk"), LuceneEntity::Book)
