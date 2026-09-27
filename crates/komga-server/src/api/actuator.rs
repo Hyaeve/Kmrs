@@ -506,7 +506,7 @@ fn os_arch() -> String {
 
 // region metrics
 
-fn process_start() -> &'static (std::time::Instant, f64) {
+pub(crate) fn process_start() -> &'static (std::time::Instant, f64) {
     static START: OnceLock<(std::time::Instant, f64)> = OnceLock::new();
     START.get_or_init(|| {
         let epoch_millis = std::time::SystemTime::now()

@@ -10,7 +10,7 @@ use komga_db::dao::komf_integration::{KomfIntegration, KomfIntegrationDao, KomfI
 use komga_db::dao::user::UserDao;
 use std::time::Duration;
 
-pub const API_KEY_COMMENT: &str = "komf integration";
+pub const API_KEY_COMMENT: &str = "Integration · komf";
 
 /// Search crawls external providers, so proxied metadata calls get a more generous
 /// budget than the client default.
