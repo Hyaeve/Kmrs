@@ -1,6 +1,7 @@
 //! `SeriesLifecycle.kt`: series lifecycle (creation, book ordering, deletion, read progress,
 //! thumbnails).
 
+use crate::config::ThumbnailStorage;
 use crate::events::DomainEvent;
 pub use crate::service::book::MarkSelectedPreference;
 #[cfg(test)]
@@ -397,17 +398,13 @@ pub fn get_selected_thumbnail(
 ) -> Result<Option<ThumbnailSeries>> {
     let dao = ThumbnailSeriesDao::new(state.db.clone());
     let selected = dao.find_selected_by_series_id(series_id)?;
-    match &selected {
-        Some(t) if t.type_ == ThumbnailType::Sidecar && !thumbnail_exists(t) => {
-            thumbnails_house_keeping(state, series_id)?;
-            dao.find_selected_by_series_id(series_id)
-        }
-        None => {
-            thumbnails_house_keeping(state, series_id)?;
-            dao.find_selected_by_series_id(series_id)
-        }
-        _ => Ok(selected),
+    // URL-backed rows exist for every type in file storage mode, not just sidecars
+    // (Java only has URLs on sidecars, so its check is sidecar-scoped)
+    if selected.as_ref().is_some_and(thumbnail_exists) {
+        return Ok(selected);
     }
+    thumbnails_house_keeping(state, series_id)?;
+    dao.find_selected_by_series_id(series_id)
 }
 
 pub fn get_thumbnail_bytes(
@@ -443,7 +440,6 @@ pub fn get_thumbnail_bytes(
     }
 }
 
-#[allow(dead_code)] // kept for the M5 metadata endpoints; the thumbnail-by-id endpoint uses api-local helpers
 pub fn get_thumbnail_bytes_by_thumbnail_id(
     state: &AppState,
     thumbnail_id: &str,
@@ -454,8 +450,6 @@ pub fn get_thumbnail_bytes_by_thumbnail_id(
     }
 }
 
-/// Kotlin reads the file without an existence check (a 500 on a missing file); housekeeping
-/// runs first in every caller, so a missing file here is an invariant violation
 fn bytes_from_thumbnail(thumbnail: &ThumbnailSeries) -> Result<Option<Vec<u8>>> {
     if let Some(blob) = &thumbnail.thumbnail {
         return Ok(Some(blob.clone()));
@@ -463,9 +457,7 @@ fn bytes_from_thumbnail(thumbnail: &ThumbnailSeries) -> Result<Option<Vec<u8>>> 
     match &thumbnail.url {
         Some(url) => {
             let path = komga_core::dto::url_to_file_path(url);
-            let bytes = std::fs::read(&path)
-                .unwrap_or_else(|e| panic!("cannot read thumbnail file {path}: {e}"));
-            Ok(Some(bytes))
+            Ok(Some(std::fs::read(&path)?))
         }
         None => Ok(None),
     }
@@ -477,6 +469,27 @@ pub fn add_thumbnail_for_series(
     mark_selected: MarkSelectedPreference,
 ) -> Result<ThumbnailSeries> {
     let dao = ThumbnailSeriesDao::new(state.db.clone());
+    let mut thumbnail = if thumbnail.id.is_empty() {
+        ThumbnailSeries {
+            id: state.tsid.create_string(),
+            ..thumbnail
+        }
+    } else {
+        thumbnail
+    };
+    // file storage: offload the bytes first, the row then carries only the URL
+    if state.config.thumbnail_storage == ThumbnailStorage::File {
+        if let Some(bytes) = thumbnail.thumbnail.take() {
+            let url = crate::thumbnails::write(
+                &crate::thumbnails::thumbnails_dir(&state.config.config_dir),
+                crate::thumbnails::ThumbnailKind::Series,
+                &thumbnail.id,
+                &thumbnail.media_type,
+                &bytes,
+            )?;
+            thumbnail.url = Some(url);
+        }
+    }
     if let Some(url) = &thumbnail.url {
         for existing in dao.find_all_by_series_id(&thumbnail.series_id)? {
             if existing.url.as_ref() == Some(url) {
@@ -516,6 +529,7 @@ pub fn delete_thumbnail_for_series(state: &AppState, thumbnail: &ThumbnailSeries
         ));
     }
     ThumbnailSeriesDao::new(state.db.clone()).delete(&thumbnail.id)?;
+    crate::thumbnails::remove_managed_files(state, thumbnail.url.as_deref());
     let _ = state
         .events
         .send(DomainEvent::ThumbnailSeriesDeleted(thumbnail.clone()));
@@ -679,6 +693,7 @@ pub(crate) mod tests {
             komf_base_url: None,
             history_retention_days: 180,
             sort_locale: None,
+            thumbnail_storage: Default::default(),
         };
         AppState {
             sessions: crate::auth::SessionStore::new(config.session_timeout),
@@ -1199,6 +1214,132 @@ pub(crate) mod tests {
         assert!(err
             .to_string()
             .contains("Only uploaded thumbnails can be deleted"));
+    }
+
+    #[test]
+    fn thumbnail_file_storage_offloads_and_removes_files() {
+        let state = crate::state::test_state_with_thumbnail_storage(
+            test_state(),
+            crate::config::ThumbnailStorage::File,
+        );
+        seed_library(&state.db, "lib1");
+        let series = create_series(&state, &sample_series("lib1", "S")).unwrap();
+        let dao = ThumbnailSeriesDao::new(state.db.clone());
+
+        let make = |type_: ThumbnailType| ThumbnailSeries {
+            id: String::new(),
+            series_id: series.id.clone(),
+            thumbnail: Some(vec![1, 2]),
+            url: None,
+            selected: false,
+            type_,
+            media_type: "image/png".into(),
+            file_size: 2,
+            dimension: komga_core::model::thumbnail::Dimension {
+                width: 1,
+                height: 1,
+            },
+            created_date: time_codec::now_utc(),
+            last_modified_date: time_codec::now_utc(),
+        };
+
+        let added = add_thumbnail_for_series(
+            &state,
+            make(ThumbnailType::UserUploaded),
+            MarkSelectedPreference::Yes,
+        )
+        .unwrap();
+        // the row carries only the file URL; the file holds the bytes
+        assert!(added.thumbnail.is_none());
+        let url = added.url.as_ref().expect("file-backed row has a URL");
+        let file = std::path::PathBuf::from(komga_core::dto::url_to_file_path(url));
+        assert_eq!(std::fs::read(&file).unwrap(), vec![1, 2]);
+        let row = dao.find_by_id(&added.id).unwrap().unwrap();
+        assert!(row.thumbnail.is_none());
+        assert_eq!(row.url.as_deref(), Some(url.as_str()));
+        // the read path serves the bytes from the file
+        assert_eq!(
+            get_thumbnail_bytes(&state, &series.id, "u1")
+                .unwrap()
+                .expect("thumbnail bytes"),
+            vec![1, 2]
+        );
+
+        delete_thumbnail_for_series(&state, &added).unwrap();
+        assert!(!file.exists());
+    }
+
+    #[test]
+    fn missing_thumbnail_file_is_cleaned_up_instead_of_panicking() {
+        let state = crate::state::test_state_with_thumbnail_storage(
+            test_state(),
+            crate::config::ThumbnailStorage::File,
+        );
+        seed_library(&state.db, "lib1");
+        let series = create_series(&state, &sample_series("lib1", "S")).unwrap();
+        let dao = ThumbnailSeriesDao::new(state.db.clone());
+
+        let added = add_thumbnail_for_series(
+            &state,
+            ThumbnailSeries {
+                id: String::new(),
+                series_id: series.id.clone(),
+                thumbnail: Some(vec![1, 2]),
+                url: None,
+                selected: false,
+                type_: ThumbnailType::UserUploaded,
+                media_type: "image/png".into(),
+                file_size: 2,
+                dimension: komga_core::model::thumbnail::Dimension {
+                    width: 1,
+                    height: 1,
+                },
+                created_date: time_codec::now_utc(),
+                last_modified_date: time_codec::now_utc(),
+            },
+            MarkSelectedPreference::Yes,
+        )
+        .unwrap();
+        let file = std::path::PathBuf::from(komga_core::dto::url_to_file_path(
+            added.url.as_ref().unwrap(),
+        ));
+        std::fs::remove_file(&file).unwrap();
+
+        // housekeeping prunes the dead row, and the read falls through to the
+        // series-cover fallback (no books) instead of panicking on the missing file
+        assert!(get_thumbnail_bytes(&state, &series.id, "u1")
+            .unwrap()
+            .is_none());
+        assert!(dao.find_by_id(&added.id).unwrap().is_none());
+    }
+
+    #[test]
+    fn missing_thumbnail_file_by_id_returns_an_error() {
+        let state = test_state();
+        seed_library(&state.db, "lib1");
+        let series = create_series(&state, &sample_series("lib1", "S")).unwrap();
+        let dao = ThumbnailSeriesDao::new(state.db.clone());
+        let id = dao
+            .insert(&ThumbnailSeries {
+                id: String::new(),
+                series_id: series.id.clone(),
+                thumbnail: None,
+                url: Some("file:/nonexistent/cover.jpg".into()),
+                selected: false,
+                type_: ThumbnailType::Sidecar,
+                media_type: "image/jpeg".into(),
+                file_size: 1,
+                dimension: komga_core::model::thumbnail::Dimension {
+                    width: 1,
+                    height: 1,
+                },
+                created_date: time_codec::now_utc(),
+                last_modified_date: time_codec::now_utc(),
+            })
+            .unwrap();
+
+        let err = get_thumbnail_bytes_by_thumbnail_id(&state, &id).unwrap_err();
+        assert!(matches!(err, komga_db::Error::Io(_)));
     }
 
     #[test]

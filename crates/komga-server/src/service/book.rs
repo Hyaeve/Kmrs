@@ -4,6 +4,7 @@
 //! the M3 endpoints and `komga_media::container`).
 #![allow(dead_code)] // consumers land with the task processor (M4)
 
+use crate::config::ThumbnailStorage;
 use crate::events::DomainEvent;
 #[cfg(test)]
 use crate::state::test_search_index;
@@ -271,7 +272,7 @@ pub fn add_thumbnail_for_book(
     mark_selected: MarkSelectedPreference,
 ) -> komga_db::Result<ThumbnailBook> {
     let dao = ThumbnailBookDao::new(state.db.clone());
-    let thumbnail = if thumbnail.id.is_empty() {
+    let mut thumbnail = if thumbnail.id.is_empty() {
         ThumbnailBook {
             id: state.tsid.create_string(),
             ..thumbnail
@@ -279,6 +280,19 @@ pub fn add_thumbnail_for_book(
     } else {
         thumbnail
     };
+    // file storage: offload the bytes first, the row then carries only the URL
+    if state.config.thumbnail_storage == ThumbnailStorage::File {
+        if let Some(bytes) = thumbnail.thumbnail.take() {
+            let url = crate::thumbnails::write(
+                &crate::thumbnails::thumbnails_dir(&state.config.config_dir),
+                crate::thumbnails::ThumbnailKind::Book,
+                &thumbnail.id,
+                &thumbnail.media_type,
+                &bytes,
+            )?;
+            thumbnail.url = Some(url);
+        }
+    }
 
     let to_insert = ThumbnailBook {
         selected: false,
@@ -287,7 +301,13 @@ pub fn add_thumbnail_for_book(
     match thumbnail.type_ {
         // only one generated thumbnail is allowed
         ThumbnailType::Generated => {
+            let replaced =
+                dao.find_all_by_book_id_and_type(&thumbnail.book_id, ThumbnailType::Generated)?;
             dao.delete_by_book_id_and_type(&thumbnail.book_id, ThumbnailType::Generated)?;
+            crate::thumbnails::remove_managed_files(
+                state,
+                replaced.iter().filter_map(|t| t.url.as_deref()),
+            );
             dao.insert(&to_insert)?;
         }
         ThumbnailType::Sidecar => {
@@ -340,6 +360,7 @@ pub fn delete_thumbnail_for_book(
         return Err(service_error("Only uploaded thumbnails can be deleted"));
     }
     ThumbnailBookDao::new(state.db.clone()).delete(&thumbnail.id)?;
+    crate::thumbnails::remove_managed_files(state, thumbnail.url.as_deref());
     thumbnails_house_keeping(state, &thumbnail.book_id)?;
     let _ = state
         .events
@@ -1337,6 +1358,192 @@ mod tests {
             rx.try_recv(),
             Ok(DomainEvent::ThumbnailBookDeleted(_))
         ));
+    }
+
+    #[test]
+    fn add_thumbnail_for_book_file_storage_offloads_blob() {
+        let state = crate::state::test_state_with_thumbnail_storage(
+            test_state(),
+            crate::config::ThumbnailStorage::File,
+        );
+        seed_library(&state, "lib1", true);
+        seed_series(&state, "lib1", "s1");
+        let book = seed_book(&state, "lib1", "s1", "file:/l/s/v01.cbz", 1);
+        let dao = ThumbnailBookDao::new(state.db.clone());
+
+        let added = add_thumbnail_for_book(
+            &state,
+            ThumbnailBook {
+                id: state.tsid.create_string(),
+                book_id: book.id.clone(),
+                thumbnail: Some(png_bytes()),
+                url: None,
+                selected: false,
+                type_: ThumbnailType::UserUploaded,
+                media_type: "image/png".into(),
+                file_size: 100,
+                dimension: Dimension {
+                    width: 48,
+                    height: 48,
+                },
+                created_date: now_utc(),
+                last_modified_date: now_utc(),
+            },
+            MarkSelectedPreference::Yes,
+        )
+        .unwrap();
+
+        // the row carries only the file URL; the file holds the bytes
+        assert!(added.thumbnail.is_none());
+        let url = added.url.as_ref().expect("file-backed row has a URL");
+        let file = PathBuf::from(url_to_file_path(url));
+        assert_eq!(std::fs::read(&file).unwrap(), png_bytes());
+        let row = dao.find_by_id(&added.id).unwrap().unwrap();
+        assert!(row.thumbnail.is_none());
+        assert_eq!(row.url.as_deref(), Some(url.as_str()));
+
+        // the read path serves the bytes from the file
+        let content = get_thumbnail_bytes(&state, &book.id, None)
+            .unwrap()
+            .expect("thumbnail bytes");
+        assert_eq!(content.bytes, png_bytes());
+    }
+
+    #[test]
+    fn add_thumbnail_for_book_file_storage_replaces_generated_file() {
+        let state = crate::state::test_state_with_thumbnail_storage(
+            test_state(),
+            crate::config::ThumbnailStorage::File,
+        );
+        seed_library(&state, "lib1", true);
+        seed_series(&state, "lib1", "s1");
+        let book = seed_book(&state, "lib1", "s1", "file:/l/s/v01.cbz", 1);
+
+        let make_generated = |state: &AppState| ThumbnailBook {
+            id: state.tsid.create_string(),
+            book_id: book.id.clone(),
+            thumbnail: Some(png_bytes()),
+            url: None,
+            selected: false,
+            type_: ThumbnailType::Generated,
+            media_type: "image/png".into(),
+            file_size: 100,
+            dimension: Dimension {
+                width: 48,
+                height: 48,
+            },
+            created_date: now_utc(),
+            last_modified_date: now_utc(),
+        };
+        let first = add_thumbnail_for_book(
+            &state,
+            make_generated(&state),
+            MarkSelectedPreference::IfNoneOrGenerated,
+        )
+        .unwrap();
+        let first_file = PathBuf::from(url_to_file_path(first.url.as_ref().unwrap()));
+        assert!(first_file.exists());
+
+        // a sidecar pointing into the library must survive generated replacements
+        let dir = tmpdir();
+        let cover = dir.join("cover.jpg");
+        std::fs::write(&cover, png_bytes()).unwrap();
+        let mut sidecar = make_generated(&state);
+        sidecar.type_ = ThumbnailType::Sidecar;
+        sidecar.thumbnail = None;
+        sidecar.url = Some(format!("file:{}", cover.display()));
+        add_thumbnail_for_book(&state, sidecar, MarkSelectedPreference::No).unwrap();
+
+        let second = add_thumbnail_for_book(
+            &state,
+            make_generated(&state),
+            MarkSelectedPreference::IfNoneOrGenerated,
+        )
+        .unwrap();
+        let second_file = PathBuf::from(url_to_file_path(second.url.as_ref().unwrap()));
+        assert!(second_file.exists());
+        assert!(!first_file.exists());
+        assert!(cover.exists());
+    }
+
+    #[test]
+    fn delete_thumbnail_for_book_file_storage_removes_file() {
+        let state = crate::state::test_state_with_thumbnail_storage(
+            test_state(),
+            crate::config::ThumbnailStorage::File,
+        );
+        seed_library(&state, "lib1", true);
+        seed_series(&state, "lib1", "s1");
+        let book = seed_book(&state, "lib1", "s1", "file:/l/s/v01.cbz", 1);
+
+        let added = add_thumbnail_for_book(
+            &state,
+            ThumbnailBook {
+                id: state.tsid.create_string(),
+                book_id: book.id.clone(),
+                thumbnail: Some(png_bytes()),
+                url: None,
+                selected: false,
+                type_: ThumbnailType::UserUploaded,
+                media_type: "image/png".into(),
+                file_size: 100,
+                dimension: Dimension {
+                    width: 48,
+                    height: 48,
+                },
+                created_date: now_utc(),
+                last_modified_date: now_utc(),
+            },
+            MarkSelectedPreference::Yes,
+        )
+        .unwrap();
+        let file = PathBuf::from(url_to_file_path(added.url.as_ref().unwrap()));
+        assert!(file.exists());
+
+        delete_thumbnail_for_book(&state, &added).unwrap();
+        assert!(!file.exists());
+    }
+
+    #[test]
+    fn add_thumbnail_for_book_file_storage_write_failure_returns_error() {
+        let state = crate::state::test_state_with_thumbnail_storage(
+            test_state(),
+            crate::config::ThumbnailStorage::File,
+        );
+        seed_library(&state, "lib1", true);
+        seed_series(&state, "lib1", "s1");
+        let book = seed_book(&state, "lib1", "s1", "file:/l/s/v01.cbz", 1);
+        // occupy the thumbnails dir path with a regular file: create_dir_all then
+        // fails deterministically (a read-only dir would be bypassed under root)
+        std::fs::write(state.config.config_dir.join("thumbnails"), b"not a dir").unwrap();
+
+        let err = add_thumbnail_for_book(
+            &state,
+            ThumbnailBook {
+                id: state.tsid.create_string(),
+                book_id: book.id.clone(),
+                thumbnail: Some(png_bytes()),
+                url: None,
+                selected: false,
+                type_: ThumbnailType::UserUploaded,
+                media_type: "image/png".into(),
+                file_size: 100,
+                dimension: Dimension {
+                    width: 48,
+                    height: 48,
+                },
+                created_date: now_utc(),
+                last_modified_date: now_utc(),
+            },
+            MarkSelectedPreference::Yes,
+        )
+        .unwrap_err();
+        assert!(matches!(err, komga_db::Error::Io(_)));
+        // nothing was inserted
+        assert!(ThumbnailBookDao::new(state.db.clone())
+            .find_all_by_book_id(&book.id)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

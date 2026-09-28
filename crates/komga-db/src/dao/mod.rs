@@ -27,6 +27,7 @@ pub mod sidecar;
 pub mod sync_point;
 pub mod tasks;
 pub mod thumbnail;
+pub mod thumbnail_migration;
 pub mod user;
 
 pub use library::LibraryDao;

@@ -13,6 +13,7 @@ mod service;
 mod settings;
 mod sse;
 mod state;
+mod thumbnails;
 mod webhook;
 #[allow(dead_code)]
 mod webpub;
@@ -113,6 +114,26 @@ async fn main() -> anyhow::Result<()> {
     service::scheduler::ScanScheduler::start(state.clone());
     service::scheduler::ScanScheduler::start_auth_activity_cleanup(state.clone());
     service::scheduler::ScanScheduler::start_history_cleanup(state.clone());
+    // Thumbnail file storage: migrate existing blobs to files in the background. The
+    // orphan sweep starts only after the migration — freshly written files are
+    // referenced once their row is updated, and a concurrent sweep would delete them.
+    let thumbnail_migration = if config.thumbnail_storage == config::ThumbnailStorage::File {
+        let state = state.clone();
+        Some(tokio::task::spawn_blocking(move || {
+            thumbnails::migrate_blobs_to_files(&state)
+        }))
+    } else {
+        None
+    };
+    let sweep_state = state.clone();
+    tokio::spawn(async move {
+        if let Some(migration) = thumbnail_migration {
+            if let Err(e) = migration.await {
+                tracing::error!("thumbnail file-storage migration task failed: {e}");
+            }
+        }
+        service::scheduler::ScanScheduler::start_thumbnail_sweep(sweep_state);
+    });
     if config.webui_auto_update && config.webui_dir.is_some() {
         service::webui_updater::WebuiUpdater::start(state.clone());
     }

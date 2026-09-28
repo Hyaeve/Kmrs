@@ -53,6 +53,21 @@ pub(crate) fn test_kmrs_db() -> Database {
     kmrs_db
 }
 
+/// Re-points a test state at a fresh temp config dir with the given thumbnail storage.
+#[cfg(test)]
+pub(crate) fn test_state_with_thumbnail_storage(
+    state: AppState,
+    storage: crate::config::ThumbnailStorage,
+) -> AppState {
+    let config_dir = tempfile::tempdir().unwrap().keep();
+    let config = Arc::new(crate::config::ServerConfig {
+        config_dir,
+        thumbnail_storage: storage,
+        ..(*state.config).clone()
+    });
+    AppState { config, ..state }
+}
+
 impl AppState {
     /// A clone of the state whose `db` points at the dedicated task pools.
     /// Background task execution (scan / analyze / hash / convert / maintenance)

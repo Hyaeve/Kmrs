@@ -539,6 +539,7 @@ pub(crate) mod test_support {
             komf_base_url: None,
             history_retention_days: 180,
             sort_locale: None,
+            thumbnail_storage: Default::default(),
         }
     }
 

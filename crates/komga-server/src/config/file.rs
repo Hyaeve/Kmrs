@@ -26,6 +26,7 @@ pub struct FileConfig {
     pub webui: Option<FileWebui>,
     pub komf: Option<FileKomf>,
     pub history: Option<FileHistory>,
+    pub thumbnails: Option<FileThumbnails>,
 }
 
 /// Retention for the HISTORICAL_EVENT table (kmrs enhancement; the Java version never cleans it).
@@ -33,6 +34,13 @@ pub struct FileConfig {
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct FileHistory {
     pub retention_days: Option<u32>,
+}
+
+/// Where book/series thumbnail bytes live (kmrs enhancement; Java always uses DB blobs).
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct FileThumbnails {
+    pub storage: Option<String>,
 }
 
 /// Optional preset for the komf integration, surfaced as form defaults in the admin UI;
@@ -549,6 +557,26 @@ pub fn render(file: &FileConfig, config: &ServerConfig, source: Option<&Path>) -
         format!(
             "retention-days = {} # 0 = keep forever; env: KOMGA_HISTORY_RETENTIONDAYS",
             config.history_retention_days
+        ),
+    );
+    out.push('\n');
+
+    out.push_str("[thumbnails]\n");
+    out.push_str(
+        "# where book/series thumbnail bytes live (kmrs enhancement; Java always uses DB blobs)\n",
+    );
+    push_line(
+        &mut out,
+        file.thumbnails
+            .as_ref()
+            .and_then(|t| t.storage.as_ref())
+            .is_some(),
+        format!(
+            "storage = {} # db = blobs in the database, file = files under <config-dir>/thumbnails; env: KOMGA_THUMBNAILS_STORAGE",
+            q(match config.thumbnail_storage {
+                super::ThumbnailStorage::Db => "db",
+                super::ThumbnailStorage::File => "file",
+            })
         ),
     );
     out.push('\n');

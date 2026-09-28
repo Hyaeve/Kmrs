@@ -72,6 +72,8 @@ pub struct ServerConfig {
     /// days to keep HISTORICAL_EVENT rows (pruned daily, 0 = keep forever);
     /// the Java version never cleans the table
     pub history_retention_days: u32,
+    /// where book/series thumbnail bytes live (kmrs enhancement; Java always uses DB blobs)
+    pub thumbnail_storage: ThumbnailStorage,
     /// BCP47 locale for ICU-based sorting (authors, publishers, genres, tags, ...);
     /// None/empty = `und` (UCA root), reproducing the legacy hard-coded behavior.
     pub sort_locale: Option<String>,
@@ -86,6 +88,17 @@ pub struct ServerConfig {
 pub struct WebhookConfig {
     pub endpoints: Vec<WebhookEndpoint>,
     pub timeout: Duration,
+}
+
+/// Storage backend for book/series thumbnail bytes (kmrs enhancement; Java always
+/// stores blobs in the DB). `File` writes them under `<config-dir>/thumbnails` and
+/// keeps only the file URL in the row; the read path is blob-first, URL-fallback
+/// in both modes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ThumbnailStorage {
+    #[default]
+    Db,
+    File,
 }
 
 #[derive(Debug, Clone)]
@@ -399,6 +412,14 @@ impl ServerConfig {
                         .and_then(|h| h.retention_days)
                 })
                 .unwrap_or(180),
+            thumbnail_storage: env_string(env, "KOMGA_THUMBNAILS_STORAGE")
+                .or_else(|| {
+                    file.and_then(|f| f.thumbnails.as_ref())
+                        .and_then(|t| t.storage.clone())
+                })
+                .map(|s| parse_thumbnail_storage(&s))
+                .transpose()?
+                .unwrap_or_default(),
             migration_placeholders: Placeholders {
                 library_file_hashing: env_bool(env, "KOMGA_FILEHASHING")
                     .or_else(|| {
@@ -474,6 +495,14 @@ fn parse_journal_mode(mode: &str) -> anyhow::Result<JournalMode> {
         "MEMORY" => Ok(JournalMode::Memory),
         "OFF" => Ok(JournalMode::Off),
         other => anyhow::bail!("invalid journal-mode {other:?}"),
+    }
+}
+
+fn parse_thumbnail_storage(storage: &str) -> anyhow::Result<ThumbnailStorage> {
+    match storage.to_ascii_lowercase().as_str() {
+        "db" => Ok(ThumbnailStorage::Db),
+        "file" => Ok(ThumbnailStorage::File),
+        other => anyhow::bail!("invalid thumbnails.storage {other:?}"),
     }
 }
 
@@ -699,6 +728,7 @@ mod tests {
         assert_eq!(config.epub_divina_letter_count_threshold, 15);
         assert_eq!(config.kobo_sync_item_limit, 100);
         assert_eq!(config.history_retention_days, 180);
+        assert_eq!(config.thumbnail_storage, ThumbnailStorage::Db);
         assert_eq!(config.session_timeout, Duration::from_secs(7 * 24 * 3600));
         assert!(config.oauth2.registrations.is_empty());
         assert!(!config.oauth2.account_creation);
@@ -1109,6 +1139,36 @@ issuer-uri = "https://github.com"
     }
 
     #[test]
+    fn thumbnail_storage_default_file_env_and_invalid() {
+        let config = resolve("", Cli::default(), &[]);
+        assert_eq!(config.thumbnail_storage, ThumbnailStorage::Db);
+
+        let config = resolve("[thumbnails]\nstorage = \"file\"\n", Cli::default(), &[]);
+        assert_eq!(config.thumbnail_storage, ThumbnailStorage::File);
+        // case-insensitive, like journal-mode
+        let config = resolve("[thumbnails]\nstorage = \"FILE\"\n", Cli::default(), &[]);
+        assert_eq!(config.thumbnail_storage, ThumbnailStorage::File);
+
+        // env var wins over the file
+        let config = resolve(
+            "[thumbnails]\nstorage = \"file\"\n",
+            Cli::default(),
+            &env(&[("KOMGA_THUMBNAILS_STORAGE", "db")]),
+        );
+        assert_eq!(config.thumbnail_storage, ThumbnailStorage::Db);
+        let config = resolve(
+            "",
+            Cli::default(),
+            &env(&[("KOMGA_THUMBNAILS_STORAGE", "file")]),
+        );
+        assert_eq!(config.thumbnail_storage, ThumbnailStorage::File);
+
+        let file: FileConfig = toml::from_str("[thumbnails]\nstorage = \"s3\"\n").unwrap();
+        let err = ServerConfig::resolve(Some(&file), &Cli::default(), &[]).unwrap_err();
+        assert!(err.to_string().contains("invalid thumbnails.storage"));
+    }
+
+    #[test]
     fn sort_locale_from_env_and_file() {
         // default: None -> `und` (UCA root) collation
         let config = resolve("", Cli::default(), &[]);
@@ -1153,6 +1213,9 @@ client-id = "gh-id"
 client-secret = "gh-secret"
 scopes = ["read:user"]
 issuer-uri = "https://github.com"
+
+[thumbnails]
+storage = "file"
 "#,
         )
         .unwrap();
@@ -1160,6 +1223,7 @@ issuer-uri = "https://github.com"
         let rendered = file::render(&file, &config, None);
         let reparsed: FileConfig = toml::from_str(&rendered).unwrap();
         let config2 = ServerConfig::resolve(Some(&reparsed), &cli, &[]).unwrap();
+        assert_eq!(config2.thumbnail_storage, ThumbnailStorage::File);
         assert_eq!(config2.database.pool_size, Some(4));
         assert_eq!(config2.database.busy_timeout, Some(Duration::from_secs(30)));
         assert_eq!(

@@ -119,4 +119,8 @@ Every key below is commented out at its default value; uncomment to change it. A
 [history]
 # retention for the history event table (kmrs enhancement; the Java version keeps events forever)
 # retention-days = 180 # 0 = keep forever; env: KOMGA_HISTORY_RETENTIONDAYS
+
+[thumbnails]
+# where book/series thumbnail bytes live (kmrs enhancement; Java always uses DB blobs)
+# storage = "db" # db = blobs in the database, file = files under <config-dir>/thumbnails; env: KOMGA_THUMBNAILS_STORAGE
 ```

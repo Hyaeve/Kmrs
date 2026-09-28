@@ -155,6 +155,28 @@ impl ScanScheduler {
             }
         })
     }
+
+    /// Thumbnail file storage: sweeps orphaned files under `<config-dir>/thumbnails` at
+    /// startup and every day. Runs in both storage modes; a missing directory is a no-op.
+    pub fn start_thumbnail_sweep(state: AppState) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(86_400));
+            loop {
+                interval.tick().await;
+                let state = state.clone();
+                match tokio::task::spawn_blocking(move || {
+                    crate::thumbnails::sweep_orphan_files(&state)
+                })
+                .await
+                {
+                    Ok(Ok(n)) if n > 0 => tracing::info!("Removed {n} orphaned thumbnail files"),
+                    Ok(Ok(_)) => {}
+                    Ok(Err(e)) => tracing::error!("Failed to sweep orphaned thumbnail files: {e}"),
+                    Err(e) => tracing::error!("Thumbnail sweep task failed: {e}"),
+                }
+            }
+        })
+    }
 }
 
 fn interval_duration(interval: ScanInterval) -> std::time::Duration {

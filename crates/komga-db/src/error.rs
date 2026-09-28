@@ -6,6 +6,8 @@ pub enum Error {
     Db(#[from] rusqlite::Error),
     #[error(transparent)]
     Pool(#[from] r2d2::Error),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
     #[error("invalid datetime in database: {0}")]
     Datetime(String),
     #[error("invalid enum value in database: {0}")]

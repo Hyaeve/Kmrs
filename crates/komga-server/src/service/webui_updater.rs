@@ -303,6 +303,7 @@ mod tests {
             komf_base_url: None,
             history_retention_days: 180,
             sort_locale: None,
+            thumbnail_storage: Default::default(),
         };
         AppState {
             sessions: auth::SessionStore::new(config.session_timeout),
