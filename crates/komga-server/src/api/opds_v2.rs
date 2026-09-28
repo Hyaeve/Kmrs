@@ -244,7 +244,7 @@ fn non_empty(value: String) -> Option<String> {
 
 /// `LocalDateTime.atZone(systemDefault())`: re-labels the naive wall clock with the system zone
 fn at_system_zone(dt: OffsetDateTime) -> OffsetDateTime {
-    dt.replace_offset(komga_core::time_codec::system_offset())
+    dt.replace_offset(komga_core::time_codec::system_offset_for_wall_clock(dt))
 }
 
 /// `LocalDateTime.toZonedDateTime()`: converts the UTC instant to the system zone
@@ -2567,7 +2567,7 @@ mod tests {
     }
 
     fn offset_suffix() -> String {
-        let o = komga_core::time_codec::system_offset();
+        let o = komga_core::time_codec::system_offset_at(komga_core::time_codec::now_utc());
         if o.is_utc() {
             "Z".to_string()
         } else {

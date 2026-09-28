@@ -4,9 +4,10 @@
 //! komga's `application.yml` sets `management.endpoints.web.exposure.include: "*"`, so Java
 //! exposes everything Spring can auto-configure. Endpoints and meters that only dump
 //! JVM/Spring internals (beans, conditions, env, configprops, loggers, mappings, heapdump,
-//! threaddump, `jvm.*`/`system.*`/`http.server.requests` metrics) are intentionally not
-//! implemented — a documented scope exclusion, not a gap. Caches, integrationgraph, quartz,
-//! prometheus, httpexchanges and startup are absent on the Java side too (missing dependencies).
+//! threaddump, `system.*`/`http.server.requests` meters, `jvm.*` beyond `jvm.memory.used`)
+//! are intentionally not implemented — a documented scope exclusion, not a gap. Caches,
+//! integrationgraph, quartz, prometheus, httpexchanges and startup are absent on the Java
+//! side too (missing dependencies).
 //!
 //! Auth semantics, from komga's `SecurityConfiguration.kt` and `application.yml`:
 //! - `/actuator/health`: permitAll — anonymous gets the bare status; ADMIN gets details
@@ -28,7 +29,7 @@ use axum::http::header::{CONTENT_LENGTH, CONTENT_TYPE};
 use axum::response::{IntoResponse, Response};
 use axum::{routing, Json, Router};
 use serde::Serialize;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use tokio_util::io::ReaderStream;
 
 const ACTUATOR_JSON: &str = "application/vnd.spring-boot.actuator.v3+json";
@@ -326,7 +327,7 @@ async fn get_health(State(state): State<AppState>, auth: MaybeAuth) -> Response 
         data_source(&state.tasks_db),
     );
 
-    let (total, free) = disk_space_k_bytes(&state.config.config_dir);
+    let (total, free) = disk_space_bytes(&state.config.config_dir);
     let disk_component = HealthComponent {
         status: "UP",
         details: serde_json::json!({
@@ -349,21 +350,17 @@ async fn get_health(State(state): State<AppState>, auth: MaybeAuth) -> Response 
     })
 }
 
-/// `df -k <path>`: total and available 1K-blocks of the volume holding the config dir.
-fn disk_space_k_bytes(path: &std::path::Path) -> (i64, i64) {
-    std::process::Command::new("df")
-        .arg("-k")
-        .arg(path)
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .and_then(|out| {
-            let line = out.lines().nth(1)?.to_string();
-            let fields: Vec<&str> = line.split_whitespace().collect();
-            let total: i64 = fields.get(1)?.parse().ok()?;
-            let free: i64 = fields.get(3)?.parse().ok()?;
-            Some((total * 1024, free * 1024))
-        })
+/// Total and available bytes of the volume holding the config dir (Spring's
+/// DiskSpaceHealthIndicator uses `File.getTotalSpace`/`getUsableSpace`). The volume is
+/// the disk with the longest mount-point prefix of the path.
+fn disk_space_bytes(path: &std::path::Path) -> (i64, i64) {
+    let path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    sysinfo::Disks::new_with_refreshed_list()
+        .list()
+        .iter()
+        .filter(|d| path.starts_with(d.mount_point()))
+        .max_by_key(|d| d.mount_point().as_os_str().len())
+        .map(|d| (d.total_space() as i64, d.available_space() as i64))
         .unwrap_or((0, 0))
 }
 
@@ -475,7 +472,8 @@ async fn get_info() -> Response {
     })
 }
 
-/// `os.name` as Spring reports it (from `System.getProperty("os.name")`), with `uname -r` for the version.
+/// `os.name` as Spring reports it (from `System.getProperty("os.name")`), with the kernel
+/// release for the version.
 fn os_name_version() -> (String, String) {
     let name = match std::env::consts::OS {
         "macos" => "Mac OS X",
@@ -484,13 +482,7 @@ fn os_name_version() -> (String, String) {
         other => other,
     }
     .to_string();
-    let version = std::process::Command::new("uname")
-        .arg("-r")
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
-        .unwrap_or_else(|| "unknown".to_string());
+    let version = sysinfo::System::kernel_version().unwrap_or_else(|| "unknown".to_string());
     (name, version)
 }
 
@@ -885,31 +877,59 @@ fn count_of(state: &AppState, table: &str) -> f64 {
         .unwrap_or(0) as f64
 }
 
-/// Recent CPU usage of this process, via `ps -o %cpu` (percent).
-fn cpu_usage_percent() -> f64 {
-    std::process::Command::new("ps")
-        .arg("-o")
-        .arg("%cpu=")
-        .arg("-p")
-        .arg(std::process::id().to_string())
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .and_then(|s| s.trim().parse::<f64>().ok())
-        .unwrap_or(0.0)
+/// One long-lived `System` for self-process stats: CPU usage is a diff between two
+/// refreshes, so recreating the `System` would reset the baseline. Memory and CPU are
+/// refreshed with disjoint `ProcessRefreshKind`s, so one metric never disturbs the
+/// other's baseline.
+fn process_sys() -> &'static Mutex<sysinfo::System> {
+    static SYS: OnceLock<Mutex<sysinfo::System>> = OnceLock::new();
+    SYS.get_or_init(|| Mutex::new(sysinfo::System::new()))
 }
+
+fn self_pid() -> sysinfo::Pid {
+    sysinfo::Pid::from(std::process::id() as usize)
+}
+
+/// Recent CPU usage of this process in percent of total capacity (100 = every core busy,
+/// the Java side's OperatingSystemMXBean semantics; sysinfo reports 100 per busy core).
+/// Below MINIMUM_CPU_UPDATE_INTERVAL the last value is reused: a back-to-back poll would
+/// otherwise shrink the diff window toward zero and read garbage.
+fn cpu_usage_percent() -> f64 {
+    static LAST: Mutex<Option<(std::time::Instant, f64)>> = Mutex::new(None);
+
+    let mut last = LAST.lock().unwrap();
+    if let Some((at, value)) = *last {
+        if at.elapsed() < sysinfo::MINIMUM_CPU_UPDATE_INTERVAL {
+            return value;
+        }
+    }
+    let pid = self_pid();
+    let mut sys = process_sys().lock().unwrap();
+    sys.refresh_processes_specifics(
+        sysinfo::ProcessesToUpdate::Some(&[pid]),
+        false,
+        sysinfo::ProcessRefreshKind::nothing().with_cpu(),
+    );
+    let cores = std::thread::available_parallelism()
+        .map(|n| n.get() as f64)
+        .unwrap_or(1.0);
+    let value = sys
+        .process(pid)
+        .map(|p| p.cpu_usage() as f64 / cores)
+        .unwrap_or(0.0);
+    *last = Some((std::time::Instant::now(), value));
+    value
+}
+
 fn rss_bytes() -> i64 {
-    std::process::Command::new("ps")
-        .arg("-o")
-        .arg("rss=")
-        .arg("-p")
-        .arg(std::process::id().to_string())
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .and_then(|s| s.trim().parse::<i64>().ok())
-        .unwrap_or(0)
-        * 1024
+    let pid = self_pid();
+    let mut sys = process_sys().lock().unwrap();
+    sys.refresh_processes_specifics(
+        sysinfo::ProcessesToUpdate::Some(&[pid]),
+        false,
+        sysinfo::ProcessRefreshKind::nothing().with_memory(),
+    );
+    sys.process(pid).map(|p| p.memory() as i64).unwrap_or(0)
 }
 
 // endregion

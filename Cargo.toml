@@ -10,7 +10,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.13.4"
+version = "0.13.5"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/kmworks/kmrs"
@@ -59,6 +59,8 @@ regex = "1"
 form_urlencoded = "1"
 image = "0.25"
 moka = { version = "0.12", features = ["future", "sync"] }
+sysinfo = { version = "0.39", default-features = false, features = ["system", "disk"] }
+jiff = "0.2"
 zip = { version = "8", default-features = false, features = ["deflate"] }
 roxmltree = "0.20"
 scraper = "0.23"

@@ -41,7 +41,7 @@ fn now_zoned() -> OffsetDateTime {
 
 /// `LocalDateTime.atZone(ZoneId.systemDefault())`: wall-clock preserved, offset re-tagged.
 fn at_zone(dt: OffsetDateTime) -> OffsetDateTime {
-    dt.replace_offset(komga_core::time_codec::system_offset())
+    dt.replace_offset(komga_core::time_codec::system_offset_for_wall_clock(dt))
 }
 
 pub fn router() -> Router<AppState> {
@@ -1889,7 +1889,7 @@ mod tests {
         assert!(xml.contains("<content>Continue reading your in progress books</content>"));
 
         // `ZonedDateTime.now()` renders in the system zone
-        let offset = komga_core::time_codec::system_offset();
+        let offset = komga_core::time_codec::system_offset_at(komga_core::time_codec::now_utc());
         let offset_str = if offset.is_utc() {
             "Z".to_string()
         } else {

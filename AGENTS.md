@@ -17,7 +17,7 @@ kmrs is a drop-in, data-level compatible reimplementation of [gotson/komga](http
 - The schemas of `database.sqlite` and `tasks.sqlite` are byte-for-byte the Java Flyway migrations. `crates/komga-db/tests/schema_contract.rs` enforces this against `docs/schema-main.sql`.
 - kmrs-private state never goes into the main database. It lives in `kmrs.sqlite` — its own migration track (`crates/komga-db/migrations_kmrs/`, `kmrs_migrations()`), its own connection, its own config key (`kmrs-db` / `KOMGA_KMRSDB_FILE`) — so the Java version can always open a kmrs-written data directory.
 - When porting behavior, verify against the Java/Kotlin sources, never from memory.
-- Actuator endpoints and metrics that only expose JVM/Spring internals (beans, env, loggers, mappings, `jvm.*`, `system.*`, ...) are intentional scope exclusions, not gaps.
+- Actuator endpoints and metrics that only expose JVM/Spring internals (beans, env, loggers, mappings, `system.*`, `jvm.*` beyond `jvm.memory.used`, ...) are intentional scope exclusions, not gaps.
 
 ## Versioning
 
@@ -42,6 +42,6 @@ A new configuration key must land in all three places: the loader/render (`crate
 
 ## Checks and workflow
 
-- CI: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test`, builds on ubuntu/macos/windows, docker. Keep clippy warning-free.
+- CI: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo nextest run --workspace`, builds on ubuntu/macos/windows, docker. Keep clippy warning-free.
 - PRs are in English (title, body, comments).
 - Squash-merge with a hand-written commit message (`gh pr merge --squash --subject ... --body ...`), never the default message.

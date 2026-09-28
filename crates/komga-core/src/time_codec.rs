@@ -106,31 +106,42 @@ pub fn format_dto_datetime(dt: OffsetDateTime) -> String {
     )
 }
 
-/// The system zone offset, read once from the platform `date` command. The `time` crate's
-/// `local-offset` feature is intentionally not enabled (it is unsound in multi-threaded programs).
-pub fn system_offset() -> time::UtcOffset {
-    static OFFSET: std::sync::OnceLock<time::UtcOffset> = std::sync::OnceLock::new();
-    *OFFSET.get_or_init(|| {
-        std::process::Command::new("date")
-            .arg("+%z")
-            .output()
-            .ok()
-            .and_then(|o| String::from_utf8(o.stdout).ok())
-            .and_then(|s| {
-                let s = s.trim();
-                let (sign, rest) = s.split_at_checked(1)?;
-                let hours: i32 = rest.get(..2)?.parse().ok()?;
-                let minutes: i32 = rest.get(2..4)?.parse().ok()?;
-                let seconds = (hours * 3600 + minutes * 60) * if sign == "-" { -1 } else { 1 };
-                time::UtcOffset::from_hms(
-                    seconds.div_euclid(3600) as i8,
-                    (seconds.rem_euclid(3600) / 60) as i8,
-                    0,
-                )
-                .ok()
-            })
-            .unwrap_or(time::UtcOffset::UTC)
-    })
+/// The system zone, resolved once through jiff: offsets then follow IANA DST rules per
+/// timestamp, instead of a fixed offset snapshot. The `time` crate's own `local-offset`
+/// feature stays disabled (it is unsound in multi-threaded programs).
+pub fn system_time_zone() -> &'static jiff::tz::TimeZone {
+    static TZ: std::sync::OnceLock<jiff::tz::TimeZone> = std::sync::OnceLock::new();
+    TZ.get_or_init(jiff::tz::TimeZone::system)
+}
+
+fn to_utc_offset(offset: jiff::tz::Offset) -> time::UtcOffset {
+    time::UtcOffset::from_whole_seconds(offset.seconds()).unwrap_or(time::UtcOffset::UTC)
+}
+
+/// Offset of the system zone in effect at the instant `dt` refers to.
+pub fn system_offset_at(dt: OffsetDateTime) -> time::UtcOffset {
+    jiff::Timestamp::from_second(dt.unix_timestamp())
+        .map(|ts| to_utc_offset(ts.to_zoned(system_time_zone().clone()).offset()))
+        .unwrap_or(time::UtcOffset::UTC)
+}
+
+/// Offset of the system zone at the wall-clock time `dt` shows (`LocalDateTime.atZone`).
+/// jiff's compatible disambiguation matches Java: gaps shift forward, folds keep the
+/// pre-transition offset.
+pub fn system_offset_for_wall_clock(dt: OffsetDateTime) -> time::UtcOffset {
+    jiff::civil::DateTime::new(
+        dt.year() as i16,
+        dt.month() as i8,
+        dt.day() as i8,
+        dt.hour() as i8,
+        dt.minute() as i8,
+        dt.second() as i8,
+        0,
+    )
+    .ok()
+    .and_then(|c| system_time_zone().to_zoned(c).ok())
+    .map(|z| to_utc_offset(z.offset()))
+    .unwrap_or(time::UtcOffset::UTC)
 }
 
 /// Jackson `ISO_OFFSET_DATE_TIME`: `yyyy-MM-dd'T'HH:mm:ss[.SSS]±HH:MM`; nanos padded to 9
@@ -168,7 +179,7 @@ pub fn format_offset_date_time(dt: OffsetDateTime) -> String {
 /// `LocalDateTime.toZonedDateTime()`: reinterpret a UTC timestamp in the system zone
 /// (`atZoneSameInstant(ZoneId.systemDefault())`).
 pub fn to_zoned_date_time(dt: OffsetDateTime) -> OffsetDateTime {
-    dt.to_offset(system_offset())
+    dt.to_offset(system_offset_at(dt))
 }
 
 #[cfg(test)]

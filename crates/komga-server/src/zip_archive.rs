@@ -195,7 +195,7 @@ impl<W: Write> ZipWriter<W> {
 
 /// DOS date/time of the current local time (2-second precision), like `new ZipArchiveEntry(name)`.
 fn dos_now() -> (u16, u16) {
-    let now = komga_core::time_codec::now_utc().to_offset(komga_core::time_codec::system_offset());
+    let now = komga_core::time_codec::to_zoned_date_time(komga_core::time_codec::now_utc());
     let dos_time =
         ((now.hour() as u16) << 11) | ((now.minute() as u16) << 5) | (now.second() as u16 / 2);
     let dos_date =
