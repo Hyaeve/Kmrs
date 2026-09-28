@@ -69,6 +69,9 @@ pub struct ServerConfig {
     pub komf_url: Option<String>,
     /// the base URL komf uses to call back into kmrs (written to komf's `komga.baseUri`)
     pub komf_base_url: Option<String>,
+    /// days to keep HISTORICAL_EVENT rows (pruned daily, 0 = keep forever);
+    /// the Java version never cleans the table
+    pub history_retention_days: u32,
     /// BCP47 locale for ICU-based sorting (authors, publishers, genres, tags, ...);
     /// None/empty = `und` (UCA root), reproducing the legacy hard-coded behavior.
     pub sort_locale: Option<String>,
@@ -390,6 +393,12 @@ impl ServerConfig {
                         .and_then(|k| k.base_url.clone())
                 })
                 .filter(|v| !v.is_empty()),
+            history_retention_days: env_u32(env, "KOMGA_HISTORY_RETENTIONDAYS")
+                .or_else(|| {
+                    file.and_then(|f| f.history.as_ref())
+                        .and_then(|h| h.retention_days)
+                })
+                .unwrap_or(180),
             migration_placeholders: Placeholders {
                 library_file_hashing: env_bool(env, "KOMGA_FILEHASHING")
                     .or_else(|| {
@@ -689,6 +698,7 @@ mod tests {
         assert_eq!(config.page_hashing, 3);
         assert_eq!(config.epub_divina_letter_count_threshold, 15);
         assert_eq!(config.kobo_sync_item_limit, 100);
+        assert_eq!(config.history_retention_days, 180);
         assert_eq!(config.session_timeout, Duration::from_secs(7 * 24 * 3600));
         assert!(config.oauth2.registrations.is_empty());
         assert!(!config.oauth2.account_creation);
@@ -722,6 +732,9 @@ allowed-origins = ["https://a.example", "https://b.example"]
 [kobo]
 sync-item-limit = 50
 kepubify-path = "/usr/local/bin/kepubify"
+
+[history]
+retention-days = 90
 "#,
             cli,
             &[],
@@ -743,6 +756,7 @@ kepubify-path = "/usr/local/bin/kepubify"
             ]
         );
         assert_eq!(config.kobo_sync_item_limit, 50);
+        assert_eq!(config.history_retention_days, 90);
         assert_eq!(
             config.kepubify_path,
             Some(PathBuf::from("/usr/local/bin/kepubify"))

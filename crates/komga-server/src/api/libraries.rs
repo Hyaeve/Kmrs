@@ -537,6 +537,7 @@ pub(crate) mod test_support {
             webui_update_interval: std::time::Duration::from_secs(24 * 3600),
             komf_url: None,
             komf_base_url: None,
+            history_retention_days: 180,
             sort_locale: None,
         }
     }

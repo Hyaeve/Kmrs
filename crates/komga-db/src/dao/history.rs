@@ -148,6 +148,22 @@ impl HistoricalEventDao {
             sorted: !order_sql.is_empty(),
         })
     }
+
+    /// Deletes events older than `cutoff` together with their properties; returns the number
+    /// of events removed. Retention companion of the insert-only log (auth activity does the
+    /// same for AUTHENTICATION_ACTIVITY).
+    pub fn delete_older_than(&self, cutoff: time::OffsetDateTime) -> Result<i64> {
+        let conn = self.db.rw();
+        conn.execute(
+            "DELETE FROM HISTORICAL_EVENT_PROPERTIES WHERE ID IN (SELECT ID FROM HISTORICAL_EVENT WHERE TIMESTAMP < ?)",
+            [time_codec::format_datetime(cutoff)],
+        )?;
+        let n = conn.execute(
+            "DELETE FROM HISTORICAL_EVENT WHERE TIMESTAMP < ?",
+            [time_codec::format_datetime(cutoff)],
+        )?;
+        Ok(n as i64)
+    }
 }
 
 #[cfg(test)]
@@ -207,5 +223,41 @@ mod tests {
         assert!(found2.book_id.is_none());
 
         assert!(dao.find_by_id("nonexistent").unwrap().is_none());
+    }
+
+    #[test]
+    fn delete_older_than_removes_events_and_properties() {
+        let dao = dao();
+        let old = HistoricalEvent {
+            id: String::new(),
+            type_: HistoricalEventType::BookPurged,
+            book_id: Some("b1".into()),
+            series_id: Some("s1".into()),
+            properties: BTreeMap::from([("reason".to_string(), "old".to_string())]),
+            timestamp: now_utc() - time::Duration::days(200),
+        };
+        let old_id = dao.insert(&old).unwrap();
+        let recent = HistoricalEvent {
+            id: String::new(),
+            type_: HistoricalEventType::BookTrashed,
+            book_id: Some("b2".into()),
+            series_id: Some("s1".into()),
+            properties: BTreeMap::from([("reason".to_string(), "new".to_string())]),
+            timestamp: now_utc(),
+        };
+        let recent_id = dao.insert(&recent).unwrap();
+
+        let removed = dao
+            .delete_older_than(now_utc() - time::Duration::days(180))
+            .unwrap();
+        assert_eq!(removed, 1);
+        assert!(dao.find_by_id(&old_id).unwrap().is_none());
+        assert!(dao.find_by_id(&recent_id).unwrap().is_some());
+        // nothing left to delete on a second run
+        assert_eq!(
+            dao.delete_older_than(now_utc() - time::Duration::days(180))
+                .unwrap(),
+            0
+        );
     }
 }

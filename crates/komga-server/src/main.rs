@@ -112,6 +112,7 @@ async fn main() -> anyhow::Result<()> {
     service::processor::TaskProcessor::start(state.clone(), task_notify);
     service::scheduler::ScanScheduler::start(state.clone());
     service::scheduler::ScanScheduler::start_auth_activity_cleanup(state.clone());
+    service::scheduler::ScanScheduler::start_history_cleanup(state.clone());
     if config.webui_auto_update && config.webui_dir.is_some() {
         service::webui_updater::WebuiUpdater::start(state.clone());
     }

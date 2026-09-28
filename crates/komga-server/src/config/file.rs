@@ -25,6 +25,14 @@ pub struct FileConfig {
     pub oauth2: Option<FileOAuth2>,
     pub webui: Option<FileWebui>,
     pub komf: Option<FileKomf>,
+    pub history: Option<FileHistory>,
+}
+
+/// Retention for the HISTORICAL_EVENT table (kmrs enhancement; the Java version never cleans it).
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct FileHistory {
+    pub retention_days: Option<u32>,
 }
 
 /// Optional preset for the komf integration, surfaced as form defaults in the admin UI;
@@ -526,6 +534,23 @@ pub fn render(file: &FileConfig, config: &ServerConfig, source: Option<&Path>) -
         Some(u) => out.push_str(&format!("base-url = {} # env: KOMGA_KOMF_BASEURL\n", q(u))),
         None => out.push_str("# base-url = \"http://kmrs:25600\" # env: KOMGA_KOMF_BASEURL\n"),
     }
+    out.push('\n');
+
+    out.push_str("[history]\n");
+    out.push_str(
+        "# retention for the history event table (kmrs enhancement; the Java version keeps events forever)\n",
+    );
+    push_line(
+        &mut out,
+        file.history
+            .as_ref()
+            .and_then(|h| h.retention_days)
+            .is_some(),
+        format!(
+            "retention-days = {} # 0 = keep forever; env: KOMGA_HISTORY_RETENTIONDAYS",
+            config.history_retention_days
+        ),
+    );
     out.push('\n');
     out
 }

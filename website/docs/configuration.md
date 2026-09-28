@@ -115,4 +115,8 @@ Every key below is commented out at its default value; uncomment to change it. A
 # komf's API has no authentication — only point this at a trusted network
 # url = "http://komf:8085" # env: KOMGA_KOMF_URL
 # base-url = "http://kmrs:25600" # env: KOMGA_KOMF_BASEURL
+
+[history]
+# retention for the history event table (kmrs enhancement; the Java version keeps events forever)
+# retention-days = 180 # 0 = keep forever; env: KOMGA_HISTORY_RETENTIONDAYS
 ```
