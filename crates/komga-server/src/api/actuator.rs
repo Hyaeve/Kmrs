@@ -172,8 +172,10 @@ async fn get_flyway(
 
 // region sessions
 
-/// Spring's `SessionsEndpoint`: `?username=` filters by the principal-name index. komga's index
-/// is the login email — or the API-key hash once an API-key auth replaces the session context.
+/// Spring's `SessionsEndpoint`, except an absent `?username=` lists every session instead of
+/// being rejected: the admin UI's sessions panel is a cross-user view. When present,
+/// `?username=` filters by the principal-name index — the login email, or the API-key hash
+/// once an API-key auth replaces the session context.
 async fn get_sessions_for_username(
     State(state): State<AppState>,
     auth: RequireAuth,
@@ -183,13 +185,13 @@ async fn get_sessions_for_username(
     let username = crate::http::pagination::parse_query_multi(query.as_deref().unwrap_or(""))
         .first("username")
         .map(str::to_string);
+    let dao = komga_db::dao::user::UserDao::new(state.db.clone());
+    // user_id → email, resolved lazily once per distinct id
+    let mut emails: std::collections::HashMap<String, Option<String>> =
+        std::collections::HashMap::new();
     let mut sessions = Vec::new();
-    if let Some(username) = username {
-        let dao = komga_db::dao::user::UserDao::new(state.db.clone());
-        // user_id → email, resolved lazily once per distinct id
-        let mut emails: std::collections::HashMap<String, Option<String>> =
-            std::collections::HashMap::new();
-        for (id, data) in state.sessions.all() {
+    for (id, data) in state.sessions.all() {
+        if let Some(username) = &username {
             let indexed_name = match &data.api_key {
                 Some(key) => Some(key.hash.clone()),
                 None => emails
@@ -202,10 +204,11 @@ async fn get_sessions_for_username(
                     })
                     .clone(),
             };
-            if indexed_name.as_deref() == Some(username.as_str()) {
-                sessions.push(session_descriptor(&id, &data, &state));
+            if indexed_name.as_deref() != Some(username.as_str()) {
+                continue;
             }
         }
+        sessions.push(session_descriptor(&id, &data, &state));
     }
     Ok(actuator_response(
         &serde_json::json!({ "sessions": sessions }),
@@ -959,10 +962,13 @@ struct ScheduledTaskRunnable {
 }
 
 /// Spring's `ScheduledTasksEndpoint`, fed by the scan scheduler's per-library interval tasks
-/// (each with `initialDelay == interval == period`, like `FixedRateTask`).
-/// Spring's `ScheduledTasksEndpoint`, fed by the scan scheduler's per-library interval tasks
-/// plus the fixed-rate jobs (SSE heartbeat / task count, authentication-activity cleanup).
-async fn get_scheduled_tasks(auth: RequireAuth) -> Result<Response, ApiError> {
+/// plus the fixed-rate jobs (SSE heartbeat / task count, daily cleanups, thumbnail sweep,
+/// web UI update check when enabled), each with `initialDelay == interval == period` like
+/// `FixedRateTask`.
+async fn get_scheduled_tasks(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+) -> Result<Response, ApiError> {
     auth.0.require_admin()?;
     let mut fixed_rate: Vec<ScheduledTaskEntry> =
         crate::service::scheduler::ScanScheduler::scheduled_tasks()
@@ -988,10 +994,22 @@ async fn get_scheduled_tasks(auth: RequireAuth) -> Result<Response, ApiError> {
             "AuthenticationActivityCleanupController.cleanup",
             86_400_000u64,
         ),
+        ("ScanScheduler.historyCleanup", 86_400_000u64),
+        ("ScanScheduler.thumbnailSweep", 86_400_000u64),
     ] {
         fixed_rate.push(ScheduledTaskEntry {
             runnable: ScheduledTaskRunnable {
                 target: target.to_string(),
+            },
+            initial_delay: millis,
+            interval: millis,
+        });
+    }
+    if state.config.webui_auto_update && state.config.webui_dir.is_some() {
+        let millis = state.config.webui_update_interval.as_millis() as u64;
+        fixed_rate.push(ScheduledTaskEntry {
+            runnable: ScheduledTaskRunnable {
+                target: "WebuiUpdater.check".to_string(),
             },
             initial_delay: millis,
             interval: millis,
@@ -1424,6 +1442,15 @@ mod tests {
             .as_str()
             .unwrap()
             .ends_with('Z'));
+
+        let (status, _headers, bytes) = call(&app, "GET", "/actuator/sessions", Some("k1")).await;
+        assert_eq!(status, StatusCode::OK);
+        let body = json(&bytes);
+        let sessions = body["sessions"].as_array().unwrap();
+        // each API-key call above created its own session, so the unfiltered list is
+        // longer than the email-filtered one
+        assert!(sessions.len() > 1);
+        assert!(sessions.iter().any(|s| s["id"] == session_id));
 
         let (status, _headers, bytes) = call(
             &app,
@@ -1884,7 +1911,9 @@ mod tests {
             vec![
                 "SseController.heartbeat",
                 "SseController.taskCount",
-                "AuthenticationActivityCleanupController.cleanup"
+                "AuthenticationActivityCleanupController.cleanup",
+                "ScanScheduler.historyCleanup",
+                "ScanScheduler.thumbnailSweep"
             ]
         );
         assert_eq!(body["fixedRate"][0]["initialDelay"], 15_000i64);

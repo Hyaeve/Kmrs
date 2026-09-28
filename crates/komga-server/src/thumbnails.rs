@@ -13,6 +13,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 const MIGRATION_BATCH_SIZE: u32 = 500;
+const MIGRATION_PROGRESS_LOG_INTERVAL: u64 = 1_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ThumbnailKind {
@@ -157,6 +158,7 @@ pub fn migrate_blobs_to_files(state: &AppState) -> komga_db::Result<()> {
         if markers.is_done(kind.as_str())? {
             continue;
         }
+        tracing::info!("migrating {} blob thumbnails to files", kind.as_str());
         let migrated = match kind {
             ThumbnailKind::Book => migrate_kind(
                 &dir,
@@ -208,6 +210,7 @@ fn migrate_kind<T: BlobThumbnail>(
     mut update: impl FnMut(&T) -> komga_db::Result<u64>,
 ) -> komga_db::Result<u64> {
     let mut migrated = 0u64;
+    let mut seen = 0u64;
     let mut after_rowid = 0i64;
     loop {
         let batch = fetch(after_rowid, MIGRATION_BATCH_SIZE)?;
@@ -216,6 +219,13 @@ fn migrate_kind<T: BlobThumbnail>(
         }
         for (rowid, mut thumbnail) in batch {
             after_rowid = rowid;
+            seen += 1;
+            if seen.is_multiple_of(MIGRATION_PROGRESS_LOG_INTERVAL) {
+                tracing::info!(
+                    "{} thumbnail migration in progress: {seen} rows processed, {migrated} migrated",
+                    kind.as_str()
+                );
+            }
             let Some(bytes) = thumbnail.take_blob() else {
                 continue;
             };
