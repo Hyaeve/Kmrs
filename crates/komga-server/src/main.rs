@@ -112,8 +112,8 @@ async fn main() -> anyhow::Result<()> {
 
     service::processor::TaskProcessor::start(state.clone(), task_notify);
     service::scheduler::ScanScheduler::start(state.clone());
-    service::scheduler::ScanScheduler::start_auth_activity_cleanup(state.clone());
-    service::scheduler::ScanScheduler::start_history_cleanup(state.clone());
+    service::maintenance::MaintenanceScheduler::start_auth_activity_cleanup(state.clone());
+    service::maintenance::MaintenanceScheduler::start_history_cleanup(state.clone());
     // Thumbnail file storage: migrate existing blobs to files in the background. The
     // orphan sweep starts only after the migration — freshly written files are
     // referenced once their row is updated, and a concurrent sweep would delete them.
@@ -132,7 +132,7 @@ async fn main() -> anyhow::Result<()> {
                 tracing::error!("thumbnail file-storage migration task failed: {e}");
             }
         }
-        service::scheduler::ScanScheduler::start_thumbnail_sweep(sweep_state);
+        service::maintenance::MaintenanceScheduler::start_thumbnail_sweep(sweep_state);
     });
     if config.webui_auto_update && config.webui_dir.is_some() {
         service::webui_updater::WebuiUpdater::start(state.clone());

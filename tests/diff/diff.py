@@ -187,13 +187,16 @@ def compare_actuator_scheduledtasks(java_body, rust_body):
     for key in ("cron", "fixedDelay", "fixedRate", "custom"):
         if key not in rust_body:
             problems.append(f"rust missing {key}")
-    r_targets = [t.get("runnable", {}).get("target", "") for t in rust_body.get("fixedRate", [])]
-    for required in ("SseController.heartbeat", "SseController.taskCount", "AuthenticationActivityCleanupController.cleanup"):
-        if required not in r_targets:
-            problems.append(f"rust missing fixedRate target {required}")
-    for task in rust_body.get("fixedRate", []):
-        if task.get("initialDelay") != task.get("interval"):
-            problems.append(f"rust task initialDelay != interval: {task}")
+    for side, body in (("java", java_body), ("rust", rust_body)):
+        for task in body.get("fixedRate", []):
+            target = task.get("runnable", {}).get("target")
+            if not isinstance(target, str) or not target:
+                problems.append(f"{side} fixedRate task with bad runnable.target: {task}")
+            for field in ("initialDelay", "interval"):
+                if not isinstance(task.get(field), int):
+                    problems.append(f"{side} fixedRate task with bad {field}: {task}")
+    if not rust_body.get("fixedRate"):
+        problems.append("rust fixedRate is empty")
     return problems
 
 

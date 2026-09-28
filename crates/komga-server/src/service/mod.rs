@@ -10,6 +10,7 @@ pub mod kobo_proxy;
 pub mod komf;
 pub mod library;
 pub mod library_content;
+pub mod maintenance;
 pub mod metadata;
 pub mod metrics;
 pub mod page_hash;
