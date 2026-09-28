@@ -74,6 +74,9 @@ pub struct ServerConfig {
     pub history_retention_days: u32,
     /// where book/series thumbnail bytes live (kmrs enhancement; Java always uses DB blobs)
     pub thumbnail_storage: ThumbnailStorage,
+    /// answer If-None-Match from the thumbnail row instead of hashing the body
+    /// (kmrs enhancement; Java always hashes the body)
+    pub thumbnail_deep_etag: bool,
     /// BCP47 locale for ICU-based sorting (authors, publishers, genres, tags, ...);
     /// None/empty = `und` (UCA root), reproducing the legacy hard-coded behavior.
     pub sort_locale: Option<String>,
@@ -420,6 +423,12 @@ impl ServerConfig {
                 .map(|s| parse_thumbnail_storage(&s))
                 .transpose()?
                 .unwrap_or_default(),
+            thumbnail_deep_etag: env_bool(env, "KOMGA_THUMBNAILS_DEEPETAG")
+                .or_else(|| {
+                    file.and_then(|f| f.thumbnails.as_ref())
+                        .and_then(|t| t.deep_etag)
+                })
+                .unwrap_or(true),
             migration_placeholders: Placeholders {
                 library_file_hashing: env_bool(env, "KOMGA_FILEHASHING")
                     .or_else(|| {
@@ -1166,6 +1175,23 @@ issuer-uri = "https://github.com"
         let file: FileConfig = toml::from_str("[thumbnails]\nstorage = \"s3\"\n").unwrap();
         let err = ServerConfig::resolve(Some(&file), &Cli::default(), &[]).unwrap_err();
         assert!(err.to_string().contains("invalid thumbnails.storage"));
+    }
+
+    #[test]
+    fn thumbnail_deep_etag_default_file_and_env() {
+        let config = resolve("", Cli::default(), &[]);
+        assert!(config.thumbnail_deep_etag);
+
+        let config = resolve("[thumbnails]\ndeep-etag = false\n", Cli::default(), &[]);
+        assert!(!config.thumbnail_deep_etag);
+
+        // env var wins over the file
+        let config = resolve(
+            "[thumbnails]\ndeep-etag = false\n",
+            Cli::default(),
+            &env(&[("KOMGA_THUMBNAILS_DEEPETAG", "true")]),
+        );
+        assert!(config.thumbnail_deep_etag);
     }
 
     #[test]

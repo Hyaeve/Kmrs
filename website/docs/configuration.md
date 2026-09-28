@@ -123,4 +123,6 @@ Every key below is commented out at its default value; uncomment to change it. A
 [thumbnails]
 # where book/series thumbnail bytes live (kmrs enhancement; Java always uses DB blobs)
 # storage = "db" # db = blobs in the database, file = files under <config-dir>/thumbnails; env: KOMGA_THUMBNAILS_STORAGE
+# answer If-None-Match from the thumbnail row instead of hashing the body (kmrs enhancement; Java always hashes)
+# deep-etag = true # false = hash the body like the Java version; env: KOMGA_THUMBNAILS_DEEPETAG
 ```

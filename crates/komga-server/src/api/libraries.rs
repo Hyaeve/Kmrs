@@ -540,6 +540,7 @@ pub(crate) mod test_support {
             history_retention_days: 180,
             sort_locale: None,
             thumbnail_storage: Default::default(),
+            thumbnail_deep_etag: true,
         }
     }
 

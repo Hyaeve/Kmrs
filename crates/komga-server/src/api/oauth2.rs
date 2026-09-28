@@ -534,6 +534,7 @@ mod tests {
             history_retention_days: 180,
             sort_locale: None,
             thumbnail_storage: Default::default(),
+            thumbnail_deep_etag: true,
         };
         AppState {
             sessions: auth::SessionStore::new(config.session_timeout),

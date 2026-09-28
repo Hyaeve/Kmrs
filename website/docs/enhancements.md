@@ -37,6 +37,7 @@ Improvements kmrs adds on top of Java parity, plus intentional behavior differen
 
 Intentional differences from the Java behavior:
 
+- Book and series thumbnail endpoints answer `If-None-Match` against a deep ETag computed from the thumbnail row (blob rows: row id + file size; file-backed rows: file mtime + size), so a cache revalidation returns 304 without hashing the response body; file-backed rows (sidecars, `thumbnails.storage = "file"`) are revalidated with a file stat instead of a full read. The Java version always hashes the full response body (shallow ETag); `thumbnails.deep-etag = false` (env `KOMGA_THUMBNAILS_DEEPETAG`) switches back to that behavior. ETag values are opaque and not interchangeable between the two implementations — switching either way just costs one fresh 200 per image.
 - Page order and series book numbering are case-sensitive; the Java natural comparator is case-insensitive.
 - `GET /actuator/sessions` without `?username=` lists all sessions; the Java version rejects the request, as `username` is a required parameter there.
 - `/api/v1/books/{bookId}/next` and `/previous` break `numberSort` ties by book id, matching the On Deck selection order; the Java version orders and seeks by `numberSort` alone, so navigation between books with duplicate `numberSort` is unstable and can diverge from On Deck ([gotson/komga#2182](https://github.com/gotson/komga/pull/2182)).

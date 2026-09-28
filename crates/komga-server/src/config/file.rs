@@ -41,6 +41,7 @@ pub struct FileHistory {
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct FileThumbnails {
     pub storage: Option<String>,
+    pub deep_etag: Option<bool>,
 }
 
 /// Optional preset for the komf integration, surfaced as form defaults in the admin UI;
@@ -577,6 +578,20 @@ pub fn render(file: &FileConfig, config: &ServerConfig, source: Option<&Path>) -
                 super::ThumbnailStorage::Db => "db",
                 super::ThumbnailStorage::File => "file",
             })
+        ),
+    );
+    out.push_str(
+        "# answer If-None-Match from the thumbnail row instead of hashing the body (kmrs enhancement; Java always hashes)\n",
+    );
+    push_line(
+        &mut out,
+        file.thumbnails
+            .as_ref()
+            .and_then(|t| t.deep_etag)
+            .is_some(),
+        format!(
+            "deep-etag = {} # false = hash the body like the Java version; env: KOMGA_THUMBNAILS_DEEPETAG",
+            config.thumbnail_deep_etag
         ),
     );
     out.push('\n');

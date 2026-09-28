@@ -13,7 +13,7 @@ use komga_core::model::library::SeriesCover;
 use komga_core::model::media::{Media, MediaStatus};
 use komga_core::model::read_progress::ReadProgress;
 use komga_core::model::series::{BookMetadataAggregation, Series, SeriesMetadata, SeriesStatus};
-use komga_core::model::thumbnail::{ThumbnailSeries, ThumbnailType};
+use komga_core::model::thumbnail::{ThumbnailBook, ThumbnailSeries, ThumbnailType};
 use komga_core::model::user::KomgaUser;
 use komga_core::natural_sort;
 use komga_core::task::{BookMetadataPatchCapability, DEFAULT_PRIORITY};
@@ -407,13 +407,20 @@ pub fn get_selected_thumbnail(
     dao.find_selected_by_series_id(series_id)
 }
 
-pub fn get_thumbnail_bytes(
+/// Row-level resolution behind `get_thumbnail_bytes`: the selected series thumbnail,
+/// or the cover book's thumbnail picked by the library's `SeriesCover` setting.
+pub enum SeriesThumbnail {
+    Series(ThumbnailSeries),
+    Book(ThumbnailBook),
+}
+
+pub fn resolve_thumbnail(
     state: &AppState,
     series_id: &str,
     user_id: &str,
-) -> Result<Option<Vec<u8>>> {
+) -> Result<Option<SeriesThumbnail>> {
     if let Some(thumbnail) = get_selected_thumbnail(state, series_id)? {
-        return bytes_from_thumbnail(&thumbnail);
+        return Ok(Some(SeriesThumbnail::Series(thumbnail)));
     }
 
     let Some(series) = SeriesDao::new(state.db.clone()).find_by_id(series_id)? else {
@@ -434,23 +441,29 @@ pub fn get_thumbnail_bytes(
         SeriesCover::Last => book_dao.find_last_id_in_series_or_null(series_id)?,
     };
     match book_id {
-        Some(id) => Ok(crate::service::book::get_thumbnail_bytes(state, &id, None)?
-            .map(|content| content.bytes)),
+        Some(id) => Ok(crate::service::book::get_thumbnail(state, &id)?.map(SeriesThumbnail::Book)),
         None => Ok(None),
     }
 }
 
-pub fn get_thumbnail_bytes_by_thumbnail_id(
+pub fn get_thumbnail_bytes(
     state: &AppState,
-    thumbnail_id: &str,
+    series_id: &str,
+    user_id: &str,
 ) -> Result<Option<Vec<u8>>> {
-    match ThumbnailSeriesDao::new(state.db.clone()).find_by_id(thumbnail_id)? {
-        Some(thumbnail) => bytes_from_thumbnail(&thumbnail),
+    match resolve_thumbnail(state, series_id, user_id)? {
+        Some(SeriesThumbnail::Series(thumbnail)) => bytes_from_thumbnail(&thumbnail),
+        Some(SeriesThumbnail::Book(thumbnail)) => {
+            Ok(
+                crate::service::book::thumbnail_bytes(&thumbnail, None, &thumbnail.book_id)?
+                    .map(|content| content.bytes),
+            )
+        }
         None => Ok(None),
     }
 }
 
-fn bytes_from_thumbnail(thumbnail: &ThumbnailSeries) -> Result<Option<Vec<u8>>> {
+pub(crate) fn bytes_from_thumbnail(thumbnail: &ThumbnailSeries) -> Result<Option<Vec<u8>>> {
     if let Some(blob) = &thumbnail.thumbnail {
         return Ok(Some(blob.clone()));
     }
@@ -694,6 +707,7 @@ pub(crate) mod tests {
             history_retention_days: 180,
             sort_locale: None,
             thumbnail_storage: Default::default(),
+            thumbnail_deep_etag: true,
         };
         AppState {
             sessions: crate::auth::SessionStore::new(config.session_timeout),
@@ -1338,7 +1352,8 @@ pub(crate) mod tests {
             })
             .unwrap();
 
-        let err = get_thumbnail_bytes_by_thumbnail_id(&state, &id).unwrap_err();
+        let thumbnail = dao.find_by_id(&id).unwrap().unwrap();
+        let err = bytes_from_thumbnail(&thumbnail).unwrap_err();
         assert!(matches!(err, komga_db::Error::Io(_)));
     }
 

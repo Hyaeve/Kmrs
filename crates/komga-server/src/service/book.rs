@@ -378,7 +378,7 @@ pub fn get_thumbnail(state: &AppState, book_id: &str) -> komga_db::Result<Option
     dao.find_selected_by_book_id(book_id)
 }
 
-fn thumbnail_bytes(
+pub(crate) fn thumbnail_bytes(
     thumbnail: &ThumbnailBook,
     resize_to: Option<u32>,
     book_id: &str,

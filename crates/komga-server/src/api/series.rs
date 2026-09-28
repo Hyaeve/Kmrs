@@ -15,7 +15,7 @@ use crate::service::book::MarkSelectedPreference;
 use crate::state::test_search_index;
 use crate::state::AppState;
 use axum::extract::{Multipart, Path, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::{routing, Json, Router};
 use komga_core::dto::book::BookDto;
@@ -520,11 +520,46 @@ async fn get_series_thumbnail(
     State(state): State<AppState>,
     auth: RequireAuth,
     Path(series_id): Path<String>,
+    headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     restriction::check_series_by_id(&state, &auth.0.user, &series_id)?;
-    let bytes = crate::service::series::get_thumbnail_bytes(&state, &series_id, &auth.0.user.id)?
-        .ok_or_else(|| ApiError::not_found(""))?;
-    Ok(([(axum::http::header::CONTENT_TYPE, "image/jpeg")], bytes).into_response())
+    let Some(row) = crate::service::series::resolve_thumbnail(&state, &series_id, &auth.0.user.id)?
+    else {
+        return Err(ApiError::not_found(""));
+    };
+    match row {
+        crate::service::series::SeriesThumbnail::Series(thumbnail) => {
+            crate::http::etag::stored_thumbnail_response(
+                state.config.thumbnail_deep_etag,
+                &headers,
+                &thumbnail.id,
+                thumbnail.file_size,
+                thumbnail.thumbnail.is_some(),
+                thumbnail.url.as_deref(),
+                || Ok(crate::service::series::bytes_from_thumbnail(&thumbnail)?),
+            )
+        }
+        crate::service::series::SeriesThumbnail::Book(thumbnail) => {
+            crate::http::etag::stored_thumbnail_response(
+                state.config.thumbnail_deep_etag,
+                &headers,
+                &thumbnail.id,
+                thumbnail.file_size,
+                thumbnail.thumbnail.is_some(),
+                thumbnail.url.as_deref(),
+                || {
+                    Ok(
+                        crate::service::book::thumbnail_bytes(
+                            &thumbnail,
+                            None,
+                            &thumbnail.book_id,
+                        )?
+                        .map(|content| content.bytes),
+                    )
+                },
+            )
+        }
+    }
 }
 
 async fn get_series_thumbnails(
@@ -543,15 +578,23 @@ async fn get_series_thumbnail_by_id(
     State(state): State<AppState>,
     auth: RequireAuth,
     Path((series_id, thumbnail_id)): Path<(String, String)>,
+    headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     restriction::check_series_by_id(&state, &auth.0.user, &series_id)?;
     restriction::check_series_thumbnail(&state, &auth.0.user, &thumbnail_id)?;
-    let Some(bytes) =
-        crate::service::series::get_thumbnail_bytes_by_thumbnail_id(&state, &thumbnail_id)?
+    let Some(thumbnail) = ThumbnailSeriesDao::new(state.db.clone()).find_by_id(&thumbnail_id)?
     else {
         return Err(ApiError::not_found(""));
     };
-    Ok(([(axum::http::header::CONTENT_TYPE, "image/jpeg")], bytes).into_response())
+    crate::http::etag::stored_thumbnail_response(
+        state.config.thumbnail_deep_etag,
+        &headers,
+        &thumbnail.id,
+        thumbnail.file_size,
+        thumbnail.thumbnail.is_some(),
+        thumbnail.url.as_deref(),
+        || Ok(crate::service::series::bytes_from_thumbnail(&thumbnail)?),
+    )
 }
 
 // region thumbnail write endpoints
@@ -1081,6 +1124,7 @@ mod tests {
             history_retention_days: 180,
             sort_locale: None,
             thumbnail_storage: Default::default(),
+            thumbnail_deep_etag: true,
         };
         AppState {
             sessions: auth::SessionStore::new(config.session_timeout),
@@ -1737,6 +1781,83 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn series_thumbnail_deep_etag_short_circuits_revalidation() {
+        let state = test_state();
+        admin(&state);
+        seed_library(&state, "lib1", "L");
+        seed_series(&state, "s1", "lib1", "Berserk");
+        seed_series(&state, "s2", "lib1", "Naruto");
+        seed_series_thumbnail(&state, "t1", "s1", true, b"selected-bytes");
+        seed_book(&state, "b1", "s2", "lib1", "Naruto v01", 1.0, 10);
+        seed_book_thumbnail(&state, "tb1", "b1", true, b"book-cover-bytes");
+
+        let app = test_app(&state);
+        let inm = |path: &str, etag: &str| {
+            Request::builder()
+                .uri(path)
+                .header("X-API-Key", ADMIN_KEY)
+                .header("if-none-match", etag)
+                .body(Body::empty())
+                .unwrap()
+        };
+
+        // the selected series thumbnail carries a deep etag keyed by its row
+        let response = app
+            .clone()
+            .oneshot(authed("/api/v1/series/s1/thumbnail", ADMIN_KEY))
+            .await
+            .unwrap();
+        let etag = response.headers()["etag"].to_str().unwrap().to_string();
+        assert_eq!(etag, "\"krs-b:t1:14\"");
+        let response = app
+            .clone()
+            .oneshot(inm("/api/v1/series/s1/thumbnail", &etag))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+        assert_eq!(response.headers()["etag"], etag);
+        assert!(body_bytes(response).await.is_empty());
+
+        // a stale etag gets the full body again
+        let response = app
+            .clone()
+            .oneshot(inm("/api/v1/series/s1/thumbnail", "\"krs-b:t1:1\""))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(body_bytes(response).await, b"selected-bytes");
+
+        // the series-cover fallback keys the etag by the book's thumbnail row
+        let response = app
+            .clone()
+            .oneshot(authed("/api/v1/series/s2/thumbnail", ADMIN_KEY))
+            .await
+            .unwrap();
+        let etag = response.headers()["etag"].to_str().unwrap().to_string();
+        assert_eq!(etag, "\"krs-b:tb1:16\"");
+        let response = app
+            .clone()
+            .oneshot(inm("/api/v1/series/s2/thumbnail", &etag))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+
+        // the by-id endpoint revalidates the same way
+        let response = app
+            .clone()
+            .oneshot(authed("/api/v1/series/s1/thumbnails/t1", ADMIN_KEY))
+            .await
+            .unwrap();
+        let etag = response.headers()["etag"].to_str().unwrap().to_string();
+        let response = app
+            .oneshot(inm("/api/v1/series/s1/thumbnails/t1", &etag))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+        assert!(body_bytes(response).await.is_empty());
     }
 
     #[tokio::test]

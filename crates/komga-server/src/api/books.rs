@@ -603,28 +603,25 @@ fn bytes_from_thumbnail(thumbnail: &ThumbnailBook) -> Result<Option<Vec<u8>>, Ap
     Ok(None)
 }
 
-fn jpeg_response(bytes: Vec<u8>) -> Response {
-    let mut response = Response::new(Body::from(bytes));
-    response.headers_mut().insert(
-        axum::http::header::CONTENT_TYPE,
-        HeaderValue::from_static("image/jpeg"),
-    );
-    response
-}
-
 async fn get_book_thumbnail(
     State(state): State<AppState>,
     auth: RequireAuth,
     Path(book_id): Path<String>,
+    headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     restriction::check_book_by_id(&state, &auth.0.user, &book_id)?;
     let Some(thumbnail) = get_thumbnail(&state, &book_id)? else {
         return Err(ApiError::not_found(""));
     };
-    let Some(bytes) = bytes_from_thumbnail(&thumbnail)? else {
-        return Err(ApiError::not_found(""));
-    };
-    Ok(jpeg_response(bytes))
+    crate::http::etag::stored_thumbnail_response(
+        state.config.thumbnail_deep_etag,
+        &headers,
+        &thumbnail.id,
+        thumbnail.file_size,
+        thumbnail.thumbnail.is_some(),
+        thumbnail.url.as_deref(),
+        || bytes_from_thumbnail(&thumbnail),
+    )
 }
 
 async fn get_book_thumbnails(
@@ -643,16 +640,22 @@ async fn get_book_thumbnail_by_id(
     State(state): State<AppState>,
     auth: RequireAuth,
     Path((book_id, thumbnail_id)): Path<(String, String)>,
+    headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     restriction::check_book_by_id(&state, &auth.0.user, &book_id)?;
     restriction::check_book_thumbnail(&state, &auth.0.user, &thumbnail_id)?;
     let Some(thumbnail) = thumbnail_dao(&state).find_by_id(&thumbnail_id)? else {
         return Err(ApiError::not_found(""));
     };
-    let Some(bytes) = bytes_from_thumbnail(&thumbnail)? else {
-        return Err(ApiError::not_found(""));
-    };
-    Ok(jpeg_response(bytes))
+    crate::http::etag::stored_thumbnail_response(
+        state.config.thumbnail_deep_etag,
+        &headers,
+        &thumbnail.id,
+        thumbnail.file_size,
+        thumbnail.thumbnail.is_some(),
+        thumbnail.url.as_deref(),
+        || bytes_from_thumbnail(&thumbnail),
+    )
 }
 
 // region thumbnail write endpoints
@@ -2892,6 +2895,118 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn book_thumbnail_deep_etag_short_circuits_revalidation() {
+        let state = test_state_with_settings();
+        let db = state.db.clone();
+        seed_library(&db, "l1");
+        seed_series(&db, "s1", "l1");
+        seed_book(&db, "b1", "s1", "l1", "file:/data/b1.cbz");
+        seed_thumbnail(&db, "t1", "b1", true);
+        seed_user(&db, "admin@example.org", "pw", true);
+        let app = test_router(state.clone());
+        let auth = basic("admin@example.org", "pw");
+        let inm = |uri: &str, etag: &str| {
+            axum::http::Request::builder()
+                .method("GET")
+                .uri(uri)
+                .header("authorization", &auth)
+                .header("if-none-match", etag)
+                .body(Body::empty())
+                .unwrap()
+        };
+        let oneshot = |request: axum::http::Request<Body>| {
+            let app = app.clone();
+            async move {
+                let response = app.oneshot(request).await.unwrap();
+                let status = response.status();
+                let headers = response.headers().clone();
+                let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .unwrap()
+                    .to_vec();
+                (status, headers, body)
+            }
+        };
+
+        // a handler-computed deep etag keyed by the thumbnail row, not the body MD5
+        let (status, headers, body) =
+            call(&app, "GET", "/api/v1/books/b1/thumbnail", Some(&auth), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, PNG_1X1);
+        let etag = headers["etag"].to_str().unwrap().to_string();
+        assert_eq!(etag, format!("\"krs-b:t1:{}\"", PNG_1X1.len()));
+
+        // matching If-None-Match: 304, empty body, etag survives the middleware
+        let (status, headers, body) = oneshot(inm("/api/v1/books/b1/thumbnail", &etag)).await;
+        assert_eq!(status, StatusCode::NOT_MODIFIED);
+        assert_eq!(headers["etag"], etag);
+        assert!(body.is_empty());
+
+        // a stale etag gets the full body again
+        let (status, _, body) = oneshot(inm("/api/v1/books/b1/thumbnail", "\"krs-b:t1:1\"")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, PNG_1X1);
+
+        // the by-id endpoint revalidates the same way
+        let (status, headers, _) = call(
+            &app,
+            "GET",
+            "/api/v1/books/b1/thumbnails/t1",
+            Some(&auth),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let etag = headers["etag"].to_str().unwrap().to_string();
+        let (status, _, body) = oneshot(inm("/api/v1/books/b1/thumbnails/t1", &etag)).await;
+        assert_eq!(status, StatusCode::NOT_MODIFIED);
+        assert!(body.is_empty());
+    }
+
+    #[tokio::test]
+    async fn book_thumbnail_deep_etag_disabled_falls_back_to_body_hash() {
+        let state = test_state_with_settings();
+        let db = state.db.clone();
+        seed_library(&db, "l1");
+        seed_series(&db, "s1", "l1");
+        seed_book(&db, "b1", "s1", "l1", "file:/data/b1.cbz");
+        seed_thumbnail(&db, "t1", "b1", true);
+        seed_user(&db, "admin@example.org", "pw", true);
+        let state = AppState {
+            config: Arc::new(crate::config::ServerConfig {
+                thumbnail_deep_etag: false,
+                ..(*state.config).clone()
+            }),
+            ..state
+        };
+        let app = test_router(state.clone());
+
+        // the middleware's shallow body-hash etag takes over, like the Java version
+        let (status, headers, body) = call(
+            &app,
+            "GET",
+            "/api/v1/books/b1/thumbnail",
+            Some(&basic("admin@example.org", "pw")),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, PNG_1X1);
+        let etag = headers["etag"].to_str().unwrap().to_string();
+        assert_eq!(etag, format!("\"0{:x}\"", md5::compute(PNG_1X1)));
+
+        let request = axum::http::Request::builder()
+            .method("GET")
+            .uri("/api/v1/books/b1/thumbnail")
+            .header("authorization", basic("admin@example.org", "pw"))
+            .header("if-none-match", &etag)
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
     }
 
     // endregion
