@@ -4,6 +4,7 @@
 use crate::events::DomainEvent;
 use crate::state::AppState;
 use komga_core::model::book::{Book, BookMetadata};
+use komga_core::model::history::{HistoricalEvent, HistoricalEventType};
 use komga_core::model::library::Library;
 use komga_core::model::media::{Media, MediaStatus};
 use komga_core::model::series::{Series, SeriesMetadata};
@@ -13,6 +14,7 @@ use komga_core::task::{BookMetadataPatchCapability, DEFAULT_PRIORITY};
 use komga_core::time_codec;
 use komga_db::dao::book::{BookDao, BookMetadataDao};
 use komga_db::dao::collection::CollectionDao;
+use komga_db::dao::history::HistoricalEventDao;
 use komga_db::dao::library::LibraryDao;
 use komga_db::dao::media::MediaDao;
 use komga_db::dao::read_progress::ReadProgressDao;
@@ -24,7 +26,7 @@ use komga_db::Result;
 use komga_media::hash::compute_hash;
 use komga_media::scanner::{path_to_url, ScanError, ScanOptions, Scanner};
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ScanRootError {
@@ -114,7 +116,14 @@ pub fn scan_root_folder(
         if failed_directory_urls.is_empty() {
             tracing::info!("Scan returned no series, soft deleting all existing series");
             let existing = series_dao.find_by_library_id(&library.id)?;
+            // already-trashed series are re-stamped below (Java parity) but are not news
+            let newly_trashed: Vec<&Series> = existing
+                .iter()
+                .filter(|s| s.deleted_date.is_none())
+                .collect();
+            let cascaded = books_of_series(state, &newly_trashed)?;
             crate::service::series::soft_delete_many(state, &existing)?;
+            insert_series_trashed_events(state, &newly_trashed, &cascaded)?;
         } else {
             // The scan read nothing but some directories failed: the library may not be
             // empty, so keep the existing rows untouched.
@@ -133,7 +142,10 @@ pub fn scan_root_folder(
             .collect();
         if !gone.is_empty() {
             tracing::info!("Soft deleting series not on disk anymore: {gone:?}");
+            let gone_refs: Vec<&Series> = gone.iter().collect();
+            let cascaded = books_of_series(state, &gone_refs)?;
             crate::service::series::soft_delete_many(state, &gone)?;
+            insert_series_trashed_events(state, &gone_refs, &cascaded)?;
         }
     }
 
@@ -153,6 +165,16 @@ pub fn scan_root_folder(
     if !gone_books.is_empty() {
         tracing::info!("Soft deleting books not on disk anymore: {gone_books:?}");
         crate::service::book::soft_delete_many(state, &gone_books)?;
+        for book in &gone_books {
+            insert_history(
+                state,
+                HistoricalEventType::BookTrashed,
+                Some(&book.id),
+                Some(&book.series_id),
+                "File is no longer on disk",
+                &book_path(book),
+            )?;
+        }
         let mut seen = BTreeSet::new();
         for book in &gone_books {
             if seen.insert(book.series_id.clone()) {
@@ -359,7 +381,7 @@ pub fn scan_root_folder(
     }
 
     if library.empty_trash_after_scan {
-        empty_trash(state, library)?;
+        empty_trash(state, library, "Trash emptied automatically after scan")?;
     } else {
         cleanup_empty_sets(state)?;
     }
@@ -388,7 +410,8 @@ fn is_protected_url(url: &str, failed_directory_urls: &[String]) -> bool {
             })
     })
 }
-pub fn empty_trash(state: &AppState, library: &Library) -> Result<()> {
+/// `reason` goes into the purge history events: automatic after a scan, or by user request.
+pub fn empty_trash(state: &AppState, library: &Library, reason: &str) -> Result<()> {
     tracing::info!("Empty trash for library: {library:?}");
     use komga_core::search::*;
     let series_to_delete = SeriesDao::new(state.db.clone()).find_all_by_condition(
@@ -406,7 +429,30 @@ pub fn empty_trash(state: &AppState, library: &Library) -> Result<()> {
         }),
         &SearchContext::default(),
     )?;
+    let series_refs: Vec<&Series> = series_to_delete.iter().collect();
+    let cascaded_books = books_of_series(state, &series_refs)?;
     crate::service::series::delete_many(state, &series_to_delete)?;
+    // every book of a purged series is destroyed with it, trashed already or not
+    for book in &cascaded_books {
+        insert_history(
+            state,
+            HistoricalEventType::BookPurged,
+            Some(&book.id),
+            Some(&book.series_id),
+            reason,
+            &book_path(book),
+        )?;
+    }
+    for series in &series_to_delete {
+        insert_history(
+            state,
+            HistoricalEventType::SeriesPurged,
+            None,
+            Some(&series.id),
+            reason,
+            &series_path(series),
+        )?;
+    }
 
     let books_to_delete = BookDao::new(state.db.clone()).find_all_by_condition(
         Some(&SearchConditionBook::AllOf {
@@ -425,6 +471,16 @@ pub fn empty_trash(state: &AppState, library: &Library) -> Result<()> {
         &[],
     )?;
     crate::service::book::delete_many(state, &books_to_delete)?;
+    for book in &books_to_delete {
+        insert_history(
+            state,
+            HistoricalEventType::BookPurged,
+            Some(&book.id),
+            Some(&book.series_id),
+            reason,
+            &book_path(book),
+        )?;
+    }
     let series_dao = SeriesDao::new(state.db.clone());
     let mut seen = BTreeSet::new();
     for book in &books_to_delete {
@@ -731,6 +787,77 @@ fn book_path(book: &Book) -> PathBuf {
     PathBuf::from(komga_core::dto::url_to_file_path(&book.url))
 }
 
+fn series_path(series: &Series) -> PathBuf {
+    PathBuf::from(komga_core::dto::url_to_file_path(&series.url))
+}
+
+/// Local twin of the helpers in book.rs/convert.rs/import.rs: scan deletions and trash purges are
+/// recorded here, not inside `soft_delete_many`/`delete_many` — those also serve moves, restores,
+/// and library deletion, where a "trashed/purged" event would misreport what happened.
+fn insert_history(
+    state: &AppState,
+    type_: HistoricalEventType,
+    book_id: Option<&str>,
+    series_id: Option<&str>,
+    reason: &str,
+    name: &Path,
+) -> Result<()> {
+    HistoricalEventDao::new(state.db.clone()).insert(&HistoricalEvent {
+        id: String::new(),
+        type_,
+        book_id: book_id.map(str::to_string),
+        series_id: series_id.map(str::to_string),
+        properties: [
+            ("reason".to_string(), reason.to_string()),
+            ("name".to_string(), name.display().to_string()),
+        ]
+        .into_iter()
+        .collect(),
+        timestamp: time_codec::now_utc(),
+    })?;
+    Ok(())
+}
+
+fn books_of_series(state: &AppState, series: &[&Series]) -> Result<Vec<Book>> {
+    if series.is_empty() {
+        return Ok(vec![]);
+    }
+    let ids: Vec<String> = series.iter().map(|s| s.id.clone()).collect();
+    BookDao::new(state.db.clone()).find_all_by_series_ids(&ids)
+}
+
+/// Scan-trash of whole series records one event per book plus one per series — the same
+/// granularity as user-requested file deletion, where every deleted book file gets an event.
+/// `books` must be queried before the soft delete re-stamps them; already-trashed ones were
+/// recorded when they were trashed.
+fn insert_series_trashed_events(
+    state: &AppState,
+    series: &[&Series],
+    books: &[Book],
+) -> Result<()> {
+    for book in books.iter().filter(|b| b.deleted_date.is_none()) {
+        insert_history(
+            state,
+            HistoricalEventType::BookTrashed,
+            Some(&book.id),
+            Some(&book.series_id),
+            "File is no longer on disk",
+            &book_path(book),
+        )?;
+    }
+    for s in series {
+        insert_history(
+            state,
+            HistoricalEventType::SeriesTrashed,
+            None,
+            Some(&s.id),
+            "Folder is no longer on disk",
+            &series_path(s),
+        )?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -776,6 +903,18 @@ mod tests {
 
     fn all_series(state: &AppState) -> Vec<Series> {
         SeriesDao::new(state.db.clone()).find_all().unwrap()
+    }
+
+    fn history_events(state: &AppState) -> Vec<komga_core::model::history::HistoricalEvent> {
+        HistoricalEventDao::new(state.db.clone())
+            .find_all_paged(&komga_db::dto_dao::PageRequest {
+                page: 0,
+                size: 100,
+                unpaged: true,
+                sort: vec![],
+            })
+            .unwrap()
+            .items
     }
 
     #[test]
@@ -1083,6 +1222,18 @@ mod tests {
         let series = all_series(&state).into_iter().next().unwrap();
         // Kotlin's sortBooks counts soft-deleted books too (findAllBySeriesId has no trash filter)
         assert_eq!(series.book_count, 2);
+
+        let events = history_events(&state);
+        let trashed: Vec<_> = events
+            .iter()
+            .filter(|e| e.type_ == HistoricalEventType::BookTrashed)
+            .collect();
+        assert_eq!(trashed.len(), 1);
+        assert_eq!(trashed[0].book_id.as_deref(), Some(gone.id.as_str()));
+        assert_eq!(
+            trashed[0].properties.get("reason").map(String::as_str),
+            Some("File is no longer on disk")
+        );
     }
 
     #[test]
@@ -1114,6 +1265,29 @@ mod tests {
             .find(|s| s.name == "s2")
             .unwrap();
         assert!(s2.deleted_date.is_none());
+
+        // the vanished series records one SeriesTrashed plus one BookTrashed per book — the
+        // same granularity as user-requested file deletion
+        let events = history_events(&state);
+        let series_trashed: Vec<_> = events
+            .iter()
+            .filter(|e| e.type_ == HistoricalEventType::SeriesTrashed)
+            .collect();
+        assert_eq!(series_trashed.len(), 1);
+        assert_eq!(series_trashed[0].series_id.as_deref(), Some(s1.id.as_str()));
+        assert_eq!(
+            series_trashed[0]
+                .properties
+                .get("reason")
+                .map(String::as_str),
+            Some("Folder is no longer on disk")
+        );
+        let books_trashed: Vec<_> = events
+            .iter()
+            .filter(|e| e.type_ == HistoricalEventType::BookTrashed)
+            .collect();
+        assert_eq!(books_trashed.len(), 1);
+        assert_eq!(books_trashed[0].book_id.as_deref(), Some(book.id.as_str()));
     }
 
     #[test]
@@ -1212,6 +1386,17 @@ mod tests {
             .find_by_id(&book.id)
             .unwrap()
             .is_none());
+
+        // the scan trashed the old row (via its series), but the restore's hard delete must not
+        // be reported as a purge
+        let events = history_events(&state);
+        assert!(events
+            .iter()
+            .any(|e| e.type_ == HistoricalEventType::BookTrashed
+                && e.book_id.as_deref() == Some(book.id.as_str())));
+        assert!(!events
+            .iter()
+            .any(|e| e.type_ == HistoricalEventType::BookPurged));
     }
 
     #[test]
@@ -1342,6 +1527,82 @@ mod tests {
 
         assert!(all_series(&state).is_empty());
         assert!(all_books(&state).is_empty());
+
+        let events = history_events(&state);
+        // the already-trashed series is not re-reported by the scan that purges it
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| e.type_ == HistoricalEventType::SeriesTrashed)
+                .count(),
+            1
+        );
+        let series_purged: Vec<_> = events
+            .iter()
+            .filter(|e| e.type_ == HistoricalEventType::SeriesPurged)
+            .collect();
+        assert_eq!(series_purged.len(), 1);
+        assert_eq!(
+            series_purged[0]
+                .properties
+                .get("reason")
+                .map(String::as_str),
+            Some("Trash emptied automatically after scan")
+        );
+        // the series' book is trashed and purged alongside it, with its own events
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| e.type_ == HistoricalEventType::BookTrashed)
+                .count(),
+            1
+        );
+        let books_purged: Vec<_> = events
+            .iter()
+            .filter(|e| e.type_ == HistoricalEventType::BookPurged)
+            .collect();
+        assert_eq!(books_purged.len(), 1);
+        assert_eq!(
+            books_purged[0].properties.get("reason").map(String::as_str),
+            Some("Trash emptied automatically after scan")
+        );
+    }
+
+    #[test]
+    fn manual_empty_trash_records_purged_events() {
+        let state = test_state();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = scan_root(&tmp);
+        write_file(&root.join("s1"), "v01.cbz", b"one");
+        let path2 = write_file(&root.join("s1"), "v02.cbz", b"two!");
+        let lib = library(&state.db, "lib1", &root);
+        scan(&state, &lib);
+
+        std::fs::remove_file(&path2).unwrap();
+        scan(&state, &lib);
+        let gone = all_books(&state)
+            .into_iter()
+            .find(|b| b.name == "v02")
+            .unwrap();
+        assert!(gone.deleted_date.is_some());
+
+        empty_trash(&state, &lib, "Trash emptied by user request").unwrap();
+
+        let events = history_events(&state);
+        let purged: Vec<_> = events
+            .iter()
+            .filter(|e| e.type_ == HistoricalEventType::BookPurged)
+            .collect();
+        assert_eq!(purged.len(), 1);
+        assert_eq!(purged[0].book_id.as_deref(), Some(gone.id.as_str()));
+        assert_eq!(
+            purged[0].properties.get("reason").map(String::as_str),
+            Some("Trash emptied by user request")
+        );
+        // the series itself survived, so no series purge
+        assert!(!events
+            .iter()
+            .any(|e| e.type_ == HistoricalEventType::SeriesPurged));
     }
 
     #[test]

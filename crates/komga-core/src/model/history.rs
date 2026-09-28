@@ -1,4 +1,7 @@
-//! Equivalent model for `HistoricalEvent.kt`. TYPE is stored in the DB as a camelCase string (e.g. `BookFileDeleted`).
+//! Equivalent model for `HistoricalEvent.kt`, plus kmrs-only types (`*Trashed`, `*Purged`) recording
+//! scan/trash deletions the Java version leaves unrecorded. TYPE is stored in the DB as a camelCase
+//! string (e.g. `BookFileDeleted`); every known consumer treats it as an opaque string, so the extra
+//! values are safe for Java clients reading the same database.
 //! Events are append-only; properties are stored in the HISTORICAL_EVENT_PROPERTIES child table.
 
 use serde::{Deserialize, Serialize};
@@ -28,6 +31,14 @@ pub enum HistoricalEventType {
     BookImported,
     #[serde(rename = "DuplicatePageDeleted")]
     DuplicatePageDeleted,
+    #[serde(rename = "BookTrashed")]
+    BookTrashed,
+    #[serde(rename = "SeriesTrashed")]
+    SeriesTrashed,
+    #[serde(rename = "BookPurged")]
+    BookPurged,
+    #[serde(rename = "SeriesPurged")]
+    SeriesPurged,
 }
 
 impl HistoricalEventType {
@@ -38,6 +49,10 @@ impl HistoricalEventType {
             HistoricalEventType::BookConverted => "BookConverted",
             HistoricalEventType::BookImported => "BookImported",
             HistoricalEventType::DuplicatePageDeleted => "DuplicatePageDeleted",
+            HistoricalEventType::BookTrashed => "BookTrashed",
+            HistoricalEventType::SeriesTrashed => "SeriesTrashed",
+            HistoricalEventType::BookPurged => "BookPurged",
+            HistoricalEventType::SeriesPurged => "SeriesPurged",
         }
     }
 
@@ -50,6 +65,10 @@ impl HistoricalEventType {
             "BookConverted" => HistoricalEventType::BookConverted,
             "BookImported" => HistoricalEventType::BookImported,
             "DuplicatePageDeleted" => HistoricalEventType::DuplicatePageDeleted,
+            "BookTrashed" => HistoricalEventType::BookTrashed,
+            "SeriesTrashed" => HistoricalEventType::SeriesTrashed,
+            "BookPurged" => HistoricalEventType::BookPurged,
+            "SeriesPurged" => HistoricalEventType::SeriesPurged,
             _ => return None,
         })
     }

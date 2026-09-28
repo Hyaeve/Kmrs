@@ -228,7 +228,7 @@ pub(crate) fn dispatch_task(state: &AppState, task: &Task) -> anyhow::Result<()>
                 );
                 return Ok(());
             };
-            library_content::empty_trash(state, &library)?;
+            library_content::empty_trash(state, &library, "Trash emptied by user request")?;
             Ok(())
         }
         Task::AnalyzeBook(t) => {
