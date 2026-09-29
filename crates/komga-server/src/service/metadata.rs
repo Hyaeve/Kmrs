@@ -537,13 +537,17 @@ fn load_series_contribution_sources(
     series_id: &str,
 ) -> Result<Vec<SeriesMetadataContributionSource>> {
     let conn = state.db.ro();
+    // the fingerprint seconds must truncate the stored datetime like the upsert path's
+    // `unix_timestamp()`: SQLite's unixepoch() rounds the text to the nearest
+    // millisecond first, so a fraction >= .9995 would roll into the next second and
+    // stale the row permanently
     let mut stmt = conn.prepare(
         r#"
         SELECT b.ID                                            AS BOOK_ID,
-               unixepoch(b.FILE_LAST_MODIFIED)                 AS FILE_LAST_MODIFIED,
+               b.FILE_LAST_MODIFIED                            AS FILE_LAST_MODIFIED,
                b.FILE_SIZE                                     AS FILE_SIZE,
                COALESCE(m.MEDIA_TYPE, 'application/octet-stream') AS MEDIA_TYPE,
-               unixepoch(m.LAST_MODIFIED_DATE)                 AS MEDIA_LAST_MODIFIED
+               m.LAST_MODIFIED_DATE                            AS MEDIA_LAST_MODIFIED
         FROM BOOK b
         JOIN MEDIA m ON m.BOOK_ID = b.ID
         WHERE b.SERIES_ID = ?
@@ -554,10 +558,10 @@ fn load_series_contribution_sources(
     let rows = stmt.query_map([series_id], |row| {
         Ok(SeriesMetadataContributionSource {
             book_id: row.get("BOOK_ID")?,
-            file_last_modified_seconds: row.get("FILE_LAST_MODIFIED")?,
+            file_last_modified_seconds: komga_db::dao::get_datetime(row, 1)?.unix_timestamp(),
             file_size: row.get("FILE_SIZE")?,
             media_type: row.get("MEDIA_TYPE")?,
-            media_modified_seconds: row.get("MEDIA_LAST_MODIFIED")?,
+            media_modified_seconds: komga_db::dao::get_datetime(row, 4)?.unix_timestamp(),
         })
     })?;
     rows.collect::<rusqlite::Result<_>>().map_err(Into::into)
@@ -867,7 +871,7 @@ mod tests {
     use komga_core::model::library::{ScanInterval, SeriesCover};
     use komga_core::model::media::{MediaFile, MediaStatus};
     use komga_core::model::series::SeriesMetadata;
-    use komga_core::time_codec::{now_utc, parse_date};
+    use komga_core::time_codec::{format_datetime, now_utc, parse_date, parse_datetime_utc};
     use komga_db::dao::collection::CollectionDao;
     use komga_db::dao::readlist::ReadListDao;
     use komga_db::dao::series_metadata_contribution::SeriesMetadataContributionDao;
@@ -1483,6 +1487,46 @@ mod tests {
         assert_eq!(
             series_metadata(&state, &series.id).title,
             "Alpha Series",
+            "contribution rows: {rows:?}"
+        );
+    }
+
+    #[test]
+    fn refresh_series_metadata_matches_fingerprint_near_second_boundary() {
+        let state = series_service::tests::test_state();
+        let root = visible_tempdir("series-fingerprint-rounding");
+        let library = library("lib-12", &root);
+        seed_library(&state.db, &library);
+        let (series, books) = seed_series_with_books(
+            &state,
+            "lib-12",
+            "Alpha",
+            &root.join("alpha"),
+            &[("v01", Some(COMIC_INFO_FULL))],
+        );
+
+        // SQLite's unixepoch() rounds a datetime text to the nearest millisecond before
+        // truncating, so a fraction >= .9995 rolls into the next second and would never
+        // match the truncated fingerprint the upsert path stores
+        let mut book = books.into_iter().next().unwrap();
+        book.file_last_modified = parse_datetime_utc("2020-01-02 03:04:05.9999999").unwrap();
+        state
+            .db
+            .rw()
+            .execute(
+                "UPDATE BOOK SET FILE_LAST_MODIFIED = ? WHERE ID = ?",
+                rusqlite::params![format_datetime(book.file_last_modified), book.id],
+            )
+            .unwrap();
+
+        refresh_book_metadata(&state, &book, &BookMetadataPatchCapability::all()).unwrap();
+        refresh_series_metadata(&state, &series).unwrap();
+        let rows = SeriesMetadataContributionDao::new(state.kmrs_db.clone())
+            .load_rows(COMICINFO_PROVIDER, &[book.id.clone()])
+            .unwrap();
+        assert_eq!(
+            series_metadata(&state, &series.id).title,
+            "Alpha Series (2)",
             "contribution rows: {rows:?}"
         );
     }
