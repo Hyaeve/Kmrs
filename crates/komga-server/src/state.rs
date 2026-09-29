@@ -40,6 +40,18 @@ pub(crate) fn test_search_index() -> Arc<komga_search::SearchIndex> {
     )
 }
 
+/// Without a subscriber the refresh degradation warnings never reach nextest's
+/// failure output, leaving flaky failures undiagnosable.
+#[cfg(test)]
+pub(crate) fn init_test_tracing() {
+    let _ = tracing_subscriber::fmt()
+        .with_test_writer()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "warn".into()),
+        )
+        .try_init();
+}
+
 /// An in-memory `kmrs.sqlite` with the kmrs migrations applied, for tests.
 #[cfg(test)]
 pub(crate) fn test_kmrs_db() -> Database {

@@ -662,6 +662,7 @@ pub(crate) mod tests {
     use std::sync::Arc;
 
     pub(crate) fn test_state() -> AppState {
+        crate::state::init_test_tracing();
         let db = Database::open_in_memory(true).unwrap();
         let migrations = komga_db::main_migrations();
         Migrator::new(&migrations, Placeholders::default())

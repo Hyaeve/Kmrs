@@ -1476,7 +1476,15 @@ mod tests {
         }
 
         refresh_series_metadata(&state, &series).unwrap();
-        assert_eq!(series_metadata(&state, &series.id).title, "Alpha Series");
+        // on failure the rows distinguish "no contribution persisted" from "stale fingerprint"
+        let rows = SeriesMetadataContributionDao::new(state.kmrs_db.clone())
+            .load_rows(COMICINFO_PROVIDER, &[books[0].id.clone()])
+            .unwrap();
+        assert_eq!(
+            series_metadata(&state, &series.id).title,
+            "Alpha Series",
+            "contribution rows: {rows:?}"
+        );
     }
 
     #[test]
