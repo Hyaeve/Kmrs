@@ -29,7 +29,7 @@ impl BookProjectionDao {
     }
 
     /// Upsert: a re-conversion (e.g. after the source file changed) refreshes both FILE_SIZE
-    /// and LAST_MODIFIED_DATE. komga 1.27.1 keeps the first stored size here (its upsert sets
+    /// and LAST_MODIFIED_DATE. komga 1.28.0 keeps the first stored size here (its upsert sets
     /// the column to itself), which serves a stale kepub size to Kobo after a file change.
     pub fn save(&self, projection: &BookProjection) -> Result<()> {
         self.db.rw().execute(
