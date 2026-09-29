@@ -1,27 +1,24 @@
 name: fetch-webui
-description: Download the prebuilt kmweb tarball from a kmworks/kmweb release and stage it at dist/webui.tar.gz
-inputs:
-  kmweb-version:
-    # bump together with kmweb-sha256
-    description: kmweb version to fetch; kmweb tags its releases v<version>
-    default: "0.4.0"
-  kmweb-sha256:
-    description: SHA-256 of kmweb-v<version>.tar.gz, as noted on the kmweb release
-    default: "9935273d385caf945e6e3f78faca04d22a375c4f80bd31d4f1112ae6b185d72a"
+description: Download the latest prebuilt kmweb tarball from a kmworks/kmweb release and stage it at dist/webui.tar.gz
 outputs:
   version:
     description: kmweb version that was fetched (without the v prefix)
-    value: ${{ inputs.kmweb-version }}
+    value: ${{ steps.fetch.outputs.version }}
 runs:
   using: composite
   steps:
-    - shell: bash
+    - id: fetch
+      shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
-        KMWEB_VERSION: ${{ inputs.kmweb-version }}
-        KMWEB_SHA256: ${{ inputs.kmweb-sha256 }}
       run: |
+        tag="$(gh release view -R kmworks/kmweb --json tagName --jq .tagName)"
         mkdir -p "$GITHUB_WORKSPACE/dist"
-        gh release download "v$KMWEB_VERSION" -R kmworks/kmweb \
-          -p "kmweb-v$KMWEB_VERSION.tar.gz" -O "$GITHUB_WORKSPACE/dist/webui.tar.gz"
-        echo "$KMWEB_SHA256  $GITHUB_WORKSPACE/dist/webui.tar.gz" | sha256sum -c -
+        cd "$GITHUB_WORKSPACE/dist"
+        gh release download "$tag" -R kmworks/kmweb --clobber \
+          -p "kmweb-$tag.tar.gz" -p "kmweb-$tag.tar.gz.sha256"
+        # integrity guard against truncated or corrupted downloads
+        sha256sum -c "kmweb-$tag.tar.gz.sha256"
+        mv "kmweb-$tag.tar.gz" webui.tar.gz
+        rm "kmweb-$tag.tar.gz.sha256"
+        echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
