@@ -23,6 +23,7 @@ fn integration_lock() -> &'static tokio::sync::Mutex<()> {
     LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
 }
 
+#[derive(Clone)]
 pub struct KomfClient {
     base_url: String,
     http: reqwest::Client,
