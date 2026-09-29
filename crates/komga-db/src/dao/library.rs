@@ -49,7 +49,7 @@ impl LibraryDao {
             scan_force_modified_time: row.get(13)?,
             scan_on_startup: row.get(14)?,
             scan_interval: ScanInterval::from_str(&scan_interval)
-                .ok_or_else(|| super::invalid_column(15, "SCAN_INTERVAL", &scan_interval))?,
+                .ok_or_else(|| super::invalid_column(row, 15, "SCAN_INTERVAL", &scan_interval))?,
             scan_cbx: row.get(16)?,
             scan_pdf: row.get(17)?,
             scan_epub: row.get(18)?,
@@ -57,7 +57,7 @@ impl LibraryDao {
             convert_to_cbz: row.get(20)?,
             empty_trash_after_scan: row.get(21)?,
             series_cover: SeriesCover::from_str(&series_cover)
-                .ok_or_else(|| super::invalid_column(22, "SERIES_COVER", &series_cover))?,
+                .ok_or_else(|| super::invalid_column(row, 22, "SERIES_COVER", &series_cover))?,
             hash_files: row.get(23)?,
             hash_pages: row.get(24)?,
             hash_koreader: row.get(25)?,

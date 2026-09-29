@@ -36,7 +36,8 @@ impl ReadProgressDao {
             device_name: row.get(6)?,
             locator: locator
                 .map(|b| {
-                    gz_decode(&b).ok_or_else(|| super::invalid_column(7, "locator", "gzip+json"))
+                    gz_decode(&b)
+                        .ok_or_else(|| super::invalid_column(row, 7, "locator", "gzip+json"))
                 })
                 .transpose()?,
             created_date: get_datetime(row, 8)?,

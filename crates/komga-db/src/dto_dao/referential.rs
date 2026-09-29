@@ -1187,7 +1187,7 @@ impl ReferentialDao {
         self.fetch_map(&sql, params, |row| {
             let s: String = row.get(0)?;
             komga_core::time_codec::parse_date(&s)
-                .ok_or_else(|| crate::dao::invalid_column(0, "date", &s))
+                .ok_or_else(|| crate::dao::invalid_column(row, 0, "date", &s))
         })
     }
 

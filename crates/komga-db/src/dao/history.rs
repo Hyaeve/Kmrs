@@ -59,7 +59,7 @@ impl HistoricalEventDao {
                 Ok(HistoricalEvent {
                     id: row.get(0)?,
                     type_: HistoricalEventType::from_str(&type_)
-                        .ok_or_else(|| invalid_column(1, "TYPE", &type_))?,
+                        .ok_or_else(|| invalid_column(row, 1, "TYPE", &type_))?,
                     book_id: row.get(2)?,
                     series_id: row.get(3)?,
                     timestamp: get_datetime(row, 4)?,
@@ -125,7 +125,7 @@ impl HistoricalEventDao {
                 Ok(HistoricalEvent {
                     id: row.get(0)?,
                     type_: HistoricalEventType::from_str(&type_)
-                        .ok_or_else(|| invalid_column(1, "TYPE", &type_))?,
+                        .ok_or_else(|| invalid_column(row, 1, "TYPE", &type_))?,
                     book_id: row.get(2)?,
                     series_id: row.get(3)?,
                     timestamp: get_datetime(row, 4)?,

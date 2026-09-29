@@ -32,13 +32,24 @@ pub mod user;
 
 pub use library::LibraryDao;
 
-pub(crate) fn invalid_column(idx: usize, what: &str, value: &str) -> SqlError {
+pub(crate) fn invalid_column(row: &Row<'_>, idx: usize, what: &str, value: &str) -> SqlError {
+    let stmt = row.as_ref();
+    let col = stmt.column_name(idx).unwrap_or("?");
+    // DAO selects lead with the entity id, so column 0 identifies the failing row
+    let row_ctx = if idx > 0 {
+        match (stmt.column_name(0), row.get::<_, String>(0)) {
+            (Ok(key), Ok(id)) => format!(" (row {key}={id})"),
+            _ => String::new(),
+        }
+    } else {
+        String::new()
+    };
     SqlError::FromSqlConversionFailure(
         idx,
         rusqlite::types::Type::Text,
         std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            format!("invalid {what}: {value}"),
+            format!("invalid {what} in column {col}: {value}{row_ctx}"),
         )
         .into(),
     )
@@ -46,7 +57,7 @@ pub(crate) fn invalid_column(idx: usize, what: &str, value: &str) -> SqlError {
 
 pub fn get_datetime(row: &Row<'_>, idx: usize) -> rusqlite::Result<OffsetDateTime> {
     let s: String = row.get(idx)?;
-    time_codec::parse_datetime_utc(&s).ok_or_else(|| invalid_column(idx, "datetime", &s))
+    time_codec::parse_datetime_utc(&s).ok_or_else(|| invalid_column(row, idx, "datetime", &s))
 }
 
 pub fn get_datetime_opt(row: &Row<'_>, idx: usize) -> rusqlite::Result<Option<OffsetDateTime>> {
@@ -54,7 +65,7 @@ pub fn get_datetime_opt(row: &Row<'_>, idx: usize) -> rusqlite::Result<Option<Of
     match s {
         Some(s) => time_codec::parse_datetime_utc(&s)
             .map(Some)
-            .ok_or_else(|| invalid_column(idx, "datetime", &s)),
+            .ok_or_else(|| invalid_column(row, idx, "datetime", &s)),
         None => Ok(None),
     }
 }
@@ -64,7 +75,7 @@ pub(crate) fn get_date(row: &Row<'_>, idx: usize) -> rusqlite::Result<Option<tim
     match s {
         Some(s) => time_codec::parse_date(&s)
             .map(Some)
-            .ok_or_else(|| invalid_column(idx, "date", &s)),
+            .ok_or_else(|| invalid_column(row, idx, "date", &s)),
         None => Ok(None),
     }
 }

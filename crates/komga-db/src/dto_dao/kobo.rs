@@ -130,7 +130,7 @@ impl KoboDtoDao {
             summary: row.get(5)?,
             release_date: release.and_then(|d| time_codec::parse_date(&d)),
             created_date: time_codec::parse_datetime_utc(&created)
-                .ok_or_else(|| crate::dao::invalid_column(7, "datetime", &created))?,
+                .ok_or_else(|| crate::dao::invalid_column(row, 7, "datetime", &created))?,
             series_id: row.get(8)?,
             series_title: row.get(9)?,
             publisher: row.get(10)?,

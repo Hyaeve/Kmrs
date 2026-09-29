@@ -2,11 +2,13 @@
 //!
 //! - DB `datetime`: TEXT `yyyy-MM-dd HH:mm:ss[.f…]` (`java.sql.Timestamp.toString()` semantics:
 //!   `.0` is appended when nanos=0, otherwise 9-digit zero-padded with trailing zeros stripped), UTC.
+//!   Reads also accept ISO-8601 (`T` separator, `Z`/offset suffix): external tools writing into
+//!   komga's SQLite file directly produce that shape.
 //! - DB `date`: TEXT `yyyy-MM-dd`.
 //! - DTO `datetime`: `yyyy-MM-dd'T'HH:mm:ss'Z'` (second precision, UTC with no offset).
 //! - DTO `date`: `yyyy-MM-dd`.
 
-use time::{Date, Month, OffsetDateTime, PrimitiveDateTime, Time};
+use time::{Date, Month, OffsetDateTime, PrimitiveDateTime, Time, UtcOffset};
 
 pub fn now_utc() -> OffsetDateTime {
     OffsetDateTime::now_utc()
@@ -38,11 +40,34 @@ pub fn format_datetime(dt: OffsetDateTime) -> String {
     )
 }
 
-/// Parses a DB datetime: tolerates no fraction, the fraction-less form produced by `CURRENT_TIMESTAMP`, and up to 9 fraction digits.
+/// Parses a DB datetime into its wall-clock part: jOOQ's write format (`yyyy-MM-dd HH:mm:ss[.f…]`,
+/// including `CURRENT_TIMESTAMP`'s fraction-less form), plus ISO-8601 variants (`T` separator,
+/// `Z`/`±HH:MM` suffix). The offset designator is validated but not applied.
 pub fn parse_datetime(s: &str) -> Option<PrimitiveDateTime> {
+    parse_db_datetime(s).map(|(dt, _)| dt)
+}
+
+/// `parse_datetime` as a UTC instant: an explicit offset is applied, otherwise UTC is assumed.
+pub fn parse_datetime_utc(s: &str) -> Option<OffsetDateTime> {
+    parse_db_datetime(s).map(|(dt, offset)| match offset {
+        Some(offset) => dt.assume_offset(offset).to_offset(UtcOffset::UTC),
+        None => dt.assume_utc(),
+    })
+}
+
+fn parse_db_datetime(s: &str) -> Option<(PrimitiveDateTime, Option<UtcOffset>)> {
     let s = s.trim();
-    let (date_part, time_part) = s.split_once(' ')?;
-    let date = parse_date(date_part)?;
+    let sep = s.find([' ', 'T', 't'])?;
+    let date = parse_date(&s[..sep])?;
+    let rest = &s[sep + 1..];
+    // the date part is already consumed, so a '+'/'-' in the rest can only be the offset sign
+    let (time_part, offset) = match rest.find(['+', '-']) {
+        Some(i) => (&rest[..i], Some(parse_utc_offset(&rest[i..])?)),
+        None => match rest.strip_suffix('Z').or_else(|| rest.strip_suffix('z')) {
+            Some(t) => (t, Some(UtcOffset::UTC)),
+            None => (rest, None),
+        },
+    };
     let (hms, nanos) = match time_part.split_once('.') {
         Some((hms, frac)) => {
             if frac.is_empty() || frac.len() > 9 || !frac.bytes().all(|b| b.is_ascii_digit()) {
@@ -64,11 +89,26 @@ pub fn parse_datetime(s: &str) -> Option<PrimitiveDateTime> {
         return None;
     }
     let time = Time::from_hms_nano(hour, minute, second, nanos).ok()?;
-    Some(PrimitiveDateTime::new(date, time))
+    Some((PrimitiveDateTime::new(date, time), offset))
 }
 
-pub fn parse_datetime_utc(s: &str) -> Option<OffsetDateTime> {
-    parse_datetime(s).map(|dt| dt.assume_utc())
+/// `±HH:MM`, `±HHMM` or `±HH`.
+fn parse_utc_offset(s: &str) -> Option<UtcOffset> {
+    let (sign, digits) = match s.as_bytes().first()? {
+        b'+' => (1i8, &s[1..]),
+        b'-' => (-1i8, &s[1..]),
+        _ => return None,
+    };
+    if !digits.is_ascii() {
+        return None;
+    }
+    let (hour, minute): (i8, i8) = match digits.split_once(':') {
+        Some((h, m)) => (h.parse().ok()?, m.parse().ok()?),
+        None if digits.len() == 4 => (digits[..2].parse().ok()?, digits[2..].parse().ok()?),
+        None if digits.len() == 2 => (digits.parse().ok()?, 0),
+        _ => return None,
+    };
+    UtcOffset::from_hms(sign * hour, sign * minute, 0).ok()
 }
 
 /// DB datetime truncated to milliseconds (komga's mtime comparison semantics, `LanguageUtils.kt`).
@@ -261,5 +301,29 @@ mod tests {
         let d = parse_date("2024-02-29").unwrap();
         assert_eq!(format_date(d), "2024-02-29");
         assert!(parse_date("2023-02-29").is_none());
+    }
+
+    #[test]
+    fn parse_iso8601_variants() {
+        // JS `Date.toISOString()` / `Instant.toString()` style, seen in komga databases
+        // written to directly by external tools
+        let dt = parse_datetime_utc("2026-09-21T05:33:30.327Z").unwrap();
+        assert_eq!(format_datetime(dt), "2026-09-21 05:33:30.327");
+
+        let dt = parse_datetime_utc("2026-09-21T05:33:30.327").unwrap();
+        assert_eq!(format_datetime(dt), "2026-09-21 05:33:30.327");
+
+        // an explicit offset is applied, not dropped
+        let dt = parse_datetime_utc("2026-09-21T13:33:30.327+08:00").unwrap();
+        assert_eq!(format_datetime(dt), "2026-09-21 05:33:30.327");
+        let dt = parse_datetime_utc("2026-09-21T05:33:30-05:30").unwrap();
+        assert_eq!(format_datetime(dt), "2026-09-21 11:03:30.0");
+
+        assert!(parse_datetime("2026-09-21T05:33:30.327Z").is_some());
+
+        assert!(parse_datetime_utc("2026-09-21T05:33:30.1234567890Z").is_none());
+        assert!(parse_datetime_utc("2026-09-21T05:33:30+0x:00").is_none());
+        assert!(parse_datetime_utc("2026-09-21T05:33:30.327ZZ").is_none());
+        assert!(parse_datetime_utc("2026-09-21T05:33:30+080").is_none());
     }
 }

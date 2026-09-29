@@ -30,7 +30,7 @@ impl KomfIntegrationState {
             "pending" => Ok(Self::Pending),
             "connected" => Ok(Self::Connected),
             "error" => Ok(Self::Error),
-            _ => Err(super::invalid_column(idx, "state", &s)),
+            _ => Err(super::invalid_column(row, idx, "state", &s)),
         }
     }
 }

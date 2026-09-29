@@ -25,7 +25,7 @@ impl MediaDao {
         Ok(Media {
             book_id: row.get(0)?,
             status: MediaStatus::from_str(&status)
-                .ok_or_else(|| super::invalid_column(1, "STATUS", &status))?,
+                .ok_or_else(|| super::invalid_column(row, 1, "STATUS", &status))?,
             media_type: row.get(2)?,
             comment: row.get(3)?,
             page_count: row.get(4)?,
@@ -59,7 +59,7 @@ impl MediaDao {
             sub_type: sub_type
                 .map(|s| {
                     MediaFileSubType::from_str(&s)
-                        .ok_or_else(|| super::invalid_column(2, "SUB_TYPE", &s))
+                        .ok_or_else(|| super::invalid_column(row, 2, "SUB_TYPE", &s))
                 })
                 .transpose()?,
             file_size: row.get(3)?,

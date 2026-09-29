@@ -18,7 +18,7 @@ const READLIST_COLUMNS: &str = "ID, READLIST_ID, THUMBNAIL, SELECTED, TYPE, MEDI
 
 fn get_type(row: &Row<'_>, idx: usize) -> rusqlite::Result<ThumbnailType> {
     let s: String = row.get(idx)?;
-    ThumbnailType::from_str(&s).ok_or_else(|| invalid_column(idx, "TYPE", &s))
+    ThumbnailType::from_str(&s).ok_or_else(|| invalid_column(row, idx, "TYPE", &s))
 }
 
 pub struct ThumbnailBookDao {

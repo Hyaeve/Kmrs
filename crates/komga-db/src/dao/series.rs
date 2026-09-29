@@ -289,14 +289,14 @@ impl SeriesMetadataDao {
         Ok(SeriesMetadata {
             series_id: row.get(0)?,
             status: SeriesStatus::from_str(&status)
-                .ok_or_else(|| super::invalid_column(1, "STATUS", &status))?,
+                .ok_or_else(|| super::invalid_column(row, 1, "STATUS", &status))?,
             title: row.get(3)?,
             title_sort: row.get(5)?,
             summary: row.get(7)?,
             reading_direction: reading_direction
                 .map(|s| {
                     ReadingDirection::from_str(&s)
-                        .ok_or_else(|| super::invalid_column(9, "READING_DIRECTION", &s))
+                        .ok_or_else(|| super::invalid_column(row, 9, "READING_DIRECTION", &s))
                 })
                 .transpose()?,
             publisher: row.get(11)?,

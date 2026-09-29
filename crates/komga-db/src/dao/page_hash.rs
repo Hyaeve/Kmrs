@@ -36,7 +36,7 @@ impl PageHashDao {
             hash: row.get(0)?,
             size: PageHashKnown::normalize_size(row.get(1)?),
             action: PageHashAction::from_str(&action)
-                .ok_or_else(|| invalid_column(2, "ACTION", &action))?,
+                .ok_or_else(|| invalid_column(row, 2, "ACTION", &action))?,
             delete_count: row.get(3)?,
             match_count,
             created_date: get_datetime(row, 4)?,
