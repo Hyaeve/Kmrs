@@ -5,7 +5,7 @@
 [![Docker image](https://img.shields.io/badge/ghcr.io-kmworks%2Fkmrs-blue)](https://github.com/kmworks/kmrs/pkgs/container/kmrs)
 [![License: MIT](https://img.shields.io/github/license/kmworks/kmrs)](LICENSE)
 
-**[Documentation](https://kmworks.github.io/kmrs/)** · [Installation](https://kmworks.github.io/kmrs/docs/installation) · [Configuration](https://kmworks.github.io/kmrs/docs/configuration)
+**[Documentation](https://kmworks.date/server/)** · [Installation](https://kmworks.date/server/installation) · [Configuration](https://kmworks.date/server/configuration)
 
 A comic & manga server in a single static Rust binary, drop-in compatible with [Komga](https://komga.org) — same API, same database.
 
@@ -33,14 +33,14 @@ The image bundles [kmweb](https://github.com/kmworks/kmweb), a React web UI buil
 
 ## Documentation
 
-Full documentation lives at **[kmworks.github.io/kmrs](https://kmworks.github.io/kmrs/)**:
+Full documentation lives at **[kmworks.date/server](https://kmworks.date/server/)**:
 
-- [Installation](https://kmworks.github.io/kmrs/docs/installation) — Docker, prebuilt binaries, build from source
-- [Configuration](https://kmworks.github.io/kmrs/docs/configuration) — `config.toml` key reference, env vars, precedence
-- [Serving a web UI](https://kmworks.github.io/kmrs/docs/webui) — bundled kmweb, auto-updates, reverse-proxy setups
-- [Search](https://kmworks.github.io/kmrs/docs/search) — analyzer chain, CJK cross-search extensions
-- [Compatibility](https://kmworks.github.io/kmrs/docs/compatibility) and [Known limitations](https://kmworks.github.io/kmrs/docs/limitations)
-- [Development](https://kmworks.github.io/kmrs/docs/development) — tests, crate structure, heap profiling
+- [Installation](https://kmworks.date/server/installation) — Docker, prebuilt binaries, build from source
+- [Configuration](https://kmworks.date/server/configuration) — `config.toml` key reference, env vars, precedence
+- [Serving a web UI](https://kmworks.date/server/webui) — bundled kmweb, auto-updates, reverse-proxy setups
+- [Search](https://kmworks.date/server/search) — analyzer chain, CJK cross-search extensions
+- [Compatibility](https://kmworks.date/server/compatibility) and [Known limitations](https://kmworks.date/server/limitations)
+- [Development](https://kmworks.date/server/development) — tests, crate structure, heap profiling
 
 ## License
 

@@ -5,7 +5,7 @@ Rules for working in this repository. They apply to humans and agents alike.
 ## Layout
 
 - Rust workspace: `crates/komga-core` (shared primitives), `crates/komga-db` (SQLite, DAOs, migrations), `crates/komga-media` (analyzers, metadata readers), `crates/komga-search` (tantivy), `crates/komga-server` (HTTP API, config, services). `xtask/` holds dev tasks.
-- `website/`: Docusaurus documentation site.
+- `docs/`: user documentation in plain markdown, mirrored to kmworks.date/server by the `kmworks/website` build. `docs/schema-main.sql` is the reference schema of the main database.
 - `examples/config.toml`: the canonical all-keys configuration reference.
 - `docs/schema-main.sql`: reference schema of the main database.
 - `tests/diff/`: differential test harness that compares kmrs against a live Java komga instance.
@@ -26,14 +26,14 @@ kmrs is a drop-in, data-level compatible reimplementation of [gotson/komga](http
 
 ## Configuration keys
 
-A new configuration key must land in all three places: the loader/render (`crates/komga-server/src/config/`), `examples/config.toml`, and `website/docs/configuration.md`.
+A new configuration key must land in all three places: the loader/render (`crates/komga-server/src/config/`), `examples/config.toml`, and `docs/configuration.md`.
 
-## Documentation (website/docs)
+## Documentation (docs)
 
 - `limitations.md`: accepted gaps that are not planned to be closed (e.g. Lucene fuzzy/slop queries).
 - `enhancements.md`: improvements over the Java version, plus intentional behavior differences.
 - `compatibility.md`: parity target and the differential harness; links to the two pages above.
-- Verify changes with `npm run build` in `website/` — Docusaurus fails on broken links.
+- Docs render through the `kmworks/website` build; keep cross-page links relative (`./page.md`).
 
 ## Comments
 
