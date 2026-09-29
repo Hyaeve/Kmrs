@@ -74,6 +74,8 @@ pub fn scan_root_folder(
         let _ = state.events.send(DomainEvent::LibraryUpdated(updated));
     }
 
+    normalize_foreign_urls(state, library, &root)?;
+
     // Directories that could not be fully read during traversal: rows under them are in an
     // unknown state (the files may still exist), so they must be excluded from the "missing"
     // set below — a transient read failure (WebDAV/network mount hiccup) must never
@@ -390,6 +392,97 @@ pub fn scan_root_folder(
         .events
         .send(DomainEvent::LibraryScanned(library.clone()));
     Ok(())
+}
+
+/// komga-cn's Rust port stores plain filesystem paths in the URL columns instead of komga's
+/// `file:` URLs, and scan matching is exact-string — a database migrated from there would
+/// have every series and book trashed and recreated by the first scan. Rewrite any
+/// non-canonical URL to `path_to_url` form before matching. Runs after the filesystem walk
+/// so directory URLs get their trailing slash right; komga-cn reads `file:` URLs fine, so
+/// the rewrite is safe for users who switch back.
+fn normalize_foreign_urls(state: &AppState, library: &Library, root: &Path) -> Result<()> {
+    let conn = state.db.rw();
+    let mut normalized = 0usize;
+
+    // canonical URLs always carry the `file:/` prefix with an empty authority; anything
+    // else (plain paths, `file:///`) is a candidate. Rows already canonical are skipped
+    // before any per-row stat, so komga-written databases pay only the SELECT.
+    for table in ["SERIES", "BOOK"] {
+        let rows: Vec<(String, String)> = conn
+            .prepare(&format!(
+                "SELECT ID, URL FROM {table} WHERE LIBRARY_ID = ? AND (URL NOT LIKE 'file:/%' OR URL LIKE 'file:///%')"
+            ))?
+            .query_map(rusqlite::params![library.id], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })?
+            .collect::<std::result::Result<_, _>>()?;
+        for (id, url) in rows {
+            let canonical = canonical_file_url(&url, root);
+            if canonical != url {
+                conn.execute(
+                    &format!("UPDATE {table} SET URL = ? WHERE ID = ?"),
+                    rusqlite::params![canonical, id],
+                )?;
+                normalized += 1;
+            }
+        }
+    }
+
+    let sidecars: Vec<(String, String)> = conn
+        .prepare(
+            "SELECT URL, PARENT_URL FROM SIDECAR WHERE LIBRARY_ID = ? AND (URL NOT LIKE 'file:/%' OR URL LIKE 'file:///%' OR PARENT_URL NOT LIKE 'file:/%' OR PARENT_URL LIKE 'file:///%')",
+        )?
+        .query_map(rusqlite::params![library.id], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })?
+        .collect::<std::result::Result<_, _>>()?;
+    for (url, parent_url) in sidecars {
+        let canonical = canonical_file_url(&url, root);
+        let canonical_parent = canonical_file_url(&parent_url, root);
+        if canonical != url || canonical_parent != parent_url {
+            conn.execute(
+                "UPDATE SIDECAR SET URL = ?, PARENT_URL = ? WHERE URL = ?",
+                rusqlite::params![canonical, canonical_parent, url],
+            )?;
+            normalized += 1;
+        }
+    }
+
+    if !library.root.starts_with("file:/") || library.root.starts_with("file:///") {
+        let canonical = canonical_file_url(&library.root, root);
+        if canonical != library.root {
+            conn.execute(
+                "UPDATE LIBRARY SET ROOT = ? WHERE ID = ?",
+                rusqlite::params![canonical, library.id],
+            )?;
+            normalized += 1;
+        }
+    }
+
+    if normalized > 0 {
+        tracing::info!(
+            library_id = %library.id,
+            normalized,
+            "Normalized non-komga URLs to canonical file: form"
+        );
+    }
+    Ok(())
+}
+
+/// `file:` URLs resolve through `url_to_file_path`; anything else is a plain filesystem
+/// path, which komga-cn also stores relative to the library root in some rows.
+fn canonical_file_url(stored: &str, root: &Path) -> String {
+    let path = if stored.starts_with("file:") {
+        PathBuf::from(komga_core::dto::url_to_file_path(stored))
+    } else {
+        let path = PathBuf::from(stored);
+        if path.is_absolute() {
+            path
+        } else {
+            root.join(path)
+        }
+    };
+    path_to_url(&path)
 }
 
 /// URL-component-aware prefix check: is `url` at or below `ancestor`?
@@ -1117,6 +1210,110 @@ mod tests {
             }
         }
         assert!(saw_scanned);
+    }
+
+    #[test]
+    fn komga_cn_plain_path_urls_are_normalized_before_matching() {
+        let state = test_state();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = scan_root(&tmp);
+        write_file(&root.join("s1"), "v01.cbz", b"one");
+        write_file(&root.join("s1"), "v02.cbz", b"two!");
+        write_file(&root.join("s1"), "cover.jpg", b"cover");
+        let lib = library(&state.db, "lib1", &root);
+        scan(&state, &lib);
+        let series = all_series(&state).into_iter().next().unwrap();
+        let mut books = all_books(&state);
+        books.sort_by(|a, b| a.name.cmp(&b.name));
+
+        // a database migrated from komga-cn's Rust port: plain filesystem paths in the URL
+        // columns (`file:///` is another foreign shape that must also be absorbed)
+        let plain = |p: &Path| p.to_string_lossy().to_string();
+        state
+            .db
+            .rw()
+            .execute("UPDATE SERIES SET URL = ?", [plain(&root.join("s1"))])
+            .unwrap();
+        state
+            .db
+            .rw()
+            .execute(
+                "UPDATE BOOK SET URL = ? WHERE NAME = 'v01'",
+                [plain(&root.join("s1").join("v01.cbz"))],
+            )
+            .unwrap();
+        state
+            .db
+            .rw()
+            .execute(
+                "UPDATE BOOK SET URL = ? WHERE NAME = 'v02'",
+                [format!(
+                    "file://{}",
+                    plain(&root.join("s1").join("v02.cbz"))
+                )],
+            )
+            .unwrap();
+        state
+            .db
+            .rw()
+            .execute("UPDATE LIBRARY SET ROOT = ?", [plain(&root)])
+            .unwrap();
+        state
+            .db
+            .rw()
+            .execute(
+                "UPDATE SIDECAR SET URL = ?, PARENT_URL = ?",
+                [
+                    plain(&root.join("s1").join("cover.jpg")),
+                    plain(&root.join("s1")),
+                ],
+            )
+            .unwrap();
+
+        // reload so the in-memory library carries the foreign root, as a scan triggered
+        // from the scheduler would
+        let lib = LibraryDao::new(state.db.clone())
+            .find_by_id("lib1")
+            .unwrap()
+            .unwrap();
+        scan(&state, &lib);
+
+        // nothing is trashed or recreated: rows keep their identity
+        let series_after = all_series(&state);
+        assert_eq!(series_after.len(), 1);
+        assert_eq!(series_after[0].id, series.id);
+        assert!(series_after[0].deleted_date.is_none());
+        assert_eq!(series_after[0].url, path_to_url(&root.join("s1")));
+        let books_after = all_books(&state);
+        assert_eq!(books_after.len(), 2);
+        assert!(books_after.iter().all(|b| b.deleted_date.is_none()));
+        assert!(books_after.iter().any(|b| b.id == books[0].id));
+        assert!(books_after.iter().any(|b| b.id == books[1].id));
+        assert!(books_after
+            .iter()
+            .all(|b| b.url == path_to_url(Path::new(&komga_core::dto::url_to_file_path(&b.url)))));
+        let sidecars = SidecarDao::new(state.db.clone()).find_all().unwrap();
+        assert_eq!(sidecars.len(), 1);
+        assert_eq!(
+            sidecars[0].url,
+            path_to_url(&root.join("s1").join("cover.jpg"))
+        );
+        assert_eq!(sidecars[0].parent_url, path_to_url(&root.join("s1")));
+        let lib_after = LibraryDao::new(state.db.clone())
+            .find_by_id("lib1")
+            .unwrap()
+            .unwrap();
+        assert_eq!(lib_after.root, path_to_url(&root));
+
+        // the next scan is a plain no-op again
+        let mut rx = state.events.subscribe();
+        scan(&state, &lib);
+        while let Ok(event) = rx.try_recv() {
+            match event {
+                DomainEvent::LibraryScanned(_) => {}
+                other => panic!("unexpected event after normalized scan: {other:?}"),
+            }
+        }
     }
 
     #[test]
