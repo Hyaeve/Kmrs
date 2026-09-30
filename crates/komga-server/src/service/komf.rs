@@ -12,9 +12,9 @@ use std::time::Duration;
 
 pub const API_KEY_COMMENT: &str = "Integration · komf";
 
-/// Search crawls external providers, so proxied metadata calls get a more generous
-/// budget than the client default.
-const METADATA_PROXY_TIMEOUT: Duration = Duration::from_secs(30);
+/// Proxied calls that fan out to external providers (metadata search, the OAuth
+/// token exchange) get a more generous budget than the client default.
+pub const METADATA_PROXY_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Serializes provision/disconnect so a manual reconfigure racing the reconciliation
 /// loop cannot mint two keys and orphan one of them.
@@ -27,6 +27,9 @@ fn integration_lock() -> &'static tokio::sync::Mutex<()> {
 pub struct KomfClient {
     base_url: String,
     http: reqwest::Client,
+    // reqwest follows redirects by default, which would swallow the 302 komf's OAuth
+    // endpoints answer with; this client surfaces them to the caller
+    http_no_redirect: reqwest::Client,
     // a total timeout spans the response body, so the 10s budget of `http` would cut
     // long-lived SSE streams; this client carries only a connect timeout
     http_stream: reqwest::Client,
@@ -39,6 +42,12 @@ impl KomfClient {
             .timeout(Duration::from_secs(10))
             .build()
             .expect("reqwest client");
+        let http_no_redirect = reqwest::Client::builder()
+            .user_agent(concat!("kmrs/", env!("CARGO_PKG_VERSION")))
+            .timeout(Duration::from_secs(10))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .expect("reqwest client");
         let http_stream = reqwest::Client::builder()
             .user_agent(concat!("kmrs/", env!("CARGO_PKG_VERSION")))
             .connect_timeout(Duration::from_secs(10))
@@ -47,6 +56,7 @@ impl KomfClient {
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             http,
+            http_no_redirect,
             http_stream,
         }
     }
@@ -126,6 +136,33 @@ impl KomfClient {
             .get(format!("{}{path}", self.base_url))
             .send()
             .await?)
+    }
+
+    /// Forwards to komf's OAuth API (`/api/oauth`). Same error split as
+    /// `proxy_metadata`. komf builds the OAuth callback URL from the request's host
+    /// headers, so they are copied from the incoming browser request: komf's own
+    /// instance address is internal and must not end up in the redirect the browser
+    /// follows.
+    pub async fn proxy_oauth(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        query: Option<&str>,
+        headers: &axum::http::HeaderMap,
+        timeout: Duration,
+    ) -> anyhow::Result<reqwest::Response> {
+        let mut url = format!("{}{path}", self.base_url);
+        if let Some(query) = query.filter(|q| !q.is_empty()) {
+            url.push('?');
+            url.push_str(query);
+        }
+        let mut request = self.http_no_redirect.request(method, url).timeout(timeout);
+        for name in ["host", "x-forwarded-host", "x-forwarded-proto"] {
+            if let Some(value) = headers.get(name) {
+                request = request.header(name, value.clone());
+            }
+        }
+        Ok(request.send().await?)
     }
 
     async fn proxy(

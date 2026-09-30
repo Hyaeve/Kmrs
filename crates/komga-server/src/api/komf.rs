@@ -11,13 +11,14 @@ use crate::service::komf::{self, KomfClient};
 use crate::state::AppState;
 use axum::body::Body;
 use axum::extract::{Path, Query, RawQuery, State};
-use axum::http::{Method, StatusCode};
+use axum::http::{HeaderMap, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::{routing, Json, Router};
 use komga_db::dao::komf_integration::{KomfIntegration, KomfIntegrationDao, KomfIntegrationState};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::convert::Infallible;
+use std::time::Duration;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
 
@@ -58,6 +59,25 @@ pub fn router() -> Router<AppState> {
         .route(
             "/api/v1/komf/jobs/{jobId}/events",
             routing::get(get_job_events),
+        )
+        .route(
+            "/api/v1/komf/oauth/{provider}/start",
+            routing::get(oauth_start),
+        )
+        .route(
+            "/api/v1/komf/oauth/{provider}/status",
+            routing::get(oauth_status),
+        )
+        .route(
+            "/api/v1/komf/oauth/{provider}/logout",
+            routing::post(oauth_logout),
+        )
+        // komf hardcodes this path into the OAuth state's redirectUrl and its relay
+        // page only accepts paths ending in /api/oauth/{provider}/callback, so the
+        // proxied callback cannot live under /api/v1/komf/
+        .route(
+            "/api/oauth/{provider}/callback",
+            routing::get(oauth_callback),
         )
 }
 
@@ -505,6 +525,113 @@ fn tag_frame(frame: &str, job_id: &str) -> String {
     format!("event: {name}\ndata: {tagged}\n\n")
 }
 
+const KOMF_OAUTH: &str = "/api/oauth";
+
+/// The provider is interpolated into the upstream URL and the callback route is
+/// anonymous: reject anything but lowercase ASCII letters so a percent-encoded
+/// segment cannot traverse into komf's unauthenticated API. Legal-but-unknown
+/// names still reach komf and get its own 404.
+fn check_oauth_provider(provider: &str) -> Result<(), ApiError> {
+    if provider.is_empty() || !provider.bytes().all(|b| b.is_ascii_lowercase()) {
+        return Err(ApiError::not_found(format!(
+            "OAuth provider '{provider}' is not supported"
+        )));
+    }
+    Ok(())
+}
+
+async fn oauth_start(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(provider): Path<String>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    auth.0.require_admin()?;
+    check_oauth_provider(&provider)?;
+    let row = connected_integration(&state)?;
+    let response = KomfClient::new(&row.url)
+        .proxy_oauth(
+            Method::GET,
+            &format!("{KOMF_OAUTH}/{provider}/start"),
+            None,
+            &headers,
+            Duration::from_secs(10),
+        )
+        .await
+        .map_err(komf_unreachable)?;
+    Ok(redirect_or_passthrough(response).await)
+}
+
+// The browser lands here via a cross-site redirect from komf's relay page, so no
+// credentials can be attached, and komf's own callback is unauthenticated too; the
+// pending nonce only the admin-only start can create is the actual CSRF guard.
+async fn oauth_callback(
+    State(state): State<AppState>,
+    Path(provider): Path<String>,
+    RawQuery(query): RawQuery,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    check_oauth_provider(&provider)?;
+    let row = connected_integration(&state)?;
+    let response = KomfClient::new(&row.url)
+        .proxy_oauth(
+            Method::GET,
+            &format!("{KOMF_OAUTH}/{provider}/callback"),
+            query.as_deref(),
+            &headers,
+            komf::METADATA_PROXY_TIMEOUT,
+        )
+        .await
+        .map_err(komf_unreachable)?;
+    Ok(redirect_or_passthrough(response).await)
+}
+
+/// komf owns the status schema (`{"logged_in": bool, "username": string|null}`), so
+/// the proxy relays the raw JSON instead of modeling it.
+async fn oauth_status(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(provider): Path<String>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    auth.0.require_admin()?;
+    check_oauth_provider(&provider)?;
+    let row = connected_integration(&state)?;
+    let response = KomfClient::new(&row.url)
+        .proxy_oauth(
+            Method::GET,
+            &format!("{KOMF_OAUTH}/{provider}/status"),
+            None,
+            &headers,
+            Duration::from_secs(10),
+        )
+        .await
+        .map_err(komf_unreachable)?;
+    json_or_passthrough::<serde_json::Value>(response).await
+}
+
+async fn oauth_logout(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(provider): Path<String>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    auth.0.require_admin()?;
+    check_oauth_provider(&provider)?;
+    let row = connected_integration(&state)?;
+    let response = KomfClient::new(&row.url)
+        .proxy_oauth(
+            Method::POST,
+            &format!("{KOMF_OAUTH}/{provider}/logout"),
+            None,
+            &headers,
+            Duration::from_secs(10),
+        )
+        .await
+        .map_err(komf_unreachable)?;
+    Ok(empty_or_passthrough(response).await)
+}
+
 /// Proxying only makes sense once provisioning succeeded; anything earlier is a
 /// conflict with the integration lifecycle, not a komf failure.
 fn connected_integration(state: &AppState) -> Result<KomfIntegration, ApiError> {
@@ -563,6 +690,22 @@ async fn empty_or_passthrough(response: reqwest::Response) -> Response {
         return passthrough(response).await;
     }
     response.status().into_response()
+}
+
+/// komf's OAuth dance answers redirects (3xx) whose Location the browser must
+/// follow; the redirect is relayed verbatim with an empty body. Anything else is
+/// komf's own response and passes through.
+async fn redirect_or_passthrough(response: reqwest::Response) -> Response {
+    if response.status().is_redirection() {
+        if let Some(location) = response.headers().get(axum::http::header::LOCATION) {
+            return (
+                response.status(),
+                [(axum::http::header::LOCATION, location.clone())],
+            )
+                .into_response();
+        }
+    }
+    passthrough(response).await
 }
 
 /// komf answered for itself: its status and body go back to the caller untouched.
@@ -731,6 +874,7 @@ mod tests {
         method: String,
         path: String,
         query: Option<String>,
+        headers: HeaderMap,
         body: Option<serde_json::Value>,
     }
 
@@ -757,6 +901,7 @@ mod tests {
                     let method = request.method().as_str().to_string();
                     let path = request.uri().path().to_string();
                     let query = request.uri().query().map(str::to_string);
+                    let headers = request.headers().clone();
                     let bytes = axum::body::to_bytes(request.into_body(), usize::MAX)
                         .await
                         .unwrap();
@@ -765,6 +910,7 @@ mod tests {
                         method: method.clone(),
                         path: path.clone(),
                         query: query.clone(),
+                        headers,
                         body,
                     });
                     let broken = path.contains("broken")
@@ -776,6 +922,12 @@ mod tests {
                         )
                             .into_response();
                     }
+                    // komf only supports these OAuth providers; anything else gets its own 404
+                    let oauth_provider = path
+                        .strip_prefix("/api/oauth/")
+                        .and_then(|rest| rest.split('/').next());
+                    let oauth_known =
+                        oauth_provider.is_some_and(|p| ["anilist", "mal", "bangumi"].contains(&p));
                     match (method.as_str(), path.as_str()) {
                         ("GET", "/api/komga/metadata/providers") => {
                             Json(serde_json::json!(["MANGA_BAKA", "MANGADEX"])).into_response()
@@ -844,6 +996,37 @@ mod tests {
                         _ if method == "POST" && path.starts_with("/api/komga/metadata/reset/") => {
                             StatusCode::NO_CONTENT.into_response()
                         }
+                        _ if method == "GET" && oauth_known && path.ends_with("/start") => {
+                            (
+                                StatusCode::FOUND,
+                                [(
+                                    axum::http::header::LOCATION,
+                                    "https://provider.example/authorize?client_id=x&state=y",
+                                )],
+                            )
+                                .into_response()
+                        }
+                        _ if method == "GET" && oauth_known && path.ends_with("/callback") => {
+                            (
+                                StatusCode::FOUND,
+                                [(axum::http::header::LOCATION, "/?oauth=success")],
+                            )
+                                .into_response()
+                        }
+                        _ if method == "GET" && oauth_known && path.ends_with("/status") => {
+                            Json(serde_json::json!({"logged_in": true, "username": "komf-user"}))
+                                .into_response()
+                        }
+                        _ if method == "POST" && oauth_known && path.ends_with("/logout") => {
+                            StatusCode::NO_CONTENT.into_response()
+                        }
+                        _ if let Some(provider) = oauth_provider => (
+                            StatusCode::NOT_FOUND,
+                            Json(serde_json::json!({
+                                "message": format!("OAuth provider '{provider}' is not supported")
+                            })),
+                        )
+                            .into_response(),
                         _ => StatusCode::NOT_FOUND.into_response(),
                     }
                 }
@@ -928,6 +1111,18 @@ mod tests {
             .get_json("/api/v1/komf/jobs/events?ids=job-1", "k-user")
             .await;
         assert_eq!(status, StatusCode::FORBIDDEN);
+        let (status, _) = app
+            .get_json("/api/v1/komf/oauth/anilist/start", "k-user")
+            .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        let (status, _) = app
+            .get_json("/api/v1/komf/oauth/anilist/status", "k-user")
+            .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        let (status, _) = app
+            .request_json("POST", "/api/v1/komf/oauth/anilist/logout", "k-user", None)
+            .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]
@@ -952,6 +1147,18 @@ mod tests {
             .get_json("/api/v1/komf/jobs/events?ids=job-1", "k-admin")
             .await;
         assert_eq!(status, StatusCode::CONFLICT);
+        let (status, _) = app
+            .get_json("/api/v1/komf/oauth/anilist/start", "k-admin")
+            .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        let (status, _) = app
+            .get_json("/api/v1/komf/oauth/anilist/status", "k-admin")
+            .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        let (status, _) = app
+            .request_json("POST", "/api/v1/komf/oauth/anilist/logout", "k-admin", None)
+            .await;
+        assert_eq!(status, StatusCode::CONFLICT);
     }
 
     #[tokio::test]
@@ -973,6 +1180,10 @@ mod tests {
         assert_eq!(status, StatusCode::CONFLICT);
         let (status, _) = app
             .get_json("/api/v1/komf/jobs/events?ids=job-1", "k-admin")
+            .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        let (status, _) = app
+            .get_json("/api/v1/komf/oauth/anilist/start", "k-admin")
             .await;
         assert_eq!(status, StatusCode::CONFLICT);
     }
@@ -1335,6 +1546,235 @@ mod tests {
             .get_json("/api/v1/komf/jobs/job-1/events", "k-admin")
             .await;
         assert_eq!(status, StatusCode::BAD_GATEWAY);
+
+        let (status, _) = app
+            .get_json("/api/v1/komf/oauth/anilist/start", "k-admin")
+            .await;
+        assert_eq!(status, StatusCode::BAD_GATEWAY);
+        let (status, _) = app
+            .get_json("/api/v1/komf/oauth/anilist/status", "k-admin")
+            .await;
+        assert_eq!(status, StatusCode::BAD_GATEWAY);
+        let (status, _) = app
+            .request_json("POST", "/api/v1/komf/oauth/anilist/logout", "k-admin", None)
+            .await;
+        assert_eq!(status, StatusCode::BAD_GATEWAY);
+        let (status, _) = app
+            .get_json("/api/oauth/anilist/callback?code=x&state=y", "k-admin")
+            .await;
+        assert_eq!(status, StatusCode::BAD_GATEWAY);
+    }
+
+    /// `TestApp`'s helpers always send an X-API-Key header and cannot attach custom
+    /// headers, so tests that need either drive a raw router wired the same way.
+    fn raw_app(state: &AppState) -> Router {
+        router()
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::auth_middleware,
+            ))
+            .with_state(state.clone())
+    }
+
+    async fn raw_request(
+        app: &Router,
+        method: &str,
+        uri: &str,
+        headers: &[(&str, &str)],
+    ) -> (StatusCode, HeaderMap, Vec<u8>) {
+        let mut builder = axum::http::Request::builder().method(method).uri(uri);
+        for (name, value) in headers {
+            builder = builder.header(*name, *value);
+        }
+        let response = tower::ServiceExt::oneshot(
+            app.clone(),
+            builder.body(axum::body::Body::empty()).unwrap(),
+        )
+        .await
+        .unwrap();
+        let status = response.status();
+        let headers = response.headers().clone();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .to_vec();
+        (status, headers, bytes)
+    }
+
+    #[tokio::test]
+    async fn oauth_start_relays_the_redirect_and_forwards_host_headers() {
+        let state = TestApp::new(router()).state;
+        let admin = insert_user(&state.db, "admin@x.c", true, true, &[]);
+        insert_api_key(&state.db, &admin, "k-admin");
+        let komf = serve_komf_proxy().await;
+        seed_connected(&state, &komf.url);
+        let app = raw_app(&state);
+
+        let (status, headers, _) = raw_request(
+            &app,
+            "GET",
+            "/api/v1/komf/oauth/anilist/start",
+            &[
+                ("X-API-Key", "k-admin"),
+                ("Host", "kmrs.example"),
+                ("X-Forwarded-Host", "public.example"),
+                ("X-Forwarded-Proto", "https"),
+            ],
+        )
+        .await;
+        assert_eq!(status, StatusCode::FOUND);
+        assert_eq!(
+            headers[axum::http::header::LOCATION],
+            "https://provider.example/authorize?client_id=x&state=y"
+        );
+
+        let captured = komf.captured();
+        assert_eq!(captured.len(), 1);
+        assert_eq!(captured[0].method, "GET");
+        assert_eq!(captured[0].path, "/api/oauth/anilist/start");
+        assert_eq!(captured[0].headers["host"], "kmrs.example");
+        assert_eq!(captured[0].headers["x-forwarded-host"], "public.example");
+        assert_eq!(captured[0].headers["x-forwarded-proto"], "https");
+    }
+
+    #[tokio::test]
+    async fn oauth_callback_is_anonymous_and_relays_the_redirect() {
+        let state = TestApp::new(router()).state;
+        let komf = serve_komf_proxy().await;
+        seed_connected(&state, &komf.url);
+        let app = raw_app(&state);
+
+        // no credentials: the browser arrives cross-site from komf's relay page
+        let (status, headers, _) = raw_request(
+            &app,
+            "GET",
+            "/api/oauth/anilist/callback?code=auth-code&state=opaque",
+            &[],
+        )
+        .await;
+        assert_eq!(status, StatusCode::FOUND);
+        assert_eq!(headers[axum::http::header::LOCATION], "/?oauth=success");
+
+        let captured = komf.captured();
+        assert_eq!(captured.len(), 1);
+        assert_eq!(captured[0].method, "GET");
+        assert_eq!(captured[0].path, "/api/oauth/anilist/callback");
+        assert_eq!(
+            captured[0].query.as_deref(),
+            Some("code=auth-code&state=opaque")
+        );
+    }
+
+    #[tokio::test]
+    async fn oauth_status_passes_komf_json_through() {
+        let app = admin_app();
+        let komf = serve_komf_proxy().await;
+        seed_connected(&app.state, &komf.url);
+
+        let (status, body) = app
+            .get_json("/api/v1/komf/oauth/anilist/status", "k-admin")
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            body,
+            serde_json::json!({"logged_in": true, "username": "komf-user"})
+        );
+
+        let captured = komf.captured();
+        assert_eq!(captured.len(), 1);
+        assert_eq!(captured[0].method, "GET");
+        assert_eq!(captured[0].path, "/api/oauth/anilist/status");
+    }
+
+    #[tokio::test]
+    async fn oauth_logout_relays_no_content() {
+        let app = admin_app();
+        let komf = serve_komf_proxy().await;
+        seed_connected(&app.state, &komf.url);
+
+        let (status, _) = app
+            .request_json("POST", "/api/v1/komf/oauth/anilist/logout", "k-admin", None)
+            .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+
+        let captured = komf.captured();
+        assert_eq!(captured.len(), 1);
+        assert_eq!(captured[0].method, "POST");
+        assert_eq!(captured[0].path, "/api/oauth/anilist/logout");
+    }
+
+    #[tokio::test]
+    async fn oauth_komf_error_is_passed_through() {
+        let app = admin_app();
+        let komf = serve_komf_proxy().await;
+        seed_connected(&app.state, &komf.url);
+
+        let (status, body) = app
+            .get_json("/api/v1/komf/oauth/broken/start", "k-admin")
+            .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(body, serde_json::json!({"message": "komf broke"}));
+    }
+
+    #[tokio::test]
+    async fn oauth_callback_rejects_provider_traversal() {
+        let state = TestApp::new(router()).state;
+        let komf = serve_komf_proxy().await;
+        seed_connected(&state, &komf.url);
+        let app = raw_app(&state);
+
+        // decodes to provider `../../api/config?`: rejected before any proxying
+        let (status, _, bytes) = raw_request(
+            &app,
+            "GET",
+            "/api/oauth/..%2F..%2Fapi%2Fconfig%3F/callback?code=x&state=y",
+            &[],
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(body["message"]
+            .as_str()
+            .unwrap()
+            .contains("OAuth provider '../../api/config?' is not supported"));
+        assert!(komf.captured().is_empty());
+    }
+
+    #[tokio::test]
+    async fn oauth_start_rejects_provider_traversal() {
+        let app = admin_app();
+        let komf = serve_komf_proxy().await;
+        seed_connected(&app.state, &komf.url);
+
+        let (status, body) = app
+            .get_json("/api/v1/komf/oauth/..%2F../start", "k-admin")
+            .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(body["message"]
+            .as_str()
+            .unwrap()
+            .contains("OAuth provider '../..' is not supported"));
+        assert!(komf.captured().is_empty());
+    }
+
+    #[tokio::test]
+    async fn oauth_unknown_provider_relays_komf_not_found() {
+        let app = admin_app();
+        let komf = serve_komf_proxy().await;
+        seed_connected(&app.state, &komf.url);
+
+        let (status, body) = app
+            .get_json("/api/v1/komf/oauth/mangabaka/status", "k-admin")
+            .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(
+            body,
+            serde_json::json!({"message": "OAuth provider 'mangabaka' is not supported"})
+        );
+
+        let captured = komf.captured();
+        assert_eq!(captured.len(), 1);
+        assert_eq!(captured[0].path, "/api/oauth/mangabaka/status");
     }
 
     #[tokio::test]
