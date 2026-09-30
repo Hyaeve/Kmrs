@@ -493,15 +493,17 @@ async fn get_book_sibling_previous(
     auth: RequireAuth,
     Path(book_id): Path<String>,
 ) -> Result<Json<BookDto>, ApiError> {
-    get_book_sibling(state, auth, book_id, false).await
+    get_book_sibling(state, auth, book_id, false, false).await
 }
 
 async fn get_book_sibling_next(
     State(state): State<AppState>,
     auth: RequireAuth,
     Path(book_id): Path<String>,
+    qp: QueryPageable,
 ) -> Result<Json<BookDto>, ApiError> {
-    get_book_sibling(state, auth, book_id, true).await
+    let skip_read = qp.params.first_bool("skipRead").unwrap_or(false);
+    get_book_sibling(state, auth, book_id, true, skip_read).await
 }
 
 async fn get_book_sibling(
@@ -509,11 +511,12 @@ async fn get_book_sibling(
     auth: RequireAuth,
     book_id: String,
     next: bool,
+    skip_read: bool,
 ) -> Result<Json<BookDto>, ApiError> {
     restriction::check_book_by_id(&state, &auth.0.user, &book_id)?;
     let dao = book_dto_dao(&state);
     let dto = if next {
-        dao.find_next_in_series(&book_id, &auth.0.user.id)?
+        dao.find_next_in_series(&book_id, &auth.0.user.id, skip_read)?
     } else {
         dao.find_previous_in_series(&book_id, &auth.0.user.id)?
     };
@@ -2692,6 +2695,78 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn book_sibling_next_skip_read() {
+        let state = test_state_with_settings();
+        let db = state.db.clone();
+        seed_library(&db, "l1");
+        seed_series(&db, "s1", "l1");
+        seed_book_with(&db, "b1", "s1", "l1", "file:/data/b1.cbz", 1.0);
+        seed_book_with(&db, "b2", "s1", "l1", "file:/data/b2.cbz", 2.0);
+        seed_book_with(&db, "b3", "s1", "l1", "file:/data/b3.cbz", 3.0);
+        let user_id = seed_user(&db, "admin@example.org", "pw", true);
+        let mark_read = |book_id: &str| {
+            read_progress_dao_for(&db)
+                .insert_or_update(&ReadProgress {
+                    book_id: book_id.into(),
+                    user_id: user_id.clone(),
+                    page: 10,
+                    completed: true,
+                    read_date: time_codec::now_utc(),
+                    device_id: String::new(),
+                    device_name: String::new(),
+                    locator: None,
+                    created_date: time_codec::now_utc(),
+                    last_modified_date: time_codec::now_utc(),
+                })
+                .unwrap();
+        };
+        mark_read("b2");
+        let app = test_router(state.clone());
+
+        // skipRead walks past the read b2 to the unread b3
+        let (status, _, body) = call(
+            &app,
+            "GET",
+            "/api/v1/books/b1/next?skipRead=true",
+            Some(&basic("admin@example.org", "pw")),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json(&body)["id"], "b3");
+
+        // default and explicit false keep the plain next
+        for uri in [
+            "/api/v1/books/b1/next",
+            "/api/v1/books/b1/next?skipRead=false",
+        ] {
+            let (status, _, body) = call(
+                &app,
+                "GET",
+                uri,
+                Some(&basic("admin@example.org", "pw")),
+                None,
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(json(&body)["id"], "b2");
+        }
+
+        // every later book read: falls back to the plain next
+        mark_read("b3");
+        let (status, _, body) = call(
+            &app,
+            "GET",
+            "/api/v1/books/b1/next?skipRead=true",
+            Some(&basic("admin@example.org", "pw")),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json(&body)["id"], "b2");
     }
 
     #[tokio::test]

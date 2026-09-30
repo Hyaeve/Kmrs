@@ -42,6 +42,10 @@ const SELECT_CLAUSE: &str = "SELECT \
  READ_PROGRESS.LOCATOR, READ_PROGRESS.CREATED_DATE, READ_PROGRESS.LAST_MODIFIED_DATE, \
  SERIES_METADATA.TITLE";
 
+/// "not read" for skip_read sibling navigation: unread or in progress, same as the
+/// read_status IsNot Read search predicate
+const NOT_READ: &str = "(READ_PROGRESS.COMPLETED IS NULL OR READ_PROGRESS.COMPLETED = 0)";
+
 // column offsets within a base-select row
 const B_NAME: usize = 1;
 const B_URL: usize = 2;
@@ -158,11 +162,16 @@ impl BookDtoDao {
     }
 
     pub fn find_previous_in_series(&self, book_id: &str, user_id: &str) -> Result<Option<BookDto>> {
-        self.find_sibling_series(book_id, user_id, false)
+        self.find_sibling_series(book_id, user_id, false, false)
     }
 
-    pub fn find_next_in_series(&self, book_id: &str, user_id: &str) -> Result<Option<BookDto>> {
-        self.find_sibling_series(book_id, user_id, true)
+    pub fn find_next_in_series(
+        &self,
+        book_id: &str,
+        user_id: &str,
+        skip_read: bool,
+    ) -> Result<Option<BookDto>> {
+        self.find_sibling_series(book_id, user_id, true, skip_read)
     }
 
     pub fn find_previous_in_readlist(
@@ -180,6 +189,7 @@ impl BookDtoDao {
             filter_library_ids,
             restrictions,
             false,
+            false,
         )
     }
 
@@ -190,6 +200,7 @@ impl BookDtoDao {
         user_id: &str,
         filter_library_ids: Option<&BTreeSet<String>>,
         restrictions: &ContentRestrictions,
+        skip_read: bool,
     ) -> Result<Option<BookDto>> {
         self.find_sibling_readlist(
             readlist,
@@ -198,6 +209,7 @@ impl BookDtoDao {
             filter_library_ids,
             restrictions,
             true,
+            skip_read,
         )
     }
 
@@ -206,6 +218,7 @@ impl BookDtoDao {
         book_id: &str,
         user_id: &str,
         next: bool,
+        skip_read: bool,
     ) -> Result<Option<BookDto>> {
         let conn = self.db.ro();
         // Kotlin uses fetchOne()!! here: an unknown book id is an internal error (500), not a 404
@@ -220,21 +233,32 @@ impl BookDtoDao {
             return Ok(None);
         };
         let (cmp, dir) = if next { (">", "ASC") } else { ("<", "DESC") };
-        let (from, mut params) = select_from(user_id, &BTreeSet::new());
-        // BOOK.ID breaks number_sort ties so navigation stays stable and matches On Deck ordering
-        let sql = format!(
-            "{SELECT_CLAUSE} {from} WHERE BOOK.SERIES_ID = ? \
-             AND (BOOK_METADATA.NUMBER_SORT {cmp} ? \
-                  OR (BOOK_METADATA.NUMBER_SORT = ? AND BOOK.ID {cmp} ?)) \
-             ORDER BY BOOK_METADATA.NUMBER_SORT {dir}, BOOK.ID {dir} LIMIT 1"
-        );
-        params.push(Value::Text(series_id));
-        params.push(Value::Real(number_sort as f64));
-        params.push(Value::Real(number_sort as f64));
-        params.push(Value::Text(book_id.to_string()));
-        Ok(fetch_and_map(&conn, &sql, params)?.into_iter().next())
+        let fetch = |extra_where: &str| -> Result<Option<BookDto>> {
+            let (from, mut params) = select_from(user_id, &BTreeSet::new());
+            // BOOK.ID breaks number_sort ties so navigation stays stable and matches On Deck ordering
+            let sql = format!(
+                "{SELECT_CLAUSE} {from} WHERE BOOK.SERIES_ID = ? \
+                 AND (BOOK_METADATA.NUMBER_SORT {cmp} ? \
+                      OR (BOOK_METADATA.NUMBER_SORT = ? AND BOOK.ID {cmp} ?)) \
+                 {extra_where} \
+                 ORDER BY BOOK_METADATA.NUMBER_SORT {dir}, BOOK.ID {dir} LIMIT 1"
+            );
+            params.push(Value::Text(series_id.clone()));
+            params.push(Value::Real(number_sort as f64));
+            params.push(Value::Real(number_sort as f64));
+            params.push(Value::Text(book_id.to_string()));
+            Ok(fetch_and_map(&conn, &sql, params)?.into_iter().next())
+        };
+        // all later books read: fall back to the plain next so re-reading still moves forward
+        if skip_read {
+            if let Some(dto) = fetch(&format!("AND {NOT_READ}"))? {
+                return Ok(Some(dto));
+            }
+        }
+        fetch("")
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn find_sibling_readlist(
         &self,
         readlist: &ReadList,
@@ -243,6 +267,7 @@ impl BookDtoDao {
         filter_library_ids: Option<&BTreeSet<String>>,
         restrictions: &ContentRestrictions,
         next: bool,
+        skip_read: bool,
     ) -> Result<Option<BookDto>> {
         let conn = self.db.ro();
         let library_vec: Option<Vec<String>> =
@@ -272,7 +297,6 @@ impl BookDtoDao {
 
             let mut joins = BTreeSet::new();
             joins.insert(RequiredJoin::ReadList(readlist.id.clone()));
-            let (from, mut params) = select_from(user_id, &joins);
             let mut conditions = SqlWhere::no_condition();
             if restrictions.is_restricted() {
                 conditions = conditions.and(content_restrictions_condition(restrictions));
@@ -287,19 +311,31 @@ impl BookDtoDao {
                 params: vec![Value::Integer(number as i64)],
                 joins: BTreeSet::new(),
             });
-            let mut sql = format!("{SELECT_CLAUSE} {from}");
-            if !conditions.sql.is_empty() {
-                sql.push_str(&format!(" WHERE {}", conditions.sql));
+            let fetch = |extra_where: &str| -> Result<Option<BookDto>> {
+                let (from, mut params) = select_from(user_id, &joins);
+                let mut sql = format!(
+                    "{SELECT_CLAUSE} {from} WHERE {}{extra_where}",
+                    conditions.sql
+                );
+                params.extend(conditions.params.iter().cloned());
+                sql.push_str(&format!(" ORDER BY {alias}.NUMBER {dir} LIMIT 1"));
+                Ok(fetch_and_map(&conn, &sql, params)?.into_iter().next())
+            };
+            // all later books read: fall back to the plain next so re-reading still moves forward
+            if skip_read {
+                if let Some(dto) = fetch(&format!(" AND {NOT_READ}"))? {
+                    return Ok(Some(dto));
+                }
             }
-            params.extend(conditions.params);
-            sql.push_str(&format!(" ORDER BY {alias}.NUMBER {dir} LIMIT 1"));
-            Ok(fetch_and_map(&conn, &sql, params)?.into_iter().next())
+            fetch("")
         } else {
             // a seek by release date is impossible (null and non-unique values), so the whole
             // list is pulled and the sibling is located in memory, as in the Kotlin code
             let mut sql = String::from(
-                "SELECT BOOK.ID FROM BOOK \
+                "SELECT BOOK.ID, READ_PROGRESS.COMPLETED FROM BOOK \
                  LEFT JOIN READLIST_BOOK ON (BOOK.ID = READLIST_BOOK.BOOK_ID) \
+                 LEFT JOIN READ_PROGRESS \
+                   ON (BOOK.ID = READ_PROGRESS.BOOK_ID AND READ_PROGRESS.USER_ID = ?) \
                  LEFT JOIN BOOK_METADATA ON (BOOK.ID = BOOK_METADATA.BOOK_ID)",
             );
             if restrictions.is_restricted() {
@@ -322,19 +358,32 @@ impl BookDtoDao {
                 " WHERE {} ORDER BY BOOK_METADATA.RELEASE_DATE",
                 conditions.sql
             ));
+            let mut params = vec![Value::Text(user_id.to_string())];
+            params.extend(conditions.params);
             let mut stmt = conn.prepare(&sql)?;
-            let book_ids: Vec<String> = stmt
-                .query_map(params_from_iter(conditions.params), |r| r.get(0))?
+            let books: Vec<(String, bool)> = stmt
+                .query_map(params_from_iter(params), |r| {
+                    Ok((r.get(0)?, r.get::<_, Option<bool>>(1)?.unwrap_or(false)))
+                })?
                 .collect::<std::result::Result<_, _>>()?;
-            let Some(index) = book_ids.iter().position(|id| id == book_id) else {
+            let Some(index) = books.iter().position(|(id, _)| id == book_id) else {
                 return Ok(None);
             };
             let sibling = if next {
-                book_ids.get(index + 1)
+                let later = &books[index + 1..];
+                // all later books read: fall back to the plain next so re-reading still moves forward
+                if skip_read {
+                    later
+                        .iter()
+                        .find(|(_, read)| !read)
+                        .or_else(|| later.first())
+                } else {
+                    later.first()
+                }
             } else {
-                index.checked_sub(1).and_then(|i| book_ids.get(i))
+                index.checked_sub(1).and_then(|i| books.get(i))
             };
-            let Some(sibling_id) = sibling else {
+            let Some((sibling_id, _)) = sibling else {
                 return Ok(None);
             };
 
@@ -1702,17 +1751,60 @@ mod tests {
         let db = base_db();
         let d = dao(&db);
         assert_eq!(
-            d.find_next_in_series("b1", "u1").unwrap().map(|b| b.id),
+            d.find_next_in_series("b1", "u1", false)
+                .unwrap()
+                .map(|b| b.id),
             Some("b2".to_string())
         );
-        assert!(d.find_next_in_series("b3", "u1").unwrap().is_none());
+        assert!(d.find_next_in_series("b3", "u1", false).unwrap().is_none());
         assert_eq!(
             d.find_previous_in_series("b3", "u1").unwrap().map(|b| b.id),
             Some("b2".to_string())
         );
         assert!(d.find_previous_in_series("b1", "u1").unwrap().is_none());
         // unknown book id is an internal error, mirroring Kotlin's fetchOne()!!
-        assert!(d.find_next_in_series("nope", "u1").is_err());
+        assert!(d.find_next_in_series("nope", "u1", false).is_err());
+    }
+
+    #[test]
+    fn sibling_series_skip_read() {
+        let db = base_db();
+        let d = dao(&db);
+        // fixture: b1 completed, b2 in progress; in progress counts as not read
+        assert_eq!(
+            d.find_next_in_series("b1", "u1", true)
+                .unwrap()
+                .map(|b| b.id),
+            Some("b2".to_string())
+        );
+        let conn = db.rw();
+        conn.execute(
+            "UPDATE READ_PROGRESS SET COMPLETED = 1 WHERE BOOK_ID = 'b2'",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+        assert_eq!(
+            d.find_next_in_series("b1", "u1", true)
+                .unwrap()
+                .map(|b| b.id),
+            Some("b3".to_string())
+        );
+        // every later book read: falls back to the plain next
+        let conn = db.rw();
+        insert_read_progress(&conn, "b3", "u1", 10, true);
+        drop(conn);
+        assert_eq!(
+            d.find_next_in_series("b1", "u1", true)
+                .unwrap()
+                .map(|b| b.id),
+            Some("b2".to_string())
+        );
+        // previous is unaffected by read state
+        assert_eq!(
+            d.find_previous_in_series("b3", "u1").unwrap().map(|b| b.id),
+            Some("b2".to_string())
+        );
     }
 
     #[test]
@@ -1740,7 +1832,9 @@ mod tests {
         let d = dao(&db);
         // c2 and c3 tie on number_sort: the smaller book id comes first in both directions
         assert_eq!(
-            d.find_next_in_series("c2", "u1").unwrap().map(|b| b.id),
+            d.find_next_in_series("c2", "u1", false)
+                .unwrap()
+                .map(|b| b.id),
             Some("c3".to_string())
         );
         assert_eq!(
@@ -1748,7 +1842,9 @@ mod tests {
             Some("c2".to_string())
         );
         assert_eq!(
-            d.find_next_in_series("c3", "u1").unwrap().map(|b| b.id),
+            d.find_next_in_series("c3", "u1", false)
+                .unwrap()
+                .map(|b| b.id),
             Some("c4".to_string())
         );
         assert_eq!(
@@ -1777,19 +1873,19 @@ mod tests {
         let rl = readlist("rl1", true);
         let none = ContentRestrictions::default();
         assert_eq!(
-            d.find_next_in_readlist(&rl, "b1", "u1", None, &none)
+            d.find_next_in_readlist(&rl, "b1", "u1", None, &none, false)
                 .unwrap()
                 .map(|b| b.id),
             Some("b3".to_string())
         );
         assert_eq!(
-            d.find_next_in_readlist(&rl, "b3", "u1", None, &none)
+            d.find_next_in_readlist(&rl, "b3", "u1", None, &none, false)
                 .unwrap()
                 .map(|b| b.id),
             Some("b5".to_string())
         );
         assert!(d
-            .find_next_in_readlist(&rl, "b5", "u1", None, &none)
+            .find_next_in_readlist(&rl, "b5", "u1", None, &none, false)
             .unwrap()
             .is_none());
         assert_eq!(
@@ -1812,7 +1908,7 @@ mod tests {
         let none = ContentRestrictions::default();
         // b5 is in l1: filtering on l2 hides it
         assert!(d
-            .find_next_in_readlist(&rl, "b3", "u1", Some(&set(&["l2"])), &none)
+            .find_next_in_readlist(&rl, "b3", "u1", Some(&set(&["l2"])), &none, false)
             .unwrap()
             .is_none());
         // b5's series has the "kids" sharing label: allowing "other" hides it
@@ -1822,7 +1918,7 @@ mod tests {
             BTreeSet::new(),
         );
         assert!(d
-            .find_next_in_readlist(&rl, "b3", "u1", None, &restrictions)
+            .find_next_in_readlist(&rl, "b3", "u1", None, &restrictions, false)
             .unwrap()
             .is_none());
         let restrictions = ContentRestrictions::new(
@@ -1831,7 +1927,7 @@ mod tests {
             BTreeSet::new(),
         );
         assert_eq!(
-            d.find_next_in_readlist(&rl, "b3", "u1", None, &restrictions)
+            d.find_next_in_readlist(&rl, "b3", "u1", None, &restrictions, false)
                 .unwrap()
                 .map(|b| b.id),
             Some("b5".to_string())
@@ -1846,19 +1942,19 @@ mod tests {
         let none = ContentRestrictions::default();
         // release dates: b5 NULL (first), b3 2019-01-01, b1 2020-01-01
         assert_eq!(
-            d.find_next_in_readlist(&rl, "b5", "u1", None, &none)
+            d.find_next_in_readlist(&rl, "b5", "u1", None, &none, false)
                 .unwrap()
                 .map(|b| b.id),
             Some("b3".to_string())
         );
         assert_eq!(
-            d.find_next_in_readlist(&rl, "b3", "u1", None, &none)
+            d.find_next_in_readlist(&rl, "b3", "u1", None, &none, false)
                 .unwrap()
                 .map(|b| b.id),
             Some("b1".to_string())
         );
         assert!(d
-            .find_next_in_readlist(&rl, "b1", "u1", None, &none)
+            .find_next_in_readlist(&rl, "b1", "u1", None, &none, false)
             .unwrap()
             .is_none());
         assert_eq!(
@@ -1866,6 +1962,61 @@ mod tests {
                 .unwrap()
                 .map(|b| b.id),
             Some("b3".to_string())
+        );
+    }
+
+    #[test]
+    fn sibling_readlist_skip_read() {
+        let db = base_db();
+        let d = dao(&db);
+        let none = ContentRestrictions::default();
+        // ordered rl1: b1 (completed), b3, b5
+        let rl = readlist("rl1", true);
+        assert_eq!(
+            d.find_next_in_readlist(&rl, "b1", "u1", None, &none, true)
+                .unwrap()
+                .map(|b| b.id),
+            Some("b3".to_string())
+        );
+        let conn = db.rw();
+        insert_read_progress(&conn, "b3", "u1", 10, true);
+        drop(conn);
+        assert_eq!(
+            d.find_next_in_readlist(&rl, "b1", "u1", None, &none, true)
+                .unwrap()
+                .map(|b| b.id),
+            Some("b5".to_string())
+        );
+        // every later book read: falls back to the plain next
+        let conn = db.rw();
+        insert_read_progress(&conn, "b5", "u1", 10, true);
+        drop(conn);
+        assert_eq!(
+            d.find_next_in_readlist(&rl, "b1", "u1", None, &none, true)
+                .unwrap()
+                .map(|b| b.id),
+            Some("b3".to_string())
+        );
+
+        // unordered rl2 by release date: b5, b3, b1 — b3 read above, b1 read in the fixture,
+        // so skipping falls back to the plain next
+        let rl = readlist("rl2", false);
+        assert_eq!(
+            d.find_next_in_readlist(&rl, "b5", "u1", None, &none, true)
+                .unwrap()
+                .map(|b| b.id),
+            Some("b3".to_string())
+        );
+        // with b1 unread again, skipping walks past the read b3
+        let conn = db.rw();
+        conn.execute("DELETE FROM READ_PROGRESS WHERE BOOK_ID = 'b1'", [])
+            .unwrap();
+        drop(conn);
+        assert_eq!(
+            d.find_next_in_readlist(&rl, "b5", "u1", None, &none, true)
+                .unwrap()
+                .map(|b| b.id),
+            Some("b1".to_string())
         );
     }
 
