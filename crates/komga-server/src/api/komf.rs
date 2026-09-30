@@ -69,11 +69,12 @@ pub fn router() -> Router<AppState> {
             "/api/v1/komf/oauth/{provider}/logout",
             routing::post(oauth_logout),
         )
-        // komf hardcodes this path into the OAuth state's redirectUrl and its relay
-        // page only accepts paths ending in /api/oauth/{provider}/callback, so the
-        // proxied callback cannot live under /api/v1/komf/
+        // komf builds the OAuth callback under the prefix passed on start, and the
+        // relay page accepts it because the path still ends in
+        // /api/oauth/{provider}/callback; requires a komf version with
+        // redirect_path_prefix support
         .route(
-            "/api/oauth/{provider}/callback",
+            "/api/v1/komf/api/oauth/{provider}/callback",
             routing::get(oauth_callback),
         )
 }
@@ -388,6 +389,10 @@ async fn get_jobs_events(
 
 const KOMF_OAUTH: &str = "/api/oauth";
 
+/// Passed as `redirect_path_prefix` on start so komf builds the OAuth callback
+/// inside the integration namespace instead of its hardcoded root path.
+const KOMF_OAUTH_CALLBACK_PREFIX: &str = "/api/v1/komf";
+
 /// The provider is interpolated into the upstream URL and the callback route is
 /// anonymous: reject anything but lowercase ASCII letters so a percent-encoded
 /// segment cannot traverse into komf's unauthenticated API. Legal-but-unknown
@@ -414,7 +419,9 @@ async fn oauth_start(
         .proxy_oauth(
             Method::GET,
             &format!("{KOMF_OAUTH}/{provider}/start"),
-            None,
+            Some(&format!(
+                "redirect_path_prefix={KOMF_OAUTH_CALLBACK_PREFIX}"
+            )),
             &headers,
             Duration::from_secs(10),
         )
@@ -1398,7 +1405,10 @@ mod tests {
             .await;
         assert_eq!(status, StatusCode::BAD_GATEWAY);
         let (status, _) = app
-            .get_json("/api/oauth/anilist/callback?code=x&state=y", "k-admin")
+            .get_json(
+                "/api/v1/komf/api/oauth/anilist/callback?code=x&state=y",
+                "k-admin",
+            )
             .await;
         assert_eq!(status, StatusCode::BAD_GATEWAY);
     }
@@ -1470,6 +1480,10 @@ mod tests {
         assert_eq!(captured.len(), 1);
         assert_eq!(captured[0].method, "GET");
         assert_eq!(captured[0].path, "/api/oauth/anilist/start");
+        assert_eq!(
+            captured[0].query.as_deref(),
+            Some("redirect_path_prefix=/api/v1/komf")
+        );
         assert_eq!(captured[0].headers["host"], "kmrs.example");
         assert_eq!(captured[0].headers["x-forwarded-host"], "public.example");
         assert_eq!(captured[0].headers["x-forwarded-proto"], "https");
@@ -1486,7 +1500,7 @@ mod tests {
         let (status, headers, _) = raw_request(
             &app,
             "GET",
-            "/api/oauth/anilist/callback?code=auth-code&state=opaque",
+            "/api/v1/komf/api/oauth/anilist/callback?code=auth-code&state=opaque",
             &[],
         )
         .await;
@@ -1565,7 +1579,7 @@ mod tests {
         let (status, _, bytes) = raw_request(
             &app,
             "GET",
-            "/api/oauth/..%2F..%2Fapi%2Fconfig%3F/callback?code=x&state=y",
+            "/api/v1/komf/api/oauth/..%2F..%2Fapi%2Fconfig%3F/callback?code=x&state=y",
             &[],
         )
         .await;
