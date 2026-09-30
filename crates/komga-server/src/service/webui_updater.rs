@@ -210,8 +210,15 @@ fn sha256_hex(path: &Path) -> anyhow::Result<String> {
     use sha2::Digest;
     let mut file = std::fs::File::open(path)?;
     let mut hasher = sha2::Sha256::new();
-    std::io::copy(&mut file, &mut hasher)?;
-    Ok(format!("{:x}", hasher.finalize()))
+    let mut buf = [0u8; 8192];
+    loop {
+        let n = std::io::Read::read(&mut file, &mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hex::encode(hasher.finalize()))
 }
 
 /// `unpack_in` refuses entries escaping the destination; turn that into an error
@@ -391,7 +398,7 @@ mod tests {
 
     fn sha_of(bytes: &[u8]) -> String {
         use sha2::Digest;
-        format!("{:x}", sha2::Sha256::digest(bytes))
+        hex::encode(sha2::Sha256::digest(bytes))
     }
 
     fn baseline(index_html: &str, marker: Option<&str>) -> tempfile::TempDir {

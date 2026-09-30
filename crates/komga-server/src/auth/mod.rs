@@ -60,7 +60,7 @@ impl Auth {
 }
 
 pub fn sha512_hex(input: &str) -> String {
-    format!("{:x}", Sha512::digest(input.as_bytes()))
+    hex::encode(Sha512::digest(input.as_bytes()))
 }
 
 pub struct ActivityDraft {

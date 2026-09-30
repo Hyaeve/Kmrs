@@ -21,7 +21,7 @@ tokio = { version = "1", features = ["full"] }
 # http
 axum = { version = "0.8", features = ["multipart"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["cors", "fs", "trace"] }
+tower-http = { version = "0.7", features = ["cors", "fs", "trace"] }
 # db
 rusqlite = { version = "0.32", features = ["bundled", "collation", "functions"] }
 r2d2 = "0.8"
@@ -29,12 +29,13 @@ r2d2_sqlite = "0.25"
 # serde
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-quick-xml = { version = "0.37", features = ["serialize"] }
+quick-xml = { version = "0.42", features = ["serialize"] }
 # crypto / hash
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
-md5 = "0.7"
-sha2 = "0.10"
-bcrypt = "0.17"
+md5 = "0.8"
+sha2 = "0.11"
+hex = "0.4"
+bcrypt = "0.19"
 flate2 = "1"
 tar = "0.4"
 crc32fast = "1"
@@ -46,7 +47,7 @@ icu_normalizer = "2"
 icu_locale = "2"
 # cli / config
 clap = { version = "4", features = ["derive"] }
-toml = "0.8"
+toml = "1.1"
 serde_yaml = "0.9"
 # utils
 tracing = "0.1"
@@ -62,8 +63,8 @@ moka = { version = "0.12", features = ["future", "sync"] }
 sysinfo = { version = "0.39", default-features = false, features = ["system", "disk"] }
 jiff = "0.2"
 zip = { version = "8", default-features = false, features = ["deflate"] }
-roxmltree = "0.20"
-scraper = "0.23"
+roxmltree = "0.21"
+scraper = "0.27"
 compress-tools = { version = "0.16", default-features = false, features = ["static"] }
 pdfium-render = "0.9"
 tantivy = "0.26.2"

@@ -122,7 +122,7 @@ fn compute_hashes_impl<R: Read>(
 
     let file_hash = want_file.then(|| format!("{:032x}", file_hasher.digest128()));
     let koreader_hash = want_koreader.then(|| {
-        let digest = koreader_ctx.compute();
+        let digest = koreader_ctx.finalize();
         format!("{digest:x}")
     });
     Ok((file_hash, koreader_hash))
@@ -146,7 +146,7 @@ pub fn compute_koreader_hash(path: &Path) -> std::io::Result<String> {
             context.consume(buffer);
         }
     }
-    let digest = context.compute();
+    let digest = context.finalize();
     Ok(format!("{digest:x}"))
 }
 

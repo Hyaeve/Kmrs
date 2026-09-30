@@ -1300,6 +1300,9 @@ fn scan_divina_page(
 ) -> Result<Option<Vec<String>>> {
     let mut reader = quick_xml::Reader::from_reader(content.as_bytes());
     reader.config_mut().trim_text(false);
+    // real-world EPUB pages carry bare `&`; the default treats them as ill-formed
+    // and fails the whole page
+    reader.config_mut().allow_dangling_amp = true;
     let mut buffer = Vec::new();
     // ancestor element local names; lets us detect `image` whose parent is `svg`
     let mut stack: Vec<String> = Vec::new();
@@ -1320,7 +1323,7 @@ fn scan_divina_page(
                 if name == "body" {
                     inside_body = true;
                 } else if name == "img" {
-                    push_image_attr(e.attributes().flatten(), b"src", page_path, &mut images);
+                    push_image_attr(e.attributes().flatten(), "src", page_path, &mut images);
                 } else if name == "image" && stack.last().map(|p| p == "svg").unwrap_or(false) {
                     push_image_href(e.attributes().flatten(), page_path, &mut svg_images);
                 }
@@ -1330,7 +1333,7 @@ fn scan_divina_page(
                 let qname = e.name();
                 let name = xml_local_name(qname.as_ref());
                 if name == "img" {
-                    push_image_attr(e.attributes().flatten(), b"src", page_path, &mut images);
+                    push_image_attr(e.attributes().flatten(), "src", page_path, &mut images);
                 } else if name == "image" && stack.last().map(|p| p == "svg").unwrap_or(false) {
                     push_image_href(e.attributes().flatten(), page_path, &mut svg_images);
                 }
@@ -1346,20 +1349,37 @@ fn scan_divina_page(
                 }
             }
             Ok(quick_xml::events::Event::Text(t)) if inside_body => {
-                // unescape failures (e.g. XHTML's &nbsp;) fall back to the raw chunk
-                // instead of silently dropping it
-                add_body_text(
-                    t.unescape()
-                        .map(|cow| cow.into_owned())
-                        .unwrap_or_else(|_| String::from_utf8_lossy(t.as_ref()).into_owned())
-                        .as_bytes(),
-                    &mut in_word,
-                    &mut word_count,
-                    &mut non_ws_units,
-                );
+                add_body_text(&t, &mut in_word, &mut word_count, &mut non_ws_units);
+            }
+            Ok(quick_xml::events::Event::GeneralRef(r)) if inside_body => {
+                // only the 5 predefined entities and `&#...;` char refs resolve;
+                // anything else (e.g. XHTML's `&nbsp;`) counts as its raw `&name;`
+                // text instead of being silently dropped
+                let resolved = match r.as_ref() {
+                    "lt" => Some('<'),
+                    "gt" => Some('>'),
+                    "amp" => Some('&'),
+                    "apos" => Some('\''),
+                    "quot" => Some('"'),
+                    _ => r.resolve_char_ref().ok().flatten(),
+                };
+                match resolved {
+                    Some(c) => add_body_text(
+                        c.encode_utf8(&mut [0; 4]),
+                        &mut in_word,
+                        &mut word_count,
+                        &mut non_ws_units,
+                    ),
+                    None => add_body_text(
+                        &format!("&{};", r.as_ref()),
+                        &mut in_word,
+                        &mut word_count,
+                        &mut non_ws_units,
+                    ),
+                }
             }
             Ok(quick_xml::events::Event::CData(t)) if inside_body => {
-                add_body_text(t.as_ref(), &mut in_word, &mut word_count, &mut non_ws_units);
+                add_body_text(&t, &mut in_word, &mut word_count, &mut non_ws_units);
             }
             Ok(quick_xml::events::Event::Eof) => break,
             Err(e) => return Err(MediaError::Other(anyhow::anyhow!(e))),
@@ -1381,21 +1401,20 @@ fn scan_divina_page(
 }
 
 /// XML local name: `xhtml:body` -> `body`
-fn xml_local_name(name: &[u8]) -> &str {
-    let s = std::str::from_utf8(name).unwrap_or("");
-    s.rsplit(':').next().unwrap_or(s)
+fn xml_local_name(name: &str) -> &str {
+    name.rsplit(':').next().unwrap_or(name)
 }
 
 /// One character chunk of body text, in jsoup `body().text()` semantics: non-whitespace
 /// UTF-16 units accumulate, and each whitespace run that closes a word counts as the
 /// single normalized space jsoup would insert between words.
 fn add_body_text(
-    chunk: &[u8],
+    chunk: &str,
     in_word: &mut bool,
     word_count: &mut usize,
     non_ws_units: &mut usize,
 ) {
-    for c in std::str::from_utf8(chunk).unwrap_or("").chars() {
+    for c in chunk.chars() {
         if c.is_whitespace() {
             if *in_word {
                 *word_count += 1;
@@ -1408,19 +1427,17 @@ fn add_body_text(
     }
 }
 
-/// XML-unescaped attribute value (`&amp;` -> `&`), raw bytes on unescape failure.
+/// XML-unescaped attribute value (`&amp;` -> `&`), raw text on unescape failure.
 fn attr_value(attr: &quick_xml::events::attributes::Attribute<'_>) -> String {
-    std::str::from_utf8(&attr.value)
-        .ok()
-        .and_then(|raw| quick_xml::escape::unescape(raw).ok())
+    quick_xml::escape::unescape(&attr.value)
         .map(|cow| cow.into_owned())
-        .unwrap_or_else(|| String::from_utf8_lossy(&attr.value).into_owned())
+        .unwrap_or_else(|_| attr.value.clone().into_owned())
 }
 
 /// Push the value of the exact-named attribute (e.g. `src` on `img`) into `images`.
 fn push_image_attr<'a>(
     attrs: impl Iterator<Item = quick_xml::events::attributes::Attribute<'a>>,
-    key: &'static [u8],
+    key: &'static str,
     page_path: &str,
     images: &mut Vec<String>,
 ) {
@@ -1442,7 +1459,7 @@ fn push_image_href<'a>(
 ) {
     for attr in attrs {
         let key = attr.key.as_ref();
-        if key == b"href" || key.ends_with(b":href") {
+        if key == "href" || key.ends_with(":href") {
             images.push(resolve_relative(
                 page_path,
                 &percent_decode(&attr_value(&attr)),

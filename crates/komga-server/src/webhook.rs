@@ -372,7 +372,7 @@ fn hmac_sha256_hex(key: &[u8], message: &[u8]) -> String {
         outer.update([b ^ 0x5c]);
     }
     outer.update(inner_hash);
-    format!("{:x}", outer.finalize())
+    hex::encode(outer.finalize())
 }
 
 /// Maps a domain event to its webhook `(name, data)`. Names and shapes match the SSE
