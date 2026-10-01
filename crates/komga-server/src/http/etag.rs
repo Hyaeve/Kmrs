@@ -1,7 +1,9 @@
 //! Middleware equivalent of `ShallowEtagHeaderFilter`:
 //! for GET responses under `/api/*`, `/opds/*`, `/kobo/*` that are 2xx and not no-store,
 //! generates a strong ETag from the body MD5 (`"0<md5hex>"`); an `If-None-Match` hit → 304.
-//! File download paths (`*/file/**` of books/series/readlists/kobo) are excluded.
+//! File download paths (`*/file/**` of books/series/readlists/kobo) are excluded, and so
+//! is the komf proxy namespace (admin-only relays of a live service's dynamic payloads,
+//! where a body-hash ETag only costs a full buffer).
 //! A response that already carries an ETag (a handler-computed deep ETag, see
 //! `stored_thumbnail_response`) passes through untouched.
 
@@ -11,11 +13,13 @@ use axum::extract::Request;
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::middleware::Next;
 use axum::response::Response;
+use http_body::Body as _;
 
 pub async fn etag_middleware(request: Request, next: Next) -> Response {
     let path = request.uri().path().to_string();
     let applies =
         (path.starts_with("/api/") || path.starts_with("/opds/") || path.starts_with("/kobo/"))
+            && !path.starts_with("/api/v1/komf/")
             && !is_file_download(&path);
     let if_none_match = request
         .headers()
@@ -38,6 +42,11 @@ pub async fn etag_middleware(request: Request, next: Next) -> Response {
         .unwrap_or("")
         .to_string();
     if cache_control.contains("no-store") {
+        return response;
+    }
+    // an unknown-size body has no complete form to hash; when it is a stream that never
+    // ends (SSE relay), buffering it would hang the response forever
+    if response.body().size_hint().exact().is_none() {
         return response;
     }
 
@@ -149,6 +158,122 @@ pub fn stored_thumbnail_response(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An SSE-style body never ends: the middleware must pass it through instead of
+    /// buffering it for an ETag (the komf job-events relay hangs on `to_bytes` otherwise).
+    /// The path stays outside the komf namespace so the size gate is what is exercised.
+    #[tokio::test]
+    async fn streaming_body_is_not_buffered_for_etag() {
+        let app = axum::Router::new()
+            .route(
+                "/api/v1/events",
+                axum::routing::get(|| async {
+                    Response::builder()
+                        .header(axum::http::header::CONTENT_TYPE, "text/event-stream")
+                        .header(axum::http::header::CACHE_CONTROL, "no-cache")
+                        .body(Body::from_stream(futures_util::stream::pending::<
+                            Result<String, std::convert::Infallible>,
+                        >()))
+                        .unwrap()
+                }),
+            )
+            .layer(axum::middleware::from_fn(etag_middleware));
+
+        let request = axum::http::Request::get("/api/v1/events")
+            .body(Body::empty())
+            .unwrap();
+        let response = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            tower::ServiceExt::oneshot(app, request),
+        )
+        .await
+        .expect("a streaming response must come back, not be buffered forever")
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(!response.headers().contains_key(axum::http::header::ETAG));
+    }
+
+    /// The komf proxy namespace is out of ETag scope even for bounded JSON.
+    #[tokio::test]
+    async fn komf_namespace_gets_no_etag() {
+        let app = axum::Router::new()
+            .route(
+                "/api/v1/komf/jobs",
+                axum::routing::get(|| async { axum::Json(serde_json::json!({"content": []})) }),
+            )
+            .layer(axum::middleware::from_fn(etag_middleware));
+
+        let request = axum::http::Request::get("/api/v1/komf/jobs")
+            .body(Body::empty())
+            .unwrap();
+        let response = tower::ServiceExt::oneshot(app, request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(!response.headers().contains_key(axum::http::header::ETAG));
+    }
+
+    /// Bounded bodies keep their shallow ETag (the size gate must not disable it).
+    #[tokio::test]
+    async fn bounded_body_still_gets_etag() {
+        let app = axum::Router::new()
+            .route(
+                "/api/v1/data",
+                axum::routing::get(|| async { axum::Json(serde_json::json!({"a": 1})) }),
+            )
+            .layer(axum::middleware::from_fn(etag_middleware));
+
+        let request = axum::http::Request::get("/api/v1/data")
+            .body(Body::empty())
+            .unwrap();
+        let response = tower::ServiceExt::oneshot(app, request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let etag = response
+            .headers()
+            .get(axum::http::header::ETAG)
+            .expect("bounded responses keep their ETag");
+        assert!(etag.to_str().unwrap().starts_with("\"0"));
+    }
+
+    /// A matching If-None-Match short-circuits to 304 with an empty body.
+    #[tokio::test]
+    async fn if_none_match_hit_returns_304() {
+        fn app() -> axum::Router {
+            axum::Router::new()
+                .route(
+                    "/api/v1/data",
+                    axum::routing::get(|| async { axum::Json(serde_json::json!({"a": 1})) }),
+                )
+                .layer(axum::middleware::from_fn(etag_middleware))
+        }
+
+        let first = tower::ServiceExt::oneshot(
+            app(),
+            axum::http::Request::get("/api/v1/data")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+        let etag = first
+            .headers()
+            .get(axum::http::header::ETAG)
+            .unwrap()
+            .clone();
+
+        let second = tower::ServiceExt::oneshot(
+            app(),
+            axum::http::Request::get("/api/v1/data")
+                .header(axum::http::header::IF_NONE_MATCH, etag)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(second.status(), StatusCode::NOT_MODIFIED);
+        let body = axum::body::to_bytes(second.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert!(body.is_empty());
+    }
 
     #[test]
     fn if_none_match_variants() {
