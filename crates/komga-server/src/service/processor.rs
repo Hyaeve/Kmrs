@@ -53,7 +53,7 @@ async fn drain_queue(state: &AppState) {
     let pool_size = state.settings.get().task_pool_size.max(1) as usize;
     let mut set = tokio::task::JoinSet::new();
     loop {
-        while set.len() < pool_size && has_available(state) {
+        while set.len() < pool_size && has_available(state).await {
             let st = state.clone();
             let id = WORKER_ID.fetch_add(1, Ordering::Relaxed) + 1;
             set.spawn(async move { process_one(&st, id).await });
@@ -67,20 +67,31 @@ async fn drain_queue(state: &AppState) {
     }
 }
 
-fn has_available(state: &AppState) -> bool {
-    TasksDao::new(state.tasks_db.clone())
-        .has_available()
+/// Queue operations wait on pool checkout while a post-scan batch holds the single RW
+/// connection, so they must stay off the async workers.
+async fn has_available(state: &AppState) -> bool {
+    let db = state.tasks_db.clone();
+    tokio::task::spawn_blocking(move || TasksDao::new(db).has_available().unwrap_or(false))
+        .await
         .unwrap_or(false)
 }
 
 /// Claims and runs a single task, then removes it from the queue (success or failure alike).
 async fn process_one(state: &AppState, worker: u32) {
     let owner = format!("taskProcessor-{worker}");
-    let task = match TasksDao::new(state.tasks_db.clone()).take_first(&owner) {
-        Ok(Some(task)) => task,
-        Ok(None) => return,
-        Err(e) => {
+    let claim = {
+        let db = state.tasks_db.clone();
+        tokio::task::spawn_blocking(move || TasksDao::new(db).take_first(&owner)).await
+    };
+    let task = match claim {
+        Ok(Ok(Some(task))) => task,
+        Ok(Ok(None)) => return,
+        Ok(Err(e)) => {
             tracing::error!("Failed to take task: {e}");
+            return;
+        }
+        Err(e) => {
+            tracing::error!("Task claim panicked: {e}");
             return;
         }
     };
@@ -101,8 +112,16 @@ async fn process_one(state: &AppState, worker: u32) {
             false,
         );
     }
-    if let Err(e) = TasksDao::new(state.tasks_db.clone()).delete(&task.unique_id()) {
-        tracing::error!("Failed to delete task {}: {e}", task.unique_id());
+    let unique_id = task.unique_id();
+    let deleted = {
+        let db = state.tasks_db.clone();
+        let id = unique_id.clone();
+        tokio::task::spawn_blocking(move || TasksDao::new(db).delete(&id)).await
+    };
+    match deleted {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => tracing::error!("Failed to delete task {unique_id}: {e}"),
+        Err(e) => tracing::error!("Task delete panicked for {unique_id}: {e}"),
     }
 }
 
