@@ -125,27 +125,34 @@ impl TasksDao {
     }
 
     /// Upsert by unique ID (jOOQ `onDuplicateKeyUpdate`): LAST_MODIFIED_DATE moves to now.
+    /// The whole batch commits as one transaction: post-scan batches enqueue one task per
+    /// affected book, and per-row autocommit would mean one fsync per book with the single
+    /// RW connection held for the entire loop (Java commits every 1000-task chunk).
     pub fn save_many(&self, tasks: &[Task]) -> Result<()> {
-        let conn = self.db.rw();
-        let mut stmt = conn.prepare(
-            "INSERT INTO TASK (ID, PRIORITY, GROUP_ID, CLASS, SIMPLE_TYPE, PAYLOAD) \
-             VALUES (?, ?, ?, ?, ?, ?) \
-             ON CONFLICT(ID) DO UPDATE SET \
-             GROUP_ID = excluded.GROUP_ID, PRIORITY = excluded.PRIORITY, CLASS = excluded.CLASS, \
-             SIMPLE_TYPE = excluded.SIMPLE_TYPE, PAYLOAD = excluded.PAYLOAD, \
-             LAST_MODIFIED_DATE = ?",
-        )?;
-        for task in tasks {
-            stmt.execute(params![
-                task.unique_id(),
-                task.priority(),
-                task.group_id(),
-                task.class_name(),
-                task.simple_type(),
-                task.to_payload().to_string(),
-                time_codec::format_datetime(time_codec::now_utc()),
-            ])?;
+        let mut conn = self.db.rw();
+        let tx = conn.transaction()?;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO TASK (ID, PRIORITY, GROUP_ID, CLASS, SIMPLE_TYPE, PAYLOAD) \
+                 VALUES (?, ?, ?, ?, ?, ?) \
+                 ON CONFLICT(ID) DO UPDATE SET \
+                 GROUP_ID = excluded.GROUP_ID, PRIORITY = excluded.PRIORITY, CLASS = excluded.CLASS, \
+                 SIMPLE_TYPE = excluded.SIMPLE_TYPE, PAYLOAD = excluded.PAYLOAD, \
+                 LAST_MODIFIED_DATE = ?",
+            )?;
+            for task in tasks {
+                stmt.execute(params![
+                    task.unique_id(),
+                    task.priority(),
+                    task.group_id(),
+                    task.class_name(),
+                    task.simple_type(),
+                    task.to_payload().to_string(),
+                    time_codec::format_datetime(time_codec::now_utc()),
+                ])?;
+            }
         }
+        tx.commit()?;
         Ok(())
     }
 
