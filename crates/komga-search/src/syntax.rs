@@ -360,30 +360,7 @@ pub fn build_query(
         Node::MatchAll => Box::new(AllQuery),
         Node::Term { field, text } => {
             let tokens = analyzer::search_analyze(text);
-            per_field(field, entity, schema, |f| {
-                let terms: Vec<Term> = tokens.iter().map(|t| Term::from_field_text(f, t)).collect();
-                match terms.len() {
-                    0 => Box::new(EmptyQuery) as Box<dyn Query>,
-                    1 => Box::new(TermQuery::new(
-                        terms.into_iter().next().unwrap(),
-                        IndexRecordOption::WithFreqsAndPositions,
-                    )),
-                    _ => Box::new(BooleanQuery::new(
-                        terms
-                            .into_iter()
-                            .map(|t| {
-                                (
-                                    Occur::Must,
-                                    Box::new(TermQuery::new(
-                                        t,
-                                        IndexRecordOption::WithFreqsAndPositions,
-                                    )) as Box<dyn Query>,
-                                )
-                            })
-                            .collect(),
-                    )),
-                }
-            })?
+            build_term_query(field, entity, schema, &tokens)?
         }
         Node::Phrase { field, text } => {
             let tokens = analyzer::search_analyze(text);
@@ -442,6 +419,51 @@ pub fn build_query(
                 (Occur::Must, Box::new(AllQuery)),
                 (Occur::MustNot, build_query(inner, entity, schema)?),
             ]))
+        }
+    })
+}
+
+/// The user clause of a `searchEntitiesIds`-style query (`"<term> *:*"`): a single
+/// unqualified term implicitly ANDed with the match-all-docs clause, as produced
+/// for a plain search-box string.
+pub(crate) fn bare_term(ast: &Node) -> Option<&str> {
+    match ast {
+        Node::And(nodes) => match &nodes[..] {
+            [Node::Term { field: None, text }, Node::MatchAll] => Some(text.as_str()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Analyzed-term query for pre-tokenized input (`build_query` analyzes the raw text
+/// itself; the progressive prefix fallback reuses this on token prefixes).
+pub(crate) fn build_term_query(
+    field: &Option<String>,
+    entity: LuceneEntity,
+    schema: &Schema,
+    tokens: &[String],
+) -> Result<Box<dyn Query>, ParseError> {
+    per_field(field, entity, schema, |f| {
+        let terms: Vec<Term> = tokens.iter().map(|t| Term::from_field_text(f, t)).collect();
+        match terms.len() {
+            0 => Box::new(EmptyQuery) as Box<dyn Query>,
+            1 => Box::new(TermQuery::new(
+                terms.into_iter().next().unwrap(),
+                IndexRecordOption::WithFreqsAndPositions,
+            )),
+            _ => Box::new(BooleanQuery::new(
+                terms
+                    .into_iter()
+                    .map(|t| {
+                        (
+                            Occur::Must,
+                            Box::new(TermQuery::new(t, IndexRecordOption::WithFreqsAndPositions))
+                                as Box<dyn Query>,
+                        )
+                    })
+                    .collect(),
+            )),
         }
     })
 }

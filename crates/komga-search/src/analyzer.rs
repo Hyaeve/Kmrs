@@ -246,6 +246,17 @@ pub fn lowercase(tokens: Vec<String>) -> Vec<String> {
     tokens.into_iter().map(|t| t.to_lowercase()).collect()
 }
 
+/// Lowest prefix length the progressive prefix fallback may retry a query with:
+/// past the last whole-word (non-CJK) token, and never below two tokens, so
+/// relaxation only ever drops a bigram-chain suffix and never degrades to a
+/// single-term query.
+pub(crate) fn cjk_droppable_floor(tokens: &[String]) -> usize {
+    match tokens.iter().rposition(|t| !t.chars().all(is_cjk_char)) {
+        Some(i) => (i + 1).max(2),
+        None => 2,
+    }
+}
+
 /// Search-side bigram chain: sliding bigrams over the CJK character stream; a trailing
 /// lone CJK character is emitted as a unigram, and the first character of a CJK run
 /// following a non-CJK token is emitted as a unigram too (kmrs's boundary extension).
@@ -546,6 +557,17 @@ mod tests {
         assert_eq!(cjk_width_str("ｶﾞｷ"), "ガキ");
         assert_eq!(cjk_width_str("ﾊﾟﾋﾟ"), "パピ");
         assert_eq!(cjk_width_str("ｳﾞ"), "ヴ");
+    }
+
+    #[test]
+    fn cjk_droppable_floor_keeps_whole_words() {
+        let tokens = |ts: &[&str]| ts.iter().map(|t| t.to_string()).collect::<Vec<_>>();
+        // pure CJK chain: only the two-token minimum bounds the floor
+        assert_eq!(cjk_droppable_floor(&tokens(&["葬送", "送的", "系列"])), 2);
+        // a leading whole-word clause is kept, and the minimum still applies
+        assert_eq!(cjk_droppable_floor(&tokens(&["jojo", "的", "系列"])), 2);
+        // a trailing whole-word clause sets the floor past itself
+        assert_eq!(cjk_droppable_floor(&tokens(&["的", "系列", "frieren"])), 3);
     }
 
     #[test]

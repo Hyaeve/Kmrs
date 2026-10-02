@@ -295,10 +295,58 @@ impl SearchIndex {
         let Ok(ast) = syntax::parse(&format!("{term} *:*")) else {
             return Some(vec![]);
         };
-        let fields_query = match syntax::build_query(&ast, entity, &self.index.schema()) {
+        let schema = self.index.schema();
+        let fields_query = match syntax::build_query(&ast, entity, &schema) {
             Ok(query) => query,
             Err(_) => return Some(vec![]),
         };
+        let searcher = self.reader.searcher();
+        let ids = match self.search_ids(&searcher, fields_query, entity) {
+            Ok(ids) => ids,
+            Err(e) => {
+                tracing::error!("error fetching entities from index: {e}");
+                return Some(vec![]);
+            }
+        };
+        if !ids.is_empty() {
+            return Some(ids);
+        }
+        // Progressive prefix fallback, a kmrs extension over Lucene: CJK bigrams are
+        // sub-word units, so a bare-term query that overhangs the title ("葬送的芙莉莲系列"
+        // vs "葬送的芙莉莲") is retried with trailing analyzed tokens dropped one by one.
+        // Only a suffix of bigram-chain tokens may be dropped, so whole-word (latin/digit)
+        // clauses are never relaxed; the retained prefix keeps at least two tokens, so a
+        // Lucene miss stays a miss when no bigram prefix matches. Phrases and compound
+        // queries are untouched.
+        if let Some(text) = syntax::bare_term(&ast) {
+            let tokens = analyzer::search_analyze(text);
+            let floor = analyzer::cjk_droppable_floor(&tokens);
+            for n in (floor..tokens.len()).rev() {
+                let Ok(query) = syntax::build_term_query(&None, entity, &schema, &tokens[..n])
+                else {
+                    break;
+                };
+                match self.search_ids(&searcher, query, entity) {
+                    Ok(ids) if !ids.is_empty() => return Some(ids),
+                    Ok(_) => {}
+                    Err(e) => {
+                        tracing::error!("error fetching entities from index: {e}");
+                        break;
+                    }
+                }
+            }
+        }
+        Some(vec![])
+    }
+
+    /// Runs `fields_query` AND the entity-type filter, mapping hits to ids in
+    /// score order.
+    fn search_ids(
+        &self,
+        searcher: &tantivy::Searcher,
+        fields_query: Box<dyn tantivy::query::Query>,
+        entity: LuceneEntity,
+    ) -> tantivy::Result<Vec<String>> {
         let type_query = TermQuery::new(
             Term::from_field_text(self.field(TYPE_FIELD), entity_type_str(entity)),
             IndexRecordOption::WithFreqs,
@@ -307,25 +355,16 @@ impl SearchIndex {
             (Occur::Must, fields_query),
             (Occur::Must, Box::new(type_query)),
         ]);
-        let searcher = self.reader.searcher();
         let id_field = self.field(entity_id_field(entity));
-        let top =
-            match searcher.search(&boolean, &TopDocs::with_limit(MAX_RESULTS).order_by_score()) {
-                Ok(top) => top,
-                Err(e) => {
-                    tracing::error!("error fetching entities from index: {e}");
-                    return Some(vec![]);
-                }
-            };
-        Some(
-            top.into_iter()
-                .filter_map(|(_, addr)| searcher.doc::<TantivyDocument>(addr).ok())
-                .filter_map(|doc| {
-                    doc.get_first(id_field)
-                        .and_then(|v| v.as_value().as_str().map(str::to_string))
-                })
-                .collect(),
-        )
+        let top = searcher.search(&boolean, &TopDocs::with_limit(MAX_RESULTS).order_by_score())?;
+        Ok(top
+            .into_iter()
+            .filter_map(|(_, addr)| searcher.doc::<TantivyDocument>(addr).ok())
+            .filter_map(|doc| {
+                doc.get_first(id_field)
+                    .and_then(|v| v.as_value().as_str().map(str::to_string))
+            })
+            .collect())
     }
 
     /// Buffers new documents; they become searchable at the next `commit`.
@@ -584,6 +623,78 @@ mod tests {
             .search_entity_ids(Some("海賊*"), LuceneEntity::Book)
             .unwrap();
         assert_eq!(ids, vec!["b3"]);
+    }
+
+    #[test]
+    fn search_cjk_prefix_fallback() {
+        let (_dir, index) = index();
+        index
+            .add_documents(vec![
+                book("b1", &[("title", "葬送的芙莉莲")]),
+                book("b2", &[("title", "JOJO的奇妙冒险")]),
+                book("b3", &[("title", "Frieren系列")]),
+            ])
+            .unwrap();
+        index.commit().unwrap();
+        // tail overhang: the title is a token-prefix of the query (n=5 of 8 tokens)
+        let ids = index
+            .search_entity_ids(Some("葬送的芙莉莲系列"), LuceneEntity::Book)
+            .unwrap();
+        assert_eq!(ids, vec!["b1"]);
+        // latin head + CJK tail: the fallback keeps the latin clause and drops
+        // only CJK bigrams (n=6 of 9 / n=3 of 7 tokens)
+        let ids = index
+            .search_entity_ids(Some("JOJO的奇妙冒险系列"), LuceneEntity::Book)
+            .unwrap();
+        assert_eq!(ids, vec!["b2"]);
+        let ids = index
+            .search_entity_ids(Some("Frieren系列完全版"), LuceneEntity::Book)
+            .unwrap();
+        assert_eq!(ids, vec!["b3"]);
+    }
+
+    #[test]
+    fn search_cjk_prefix_fallback_respects_gate() {
+        let (_dir, index) = index();
+        index
+            .add_documents(vec![
+                book("b1", &[("title", "Berserk")]),
+                book("b2", &[("title", "Frieren")]),
+                book("b3", &[("title", "葬送的芙莉莲")]),
+            ])
+            .unwrap();
+        index.commit().unwrap();
+        // whole-word clauses are never relaxed: the dropped suffix must be all CJK,
+        // so "Berserk 系列" keeps AND(Berserk, 系) and hits nothing (Lucene parity)
+        assert!(index
+            .search_entity_ids(Some("Berserk 系列"), LuceneEntity::Book)
+            .unwrap()
+            .is_empty());
+        // floor n=2: AND(Frieren, 系) misses; only n=1 (bare "Frieren") would hit,
+        // and the fallback never degrades that far
+        assert!(index
+            .search_entity_ids(Some("Frieren系列完全版"), LuceneEntity::Book)
+            .unwrap()
+            .is_empty());
+        // quoted phrases and compound queries do not fall back
+        assert!(index
+            .search_entity_ids(Some("\"葬送的芙莉莲系列\""), LuceneEntity::Book)
+            .unwrap()
+            .is_empty());
+        assert!(index
+            .search_entity_ids(Some("葬送的芙莉莲系列 author:someone"), LuceneEntity::Book)
+            .unwrap()
+            .is_empty());
+        // field-qualified single terms are outside the fallback's bare-term scope
+        assert!(index
+            .search_entity_ids(Some("title:葬送的芙莉莲系列"), LuceneEntity::Book)
+            .unwrap()
+            .is_empty());
+        // a non-CJK token at the very end leaves no CJK suffix to drop
+        assert!(index
+            .search_entity_ids(Some("葬送的芙莉莲 complete"), LuceneEntity::Book)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
