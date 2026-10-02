@@ -1,6 +1,7 @@
 //! Connection pool: aligns with `DataSourcesConfiguration.kt`.
 //! - Read/write separation under WAL: the RW pool is always 1, the RO pool is
-//!   poolSize ?: min(CPU cores, maxPoolSize).
+//!   poolSize ?: clamp(CPU cores, 8, maxPoolSize). Read queries are I/O-bound, so
+//!   even small boxes benefit from more readers than cores.
 //! - Without WAL (or for an in-memory database): RO and RW share the same pool.
 //! - Per connection: `PRAGMA foreign_keys=ON`, busy_timeout (default 30s), journal_mode,
 //!   and extra pragmas; main-database connections also register UDFs/collations (see
@@ -47,9 +48,9 @@ impl JournalMode {
 #[derive(Debug, Clone)]
 pub struct DatabaseConfig {
     pub file: PathBuf,
-    /// Read pool size; None = min(CPU cores, max_pool_size)
+    /// Read pool size; None = clamp(CPU cores, 8, max_pool_size)
     pub pool_size: Option<u32>,
-    /// Upper bound of pool_size, default 4; komga's default 1 serializes concurrent reads
+    /// Upper bound of pool_size, default 16; komga's default 1 serializes concurrent reads
     pub max_pool_size: u32,
     pub journal_mode: JournalMode,
     /// Busy timeout for each connection; `None` falls back to 30s. SQLite's own
@@ -66,7 +67,7 @@ impl Default for DatabaseConfig {
         Self {
             file: PathBuf::new(),
             pool_size: None,
-            max_pool_size: 4,
+            max_pool_size: 16,
             journal_mode: JournalMode::Wal,
             busy_timeout: None,
             pragmas: Vec::new(),
@@ -124,7 +125,7 @@ impl Database {
             std::thread::available_parallelism()
                 .map(|n| n.get() as u32)
                 .unwrap_or(1)
-                .min(config.max_pool_size)
+                .clamp(8.min(config.max_pool_size), config.max_pool_size)
         };
 
         let rw = Pool::builder().max_size(1).build(make_manager())?;

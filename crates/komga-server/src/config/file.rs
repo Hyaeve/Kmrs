@@ -81,7 +81,7 @@ pub struct FileCors {
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct FileDatabase {
     pub file: Option<PathBuf>,
-    /// read pool size; None = min(CPU cores, max-pool-size)
+    /// read pool size; None = clamp(CPU cores, 8, max-pool-size)
     pub pool_size: Option<u32>,
     pub max_pool_size: Option<u32>,
     pub journal_mode: Option<String>,
@@ -633,10 +633,10 @@ fn render_database(
     );
     match db.pool_size {
         Some(n) => out.push_str(&format!(
-            "pool-size = {n} # read pool size; default min(CPU cores, max-pool-size). env: {env_prefix}_POOLSIZE\n"
+            "pool-size = {n} # read pool size; default clamp(CPU cores, 8, max-pool-size). env: {env_prefix}_POOLSIZE\n"
         )),
         None => out.push_str(&format!(
-            "# pool-size = 4 # read pool size; default min(CPU cores, max-pool-size). env: {env_prefix}_POOLSIZE\n"
+            "# pool-size = 8 # read pool size; default clamp(CPU cores, 8, max-pool-size). env: {env_prefix}_POOLSIZE\n"
         )),
     }
     push_line(
