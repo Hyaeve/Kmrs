@@ -2,7 +2,7 @@
 //! tasks-database migrations, and verifies the history table and final schema.
 
 use komga_db::migrate::{MigrateError, Migrator, Placeholders};
-use komga_db::{main_migrations, tasks_migrations};
+use komga_db::{kmrs_migrations, main_migrations, tasks_migrations};
 use rusqlite::Connection;
 
 fn migrate_main(conn: &Connection) -> usize {
@@ -169,4 +169,29 @@ fn tasks_db_migrations() {
         )
         .unwrap();
     assert!(task_table);
+}
+
+#[test]
+fn kmrs_db_migrations() {
+    let conn = Connection::open_in_memory().unwrap();
+    let migrations = kmrs_migrations();
+    let applied = Migrator::new(&migrations, Placeholders::default())
+        .migrate(&conn)
+        .unwrap();
+    assert_eq!(applied, 5);
+    for name in [
+        "SERIES_METADATA_CONTRIBUTION",
+        "KOMF_INTEGRATION",
+        "THUMBNAIL_STORAGE_MIGRATION",
+        "READING_EVENT",
+    ] {
+        let exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = ?",
+                [name],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(exists, "table {name} missing");
+    }
 }

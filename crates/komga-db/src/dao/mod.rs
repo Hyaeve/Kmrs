@@ -19,6 +19,7 @@ pub mod library;
 pub mod media;
 pub mod page_hash;
 pub mod read_progress;
+pub mod reading_event;
 pub mod readlist;
 pub mod series;
 pub mod series_metadata_contribution;

@@ -359,7 +359,7 @@ fn placeholders(values: &BTreeSet<String>) -> (String, Vec<Value>) {
     (ph, params)
 }
 
-fn library_ids_condition(table: &str, library_ids: Option<&BTreeSet<String>>) -> SqlWhere {
+pub fn library_ids_condition(table: &str, library_ids: Option<&BTreeSet<String>>) -> SqlWhere {
     match library_ids {
         None => SqlWhere::no_condition(),
         Some(ids) if ids.is_empty() => SqlWhere::false_condition(),

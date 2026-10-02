@@ -141,6 +141,7 @@ async fn main() -> anyhow::Result<()> {
     search_index::check_on_startup(&state, search_rebuild);
     search_index::consume_events(state.clone());
     webhook::consume_events(state.clone());
+    service::reading_stats::consume_events(state.clone());
 
     let app = build_router(state.clone());
 
@@ -181,6 +182,7 @@ pub fn build_router(state: AppState) -> axum::Router {
         .merge(api::settings::router())
         .merge(api::client_settings::router())
         .merge(api::history::router())
+        .merge(api::stats::router())
         .merge(api::announcements::router())
         .merge(api::releases::router())
         .merge(api::filesystem::router())

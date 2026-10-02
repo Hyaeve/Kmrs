@@ -39,6 +39,7 @@ pub mod restriction;
 pub mod series;
 #[allow(dead_code)]
 pub mod settings;
+pub mod stats;
 #[allow(dead_code)]
 pub mod syncpoints;
 #[allow(dead_code)]
