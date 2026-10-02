@@ -69,6 +69,9 @@ pub struct ServerConfig {
     pub komf_url: Option<String>,
     /// the base URL komf uses to call back into kmrs (written to komf's `komga.baseUri`)
     pub komf_base_url: Option<String>,
+    /// optional access key for komf-rs instances behind its `KOMF_AUTH_KEY` gate
+    /// (sent as `Authorization: Bearer <base64(key)>`); None = komf is unauthenticated
+    pub komf_auth_key: Option<String>,
     /// days to keep HISTORICAL_EVENT rows (pruned daily, 0 = keep forever);
     /// the Java version never cleans the table
     pub history_retention_days: u32,
@@ -409,6 +412,12 @@ impl ServerConfig {
                         .and_then(|k| k.base_url.clone())
                 })
                 .filter(|v| !v.is_empty()),
+            komf_auth_key: env_string(env, "KOMGA_KOMF_AUTHKEY")
+                .or_else(|| {
+                    file.and_then(|f| f.komf.as_ref())
+                        .and_then(|k| k.auth_key.clone())
+                })
+                .filter(|v| !v.trim().is_empty()),
             history_retention_days: env_u32(env, "KOMGA_HISTORY_RETENTIONDAYS")
                 .or_else(|| {
                     file.and_then(|f| f.history.as_ref())
@@ -1011,6 +1020,7 @@ events = ["BookAdded"]
         let config = resolve("", Cli::default(), &[]);
         assert_eq!(config.komf_url, None);
         assert_eq!(config.komf_base_url, None);
+        assert_eq!(config.komf_auth_key, None);
 
         let config = resolve(
             "[komf]\nurl = \"http://komf:8085\"\nbase-url = \"http://kmrs:25600\"\n",
@@ -1019,14 +1029,19 @@ events = ["BookAdded"]
         );
         assert_eq!(config.komf_url.as_deref(), Some("http://komf:8085"));
         assert_eq!(config.komf_base_url.as_deref(), Some("http://kmrs:25600"));
+        assert_eq!(config.komf_auth_key, None);
+
+        let config = resolve("[komf]\nauth-key = \"file-key\"\n", Cli::default(), &[]);
+        assert_eq!(config.komf_auth_key.as_deref(), Some("file-key"));
 
         // env vars win over the file (Spring canonical form: dashes removed)
         let config = resolve(
-            "[komf]\nurl = \"http://komf:8085\"\nbase-url = \"http://kmrs:25600\"\n",
+            "[komf]\nurl = \"http://komf:8085\"\nbase-url = \"http://kmrs:25600\"\nauth-key = \"file-key\"\n",
             Cli::default(),
             &env(&[
                 ("KOMGA_KOMF_URL", "http://env-komf:8085"),
                 ("KOMGA_KOMF_BASEURL", "http://env-kmrs:25600"),
+                ("KOMGA_KOMF_AUTHKEY", "env-key"),
             ]),
         );
         assert_eq!(config.komf_url.as_deref(), Some("http://env-komf:8085"));
@@ -1034,10 +1049,13 @@ events = ["BookAdded"]
             config.komf_base_url.as_deref(),
             Some("http://env-kmrs:25600")
         );
+        assert_eq!(config.komf_auth_key.as_deref(), Some("env-key"));
 
         // empty values are treated as unset
         let config = resolve("[komf]\nurl = \"\"\n", Cli::default(), &[]);
         assert_eq!(config.komf_url, None);
+        let config = resolve("[komf]\nauth-key = \"  \"\n", Cli::default(), &[]);
+        assert_eq!(config.komf_auth_key, None);
     }
 
     #[test]

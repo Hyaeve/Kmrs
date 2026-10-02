@@ -10,6 +10,9 @@ pub struct KomfIntegrationDto {
     pub url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
+    /// whether an auth key is stored on the integration row; the value itself is
+    /// write-only and never leaves the server
+    pub auth_key_set: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -22,6 +25,9 @@ pub struct KomfIntegrationDto {
 pub struct KomfIntegrationUpdateDto {
     pub url: Option<String>,
     pub base_url: Option<String>,
+    /// per-integration override for komf-rs's KOMF_AUTH_KEY gate; wins over the
+    /// `komf.auth-key` config preset. Absent keeps the stored override, blank clears it.
+    pub auth_key: Option<String>,
 }
 
 /// komf's `POST /api/komga/metadata/identify` request; field names follow komf's DTO.

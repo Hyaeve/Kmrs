@@ -109,9 +109,11 @@
 [komf]
 # komf metadata fetcher integration (kmrs enhancement, no Java equivalent);
 # pre-fills the setup form in the admin UI — nothing is provisioned until an admin confirms
-# komf's API has no authentication — only point this at a trusted network
+# set auth-key when komf-rs runs behind its KOMF_AUTH_KEY gate; without a key, only
+# point this at a trusted network — komf's API then has no authentication
 # url = "http://komf:8085" # env: KOMGA_KOMF_URL
 # base-url = "http://kmrs:25600" # env: KOMGA_KOMF_BASEURL
+# auth-key = "..." # only when komf requires it; env: KOMGA_KOMF_AUTHKEY
 
 [history]
 # retention for the history event table (kmrs enhancement; the Java version keeps events forever)

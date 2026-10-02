@@ -7,7 +7,7 @@ use crate::dto::komf::{
     KomfJobPageDto, KomfMetadataJobResponseDto, KomfSeriesSearchResultDto,
 };
 use crate::error::{ApiError, Violation};
-use crate::service::komf::{self, KomfClient};
+use crate::service::komf;
 use crate::state::AppState;
 use axum::body::Body;
 use axum::extract::{Path, RawQuery, State};
@@ -105,7 +105,17 @@ async fn put_integration(
     if !violations.is_empty() {
         return Err(ApiError::Violations(violations));
     }
-    KomfIntegrationDao::new(state.kmrs_db.clone()).upsert(&url, &base_url)?;
+    let dao = KomfIntegrationDao::new(state.kmrs_db.clone());
+    // absent authKey keeps the stored override so an unrelated URL edit cannot drop it;
+    // a blank value clears the override so the config preset applies again
+    let auth_key = match body.auth_key {
+        None => dao.get()?.and_then(|row| row.auth_key),
+        Some(raw) => {
+            let trimmed = raw.trim();
+            (!trimmed.is_empty()).then(|| trimmed.to_string())
+        }
+    };
+    dao.upsert(&url, &base_url, auth_key.as_deref())?;
     // provisioning failures are recorded on the integration row and surface in the DTO
     let _ = komf::provision(&state, &auth.0.user.id).await;
     Ok(Json(integration_dto(&state).await?))
@@ -146,16 +156,18 @@ async fn integration_dto(state: &AppState) -> Result<KomfIntegrationDto, ApiErro
             configured: false,
             url: state.config.komf_url.clone(),
             base_url: state.config.komf_base_url.clone(),
+            auth_key_set: false,
             state: None,
             last_error: None,
             komf_reachable: false,
         });
     };
-    let komf_reachable = KomfClient::new(&row.url).health().await.is_ok();
+    let komf_reachable = komf::client(state, &row).health().await.is_ok();
     Ok(KomfIntegrationDto {
         configured: true,
         url: Some(row.url),
         base_url: Some(row.base_url),
+        auth_key_set: row.auth_key.is_some(),
         state: Some(row.state.as_str().to_string()),
         last_error: row.last_error,
         komf_reachable,
@@ -273,7 +285,7 @@ async fn get_config(
 ) -> Result<Response, ApiError> {
     auth.0.require_admin()?;
     let row = connected_integration(&state)?;
-    let response = KomfClient::new(&row.url)
+    let response = komf::client(&state, &row)
         .proxy_config(Method::GET, None)
         .await
         .map_err(komf_unreachable)?;
@@ -302,7 +314,7 @@ async fn patch_config(
         }
     }
     let row = connected_integration(&state)?;
-    let response = KomfClient::new(&row.url)
+    let response = komf::client(&state, &row)
         .proxy_config(Method::PATCH, Some(&body))
         .await
         .map_err(komf_unreachable)?;
@@ -318,7 +330,7 @@ async fn get_jobs(
 ) -> Result<Response, ApiError> {
     auth.0.require_admin()?;
     let row = connected_integration(&state)?;
-    let response = KomfClient::new(&row.url)
+    let response = komf::client(&state, &row)
         .proxy_jobs(Method::GET, KOMF_JOBS, query.as_deref())
         .await
         .map_err(komf_unreachable)?;
@@ -332,7 +344,7 @@ async fn get_job(
 ) -> Result<Response, ApiError> {
     auth.0.require_admin()?;
     let row = connected_integration(&state)?;
-    let response = KomfClient::new(&row.url)
+    let response = komf::client(&state, &row)
         .proxy_jobs(Method::GET, &format!("{KOMF_JOBS}/{job_id}"), None)
         .await
         .map_err(komf_unreachable)?;
@@ -356,7 +368,7 @@ async fn get_job_events(
 ) -> Result<Response, ApiError> {
     auth.0.require_admin()?;
     let row = connected_integration(&state)?;
-    let response = KomfClient::new(&row.url)
+    let response = komf::client(&state, &row)
         .proxy_job_events(&format!("{KOMF_JOBS}/{job_id}/events"), None)
         .await
         .map_err(komf_unreachable)?;
@@ -377,7 +389,7 @@ async fn get_jobs_events(
 ) -> Result<Response, ApiError> {
     auth.0.require_admin()?;
     let row = connected_integration(&state)?;
-    let response = KomfClient::new(&row.url)
+    let response = komf::client(&state, &row)
         .proxy_job_events(&format!("{KOMF_JOBS}/events"), query.as_deref())
         .await
         .map_err(komf_unreachable)?;
@@ -415,7 +427,7 @@ async fn oauth_start(
     auth.0.require_admin()?;
     check_oauth_provider(&provider)?;
     let row = connected_integration(&state)?;
-    let response = KomfClient::new(&row.url)
+    let response = komf::client(&state, &row)
         .proxy_oauth(
             Method::GET,
             &format!("{KOMF_OAUTH}/{provider}/start"),
@@ -441,7 +453,7 @@ async fn oauth_callback(
 ) -> Result<Response, ApiError> {
     check_oauth_provider(&provider)?;
     let row = connected_integration(&state)?;
-    let response = KomfClient::new(&row.url)
+    let response = komf::client(&state, &row)
         .proxy_oauth(
             Method::GET,
             &format!("{KOMF_OAUTH}/{provider}/callback"),
@@ -465,7 +477,7 @@ async fn oauth_status(
     auth.0.require_admin()?;
     check_oauth_provider(&provider)?;
     let row = connected_integration(&state)?;
-    let response = KomfClient::new(&row.url)
+    let response = komf::client(&state, &row)
         .proxy_oauth(
             Method::GET,
             &format!("{KOMF_OAUTH}/{provider}/status"),
@@ -487,7 +499,7 @@ async fn oauth_logout(
     auth.0.require_admin()?;
     check_oauth_provider(&provider)?;
     let row = connected_integration(&state)?;
-    let response = KomfClient::new(&row.url)
+    let response = komf::client(&state, &row)
         .proxy_oauth(
             Method::POST,
             &format!("{KOMF_OAUTH}/{provider}/logout"),
@@ -523,7 +535,7 @@ async fn send_metadata(
     body: Option<serde_json::Value>,
 ) -> Result<reqwest::Response, ApiError> {
     let row = connected_integration(state)?;
-    KomfClient::new(&row.url)
+    komf::client(state, &row)
         .proxy_metadata(
             method,
             &format!("{KOMF_METADATA}{path}"),
@@ -654,7 +666,7 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(
             body,
-            serde_json::json!({"configured": false, "komfReachable": false})
+            serde_json::json!({"configured": false, "authKeySet": false, "komfReachable": false})
         );
     }
 
@@ -675,6 +687,7 @@ mod tests {
                 "configured": false,
                 "url": "http://komf:8085",
                 "baseUrl": "http://kmrs:25600",
+                "authKeySet": false,
                 "komfReachable": false
             })
         );
@@ -735,6 +748,116 @@ mod tests {
         let (status, body) = app.get_json("/api/v1/komf/integration", "k-admin").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["configured"], false);
+    }
+
+    #[tokio::test]
+    async fn put_persists_auth_key_and_get_reports_set_without_leaking_it() {
+        let app = TestApp::new(router());
+        let admin = insert_user(&app.state.db, "admin@x.c", true, true, &[]);
+        insert_api_key(&app.state.db, &admin, "k-admin");
+        let (komf_url, _) = serve_komf().await;
+
+        let (status, body) = app
+            .request_json(
+                "PUT",
+                "/api/v1/komf/integration",
+                "k-admin",
+                Some(serde_json::json!({
+                    "url": komf_url,
+                    "baseUrl": "http://kmrs:25600",
+                    "authKey": "row-secret"
+                })),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["authKeySet"], true);
+
+        let stored = KomfIntegrationDao::new(app.state.kmrs_db.clone())
+            .get()
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.auth_key.as_deref(), Some("row-secret"));
+
+        // the value itself never leaves the server
+        let (_, body) = app.get_json("/api/v1/komf/integration", "k-admin").await;
+        assert_eq!(body["authKeySet"], true);
+        assert!(body.get("authKey").is_none());
+    }
+
+    #[tokio::test]
+    async fn put_with_blank_auth_key_clears_the_override() {
+        let app = TestApp::new(router());
+        let admin = insert_user(&app.state.db, "admin@x.c", true, true, &[]);
+        insert_api_key(&app.state.db, &admin, "k-admin");
+        let (komf_url, _) = serve_komf().await;
+        let body = serde_json::json!({
+            "url": komf_url,
+            "baseUrl": "http://kmrs:25600",
+            "authKey": "row-secret"
+        });
+        app.request_json(
+            "PUT",
+            "/api/v1/komf/integration",
+            "k-admin",
+            Some(body.clone()),
+        )
+        .await;
+
+        let mut cleared = body.clone();
+        cleared["authKey"] = serde_json::json!("   ");
+        let (status, response) = app
+            .request_json("PUT", "/api/v1/komf/integration", "k-admin", Some(cleared))
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(response["authKeySet"], false);
+        assert_eq!(
+            KomfIntegrationDao::new(app.state.kmrs_db.clone())
+                .get()
+                .unwrap()
+                .unwrap()
+                .auth_key,
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn put_without_auth_key_keeps_the_stored_override() {
+        let app = TestApp::new(router());
+        let admin = insert_user(&app.state.db, "admin@x.c", true, true, &[]);
+        insert_api_key(&app.state.db, &admin, "k-admin");
+        let (komf_url, _) = serve_komf().await;
+        app.request_json(
+            "PUT",
+            "/api/v1/komf/integration",
+            "k-admin",
+            Some(serde_json::json!({
+                "url": komf_url,
+                "baseUrl": "http://kmrs:25600",
+                "authKey": "row-secret"
+            })),
+        )
+        .await;
+
+        // an URL-only re-PUT must not silently drop the stored key
+        let (status, body) = app
+            .request_json(
+                "PUT",
+                "/api/v1/komf/integration",
+                "k-admin",
+                Some(serde_json::json!({"url": komf_url, "baseUrl": "http://kmrs:25600"})),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["authKeySet"], true);
+        assert_eq!(
+            KomfIntegrationDao::new(app.state.kmrs_db.clone())
+                .get()
+                .unwrap()
+                .unwrap()
+                .auth_key
+                .as_deref(),
+            Some("row-secret")
+        );
     }
 
     #[derive(Debug)]
@@ -925,7 +1048,7 @@ mod tests {
 
     fn seed_connected(state: &AppState, url: &str) {
         let dao = KomfIntegrationDao::new(state.kmrs_db.clone());
-        dao.upsert(url, "http://kmrs:25600").unwrap();
+        dao.upsert(url, "http://kmrs:25600", None).unwrap();
         dao.mark_connected("user-1", "key-1").unwrap();
     }
 
@@ -1038,7 +1161,8 @@ mod tests {
     async fn proxy_with_unconnected_integration_is_conflict() {
         let app = admin_app();
         let dao = KomfIntegrationDao::new(app.state.kmrs_db.clone());
-        dao.upsert("http://komf:8085", "http://kmrs:25600").unwrap();
+        dao.upsert("http://komf:8085", "http://kmrs:25600", None)
+            .unwrap();
 
         let (status, body) = app.get_json("/api/v1/komf/providers", "k-admin").await;
         assert_eq!(status, StatusCode::CONFLICT);

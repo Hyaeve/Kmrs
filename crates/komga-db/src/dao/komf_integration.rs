@@ -39,6 +39,9 @@ impl KomfIntegrationState {
 pub struct KomfIntegration {
     pub url: String,
     pub base_url: String,
+    /// per-integration override for komf-rs's KOMF_AUTH_KEY gate; None falls back to
+    /// the `komf.auth-key` config preset. The value is write-only over the API.
+    pub auth_key: Option<String>,
     /// owner of the minted API key; set once provisioning succeeded at least once
     pub owner_user_id: Option<String>,
     pub api_key_id: Option<String>,
@@ -53,18 +56,20 @@ pub struct KomfIntegrationDao {
 }
 
 const COLUMNS: &str =
-    "URL, BASE_URL, OWNER_USER_ID, API_KEY_ID, STATE, LAST_ERROR, CREATED_DATE, LAST_MODIFIED_DATE";
+    "URL, BASE_URL, AUTH_KEY, OWNER_USER_ID, API_KEY_ID, STATE, LAST_ERROR, CREATED_DATE, \
+                       LAST_MODIFIED_DATE";
 
 fn row_to_integration(row: &Row<'_>) -> rusqlite::Result<KomfIntegration> {
     Ok(KomfIntegration {
         url: row.get(0)?,
         base_url: row.get(1)?,
-        owner_user_id: row.get(2)?,
-        api_key_id: row.get(3)?,
-        state: KomfIntegrationState::from_column(row, 4)?,
-        last_error: row.get(5)?,
-        created_date: super::get_datetime(row, 6)?,
-        last_modified_date: super::get_datetime(row, 7)?,
+        auth_key: row.get(2)?,
+        owner_user_id: row.get(3)?,
+        api_key_id: row.get(4)?,
+        state: KomfIntegrationState::from_column(row, 5)?,
+        last_error: row.get(6)?,
+        created_date: super::get_datetime(row, 7)?,
+        last_modified_date: super::get_datetime(row, 8)?,
     })
 }
 
@@ -83,21 +88,24 @@ impl KomfIntegrationDao {
     }
 
     /// Re-arms provisioning on (re)configuration. The minted key reference is kept so
-    /// the next provision can revoke it before minting a fresh one.
-    pub fn upsert(&self, url: &str, base_url: &str) -> Result<()> {
+    /// the next provision can revoke it before minting a fresh one. A blank auth key
+    /// clears the override so the config preset applies again.
+    pub fn upsert(&self, url: &str, base_url: &str, auth_key: Option<&str>) -> Result<()> {
+        let auth_key = auth_key.map(str::trim).filter(|k| !k.is_empty());
         let now = time_codec::format_datetime(time_codec::now_utc());
         self.db.rw().execute(
             r#"
-            INSERT INTO KOMF_INTEGRATION (ID, URL, BASE_URL, STATE, CREATED_DATE, LAST_MODIFIED_DATE)
-            VALUES (1, ?, ?, 'pending', ?, ?)
+            INSERT INTO KOMF_INTEGRATION (ID, URL, BASE_URL, AUTH_KEY, STATE, CREATED_DATE, LAST_MODIFIED_DATE)
+            VALUES (1, ?, ?, ?, 'pending', ?, ?)
             ON CONFLICT (ID) DO UPDATE SET
                 URL = excluded.URL,
                 BASE_URL = excluded.BASE_URL,
+                AUTH_KEY = excluded.AUTH_KEY,
                 STATE = 'pending',
                 LAST_ERROR = NULL,
                 LAST_MODIFIED_DATE = excluded.LAST_MODIFIED_DATE
             "#,
-            rusqlite::params![url, base_url, now, now],
+            rusqlite::params![url, base_url, auth_key, now, now],
         )?;
         Ok(())
     }
@@ -154,7 +162,8 @@ mod tests {
         let dao = test_dao();
         assert!(dao.get().unwrap().is_none());
 
-        dao.upsert("http://komf:8085", "http://kmrs:25600").unwrap();
+        dao.upsert("http://komf:8085", "http://kmrs:25600", None)
+            .unwrap();
         let row = dao.get().unwrap().unwrap();
         assert_eq!(row.url, "http://komf:8085");
         assert_eq!(row.base_url, "http://kmrs:25600");
@@ -164,7 +173,7 @@ mod tests {
         assert_eq!(row.last_error, None);
 
         dao.mark_connected("user-1", "key-1").unwrap();
-        dao.upsert("http://komf2:8085", "http://kmrs2:25600")
+        dao.upsert("http://komf2:8085", "http://kmrs2:25600", None)
             .unwrap();
         let row = dao.get().unwrap().unwrap();
         assert_eq!(row.url, "http://komf2:8085");
@@ -175,9 +184,32 @@ mod tests {
     }
 
     #[test]
+    fn upsert_stores_normalizes_and_clears_the_auth_key() {
+        let dao = test_dao();
+        dao.upsert("http://komf:8085", "http://kmrs:25600", Some("row-key"))
+            .unwrap();
+        assert_eq!(
+            dao.get().unwrap().unwrap().auth_key.as_deref(),
+            Some("row-key")
+        );
+
+        // blank values clear the override so the config preset applies again
+        dao.upsert("http://komf:8085", "http://kmrs:25600", Some("   "))
+            .unwrap();
+        assert_eq!(dao.get().unwrap().unwrap().auth_key, None);
+
+        dao.upsert("http://komf:8085", "http://kmrs:25600", Some("row-key"))
+            .unwrap();
+        dao.upsert("http://komf:8085", "http://kmrs:25600", None)
+            .unwrap();
+        assert_eq!(dao.get().unwrap().unwrap().auth_key, None);
+    }
+
+    #[test]
     fn mark_connected_backfills_owner_and_key() {
         let dao = test_dao();
-        dao.upsert("http://komf:8085", "http://kmrs:25600").unwrap();
+        dao.upsert("http://komf:8085", "http://kmrs:25600", None)
+            .unwrap();
         dao.mark_error("boom").unwrap();
         dao.mark_connected("user-1", "key-1").unwrap();
         let row = dao.get().unwrap().unwrap();
@@ -190,7 +222,8 @@ mod tests {
     #[test]
     fn mark_error_records_message() {
         let dao = test_dao();
-        dao.upsert("http://komf:8085", "http://kmrs:25600").unwrap();
+        dao.upsert("http://komf:8085", "http://kmrs:25600", None)
+            .unwrap();
         dao.mark_error("connection refused").unwrap();
         let row = dao.get().unwrap().unwrap();
         assert_eq!(row.state, KomfIntegrationState::Error);
@@ -200,7 +233,8 @@ mod tests {
     #[test]
     fn delete_removes_the_row() {
         let dao = test_dao();
-        dao.upsert("http://komf:8085", "http://kmrs:25600").unwrap();
+        dao.upsert("http://komf:8085", "http://kmrs:25600", None)
+            .unwrap();
         dao.delete().unwrap();
         assert!(dao.get().unwrap().is_none());
         // deleting twice is a no-op

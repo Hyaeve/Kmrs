@@ -51,6 +51,7 @@ pub struct FileThumbnails {
 pub struct FileKomf {
     pub url: Option<String>,
     pub base_url: Option<String>,
+    pub auth_key: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -533,7 +534,8 @@ pub fn render(file: &FileConfig, config: &ServerConfig, source: Option<&Path>) -
     out.push_str(
         "# komf metadata fetcher integration (kmrs enhancement, no Java equivalent);\n\
          # pre-fills the setup form in the admin UI — nothing is provisioned until an admin confirms\n\
-         # komf's API has no authentication — only point this at a trusted network\n",
+         # set auth-key when komf-rs runs behind its KOMF_AUTH_KEY gate; without a key, only\n\
+         # point this at a trusted network — komf's API then has no authentication\n",
     );
     match &config.komf_url {
         Some(u) => out.push_str(&format!("url = {} # env: KOMGA_KOMF_URL\n", q(u))),
@@ -542,6 +544,12 @@ pub fn render(file: &FileConfig, config: &ServerConfig, source: Option<&Path>) -
     match &config.komf_base_url {
         Some(u) => out.push_str(&format!("base-url = {} # env: KOMGA_KOMF_BASEURL\n", q(u))),
         None => out.push_str("# base-url = \"http://kmrs:25600\" # env: KOMGA_KOMF_BASEURL\n"),
+    }
+    match &config.komf_auth_key {
+        Some(k) => out.push_str(&format!("auth-key = {} # env: KOMGA_KOMF_AUTHKEY\n", q(k))),
+        None => out.push_str(
+            "# auth-key = \"...\" # only when komf requires it; env: KOMGA_KOMF_AUTHKEY\n",
+        ),
     }
     out.push('\n');
 
