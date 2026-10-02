@@ -26,7 +26,7 @@ impl ReadProgressDtoDao {
         series_id: &str,
         user_id: &str,
     ) -> Result<TachiyomiReadProgressV2Dto> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
 
         let mut stmt = conn.prepare(&format!(
             "SELECT BOOK_METADATA.NUMBER_SORT, READ_PROGRESS.COMPLETED \
@@ -75,7 +75,7 @@ impl ReadProgressDtoDao {
         readlist_id: &str,
         user_id: &str,
     ) -> Result<TachiyomiReadProgressDto> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
 
         let mut stmt = conn.prepare(&format!(
             "SELECT ROW_NUMBER() OVER (ORDER BY READLIST_BOOK.NUMBER), READ_PROGRESS.COMPLETED \
@@ -162,13 +162,13 @@ mod tests {
         let db = Database::open_in_memory(true).unwrap();
         let migrations = crate::main_migrations();
         crate::Migrator::new(&migrations, crate::Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         db
     }
 
     fn exec(db: &Database, sql: &str, params: impl rusqlite::Params) {
-        db.rw().execute(sql, params).unwrap();
+        db.rw().unwrap().execute(sql, params).unwrap();
     }
 
     /// Series s1 with 4 books (number_sort 1..4); readlist r1 with the same 4 books in order.

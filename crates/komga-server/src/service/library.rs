@@ -183,7 +183,7 @@ fn repair_extensions(state: &AppState, library: &Library) -> komga_db::Result<()
         ("application/pdf", "pdf"),
         ("application/epub+zip", "epub"),
     ];
-    let conn = state.db.ro();
+    let conn = state.db.ro()?;
     let mut tasks = vec![];
     for (media_type, extension) in MEDIA_TYPE_TO_EXTENSION {
         let mut stmt = conn.prepare(

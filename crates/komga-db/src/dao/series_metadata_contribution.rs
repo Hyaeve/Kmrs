@@ -53,7 +53,7 @@ impl SeriesMetadataContributionDao {
         outcome: &str,
         payload: Option<&str>,
     ) -> Result<()> {
-        self.db.rw().execute(
+        self.db.rw()?.execute(
             r#"
             INSERT INTO SERIES_METADATA_CONTRIBUTION (
                 BOOK_ID,
@@ -116,7 +116,7 @@ impl SeriesMetadataContributionDao {
                  FROM SERIES_METADATA_CONTRIBUTION \
                  WHERE PROVIDER = ? AND BOOK_ID IN ({placeholders})"
             );
-            let conn = self.db.ro();
+            let conn = self.db.ro()?;
             let mut stmt = conn.prepare(&sql)?;
             let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(provider.to_string())];
             params.extend(
@@ -153,7 +153,7 @@ impl SeriesMetadataContributionDao {
                 continue;
             }
             let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-            self.db.rw().execute(
+            self.db.rw()?.execute(
                 &format!(
                     "DELETE FROM SERIES_METADATA_CONTRIBUTION WHERE BOOK_ID IN ({placeholders})"
                 ),
@@ -174,7 +174,7 @@ mod tests {
         let db = Database::open_in_memory(false).unwrap();
         let migrations = crate::kmrs_migrations();
         Migrator::new(&migrations, Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         db
     }
@@ -280,6 +280,7 @@ mod tests {
         dao.delete_by_book_ids(&book_ids).unwrap();
         let remaining: i64 = db
             .ro()
+            .unwrap()
             .query_row(
                 "SELECT COUNT(*) FROM SERIES_METADATA_CONTRIBUTION",
                 [],

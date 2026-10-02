@@ -56,7 +56,7 @@ impl CollectionDtoDao {
             && authorized_library_ids.is_none()
             && !restrictions.is_restricted());
 
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
 
         let total: i64 = if needs_query_ids {
             let w = make_conditions();
@@ -141,7 +141,7 @@ impl CollectionDtoDao {
         );
         let row = self
             .db
-            .ro()
+            .ro()?
             .prepare(&sql)?
             .query_map(rusqlite::params_from_iter(w.params), row_to_collection)?
             .next()
@@ -185,7 +185,7 @@ impl CollectionDtoDao {
         );
         let rows = self
             .db
-            .ro()
+            .ro()?
             .prepare(&sql)?
             .query_map(rusqlite::params_from_iter(w.params), row_to_collection)?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -200,7 +200,7 @@ impl CollectionDtoDao {
         authorized_library_ids: Option<&BTreeSet<String>>,
         restrictions: &ContentRestrictions,
     ) -> Result<Vec<SeriesCollection>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut out = Vec::with_capacity(rows.len());
         for (mut collection, series_count) in rows {
             let w = single("COLLECTION_SERIES.COLLECTION_ID", &collection.id)
@@ -322,13 +322,14 @@ mod tests {
         let db = Database::open_in_memory(true).unwrap();
         let migrations = main_migrations();
         Migrator::new(&migrations, Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         db
     }
 
     fn seed_library(db: &Database, id: &str) {
         db.rw()
+            .unwrap()
             .execute(
                 "INSERT INTO LIBRARY (ID, NAME, ROOT) VALUES (?, 'L', 'file:/l/')",
                 [id],
@@ -338,6 +339,7 @@ mod tests {
 
     fn seed_series(db: &Database, id: &str, library_id: &str) {
         db.rw()
+            .unwrap()
             .execute(
                 "INSERT INTO SERIES (ID, NAME, URL, FILE_LAST_MODIFIED, LIBRARY_ID) \
          VALUES (?, ?, 'file:/l/s/', '2020-01-01 00:00:00.0', ?)",
@@ -348,6 +350,7 @@ mod tests {
 
     fn seed_metadata(db: &Database, series_id: &str, age_rating: Option<i32>) {
         db.rw()
+            .unwrap()
             .execute(
                 "INSERT INTO SERIES_METADATA (SERIES_ID, STATUS, TITLE, TITLE_SORT, AGE_RATING) \
          VALUES (?, 'ONGOING', ?, ?, ?)",
@@ -358,6 +361,7 @@ mod tests {
 
     fn seed_sharing_label(db: &Database, series_id: &str, label: &str) {
         db.rw()
+            .unwrap()
             .execute(
                 "INSERT INTO SERIES_METADATA_SHARING (SERIES_ID, LABEL) VALUES (?, ?)",
                 rusqlite::params![series_id, label],
@@ -366,7 +370,7 @@ mod tests {
     }
 
     fn seed_collection(db: &Database, id: &str, name: &str, series_ids: &[&str]) {
-        let conn = db.rw();
+        let conn = db.rw().unwrap();
         conn.execute(
             "INSERT INTO COLLECTION (ID, NAME, ORDERED, SERIES_COUNT) VALUES (?, ?, 0, ?)",
             rusqlite::params![id, name, series_ids.len() as i64],

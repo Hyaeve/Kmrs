@@ -309,6 +309,7 @@ mod tests {
 
     fn seed_library(db: &Database, id: &str) {
         db.rw()
+            .unwrap()
             .execute(
                 "INSERT INTO LIBRARY (ID, NAME, ROOT) VALUES (?, ?, ?)",
                 params![id, "lib", "file:/data/lib/"],
@@ -317,7 +318,7 @@ mod tests {
     }
 
     fn seed_series(db: &Database, id: &str, library_id: &str) {
-        db.rw()
+        db.rw().unwrap()
             .execute(
                 "INSERT INTO SERIES (ID, NAME, URL, FILE_LAST_MODIFIED, LIBRARY_ID) VALUES (?, ?, ?, ?, ?)",
                 params![id, "series", "file:/data/lib/series/", "2024-01-01 00:00:00.0", library_id],

@@ -401,7 +401,7 @@ pub fn scan_root_folder(
 /// so directory URLs get their trailing slash right; komga-cn reads `file:` URLs fine, so
 /// the rewrite is safe for users who switch back.
 fn normalize_foreign_urls(state: &AppState, library: &Library, root: &Path) -> Result<()> {
-    let conn = state.db.rw();
+    let conn = state.db.rw()?;
     let mut normalized = 0usize;
 
     // canonical URLs always carry the `file:/` prefix with an empty authority; anything
@@ -848,7 +848,7 @@ fn find_not_deleted_book_by_url(
             )
         })
     }
-    let conn = db.ro();
+    let conn = db.ro()?;
     let mut stmt = conn.prepare(
         "SELECT ID, NAME, URL, FILE_LAST_MODIFIED, SERIES_ID, LIBRARY_ID, FILE_SIZE, NUMBER, FILE_HASH, FILE_HASH_KOREADER, DELETED_DATE, ONESHOT, CREATED_DATE, LAST_MODIFIED_DATE \
          FROM BOOK WHERE LIBRARY_ID = ? AND URL = ? AND DELETED_DATE IS NULL ORDER BY LAST_MODIFIED_DATE DESC",
@@ -963,6 +963,7 @@ mod tests {
 
     fn library(db: &Database, id: &str, root: &Path) -> Library {
         db.rw()
+            .unwrap()
             .execute(
                 "INSERT INTO LIBRARY (ID, NAME, ROOT) VALUES (?, 'L', ?)",
                 rusqlite::params![id, path_to_url(root)],
@@ -1178,11 +1179,13 @@ mod tests {
         let book_rows: i64 = state
             .db
             .ro()
+            .unwrap()
             .query_row("SELECT COUNT(*) FROM BOOK", [], |r| r.get(0))
             .unwrap();
         let media_rows: i64 = state
             .db
             .ro()
+            .unwrap()
             .query_row("SELECT COUNT(*) FROM MEDIA", [], |r| r.get(0))
             .unwrap();
 
@@ -1192,12 +1195,14 @@ mod tests {
         let book_rows_after: i64 = state
             .db
             .ro()
+            .unwrap()
             .query_row("SELECT COUNT(*) FROM BOOK", [], |r| r.get(0))
             .unwrap();
         assert_eq!(book_rows, book_rows_after);
         let media_rows_after: i64 = state
             .db
             .ro()
+            .unwrap()
             .query_row("SELECT COUNT(*) FROM MEDIA", [], |r| r.get(0))
             .unwrap();
         assert_eq!(media_rows, media_rows_after);
@@ -1232,11 +1237,13 @@ mod tests {
         state
             .db
             .rw()
+            .unwrap()
             .execute("UPDATE SERIES SET URL = ?", [plain(&root.join("s1"))])
             .unwrap();
         state
             .db
             .rw()
+            .unwrap()
             .execute(
                 "UPDATE BOOK SET URL = ? WHERE NAME = 'v01'",
                 [plain(&root.join("s1").join("v01.cbz"))],
@@ -1245,6 +1252,7 @@ mod tests {
         state
             .db
             .rw()
+            .unwrap()
             .execute(
                 "UPDATE BOOK SET URL = ? WHERE NAME = 'v02'",
                 [format!(
@@ -1256,11 +1264,13 @@ mod tests {
         state
             .db
             .rw()
+            .unwrap()
             .execute("UPDATE LIBRARY SET ROOT = ?", [plain(&root)])
             .unwrap();
         state
             .db
             .rw()
+            .unwrap()
             .execute(
                 "UPDATE SIDECAR SET URL = ?, PARENT_URL = ?",
                 [
@@ -1332,6 +1342,7 @@ mod tests {
         state
             .db
             .rw()
+            .unwrap()
             .execute(
                 "UPDATE BOOK SET FILE_LAST_MODIFIED = '2020-01-01 00:00:00.0' WHERE ID = ?",
                 [&book.id],
@@ -1340,6 +1351,7 @@ mod tests {
         state
             .db
             .rw()
+            .unwrap()
             .execute(
                 "UPDATE SERIES SET FILE_LAST_MODIFIED = '2020-01-01 00:00:00.0'",
                 [],
@@ -1367,13 +1379,14 @@ mod tests {
 
         // store the hash of the current content, then age the stored mtimes
         let hash = compute_hash(&book_path).unwrap();
-        state.db.rw().execute(
+        state.db.rw().unwrap().execute(
             "UPDATE BOOK SET FILE_HASH = ?, FILE_LAST_MODIFIED = '2020-01-01 00:00:00.0' WHERE ID = ?",
             rusqlite::params![hash, book.id],
         ).unwrap();
         state
             .db
             .rw()
+            .unwrap()
             .execute(
                 "UPDATE SERIES SET FILE_LAST_MODIFIED = '2020-01-01 00:00:00.0'",
                 [],
@@ -1503,6 +1516,7 @@ mod tests {
         state
             .db
             .rw()
+            .unwrap()
             .execute(
                 "UPDATE BOOK SET FILE_HASH = ? WHERE ID = ?",
                 rusqlite::params![hash, book.id],
@@ -1622,6 +1636,7 @@ mod tests {
             state
                 .db
                 .rw()
+                .unwrap()
                 .execute(
                     "UPDATE BOOK SET FILE_HASH = ? WHERE ID = ?",
                     rusqlite::params![hash, book.id],
@@ -1711,6 +1726,7 @@ mod tests {
         state
             .db
             .rw()
+            .unwrap()
             .execute(
                 "UPDATE LIBRARY SET EMPTY_TRASH_AFTER_SCAN = 1 WHERE ID = 'lib1'",
                 [],
@@ -1902,6 +1918,7 @@ mod tests {
         state
             .db
             .rw()
+            .unwrap()
             .execute(
                 "UPDATE LIBRARY SET ONESHOTS_DIRECTORY = 'oneshots' WHERE ID = 'lib1'",
                 [],
@@ -1934,6 +1951,7 @@ mod tests {
         state
             .db
             .rw()
+            .unwrap()
             .execute(
                 "UPDATE LIBRARY SET SCAN_FORCE_MODIFIED_TIME = 1 WHERE ID = 'lib1'",
                 [],

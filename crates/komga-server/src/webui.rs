@@ -103,13 +103,13 @@ mod tests {
     fn test_state(webui_dir: Option<std::path::PathBuf>) -> AppState {
         let db = Database::open_in_memory(true).unwrap();
         Migrator::new(&komga_db::main_migrations(), Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         let tasks_db = Database::open_in_memory(false).unwrap();
         // dedicated task pools reuse the same in-memory database: task execution and assertions stay in sync
         let task_db = db.clone();
         Migrator::new(&komga_db::tasks_migrations(), Placeholders::default())
-            .migrate(&tasks_db.rw())
+            .migrate(&tasks_db.rw().unwrap())
             .unwrap();
         let db_config = |register_udfs| komga_db::pool::DatabaseConfig {
             file: std::env::temp_dir(),

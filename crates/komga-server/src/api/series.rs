@@ -1083,14 +1083,14 @@ mod tests {
         let db = Database::open_in_memory(true).unwrap();
         let migrations = komga_db::main_migrations();
         Migrator::new(&migrations, Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         let tasks_db = Database::open_in_memory(false).unwrap();
         // dedicated task pools reuse the same in-memory database: task execution and assertions stay in sync
         let task_db = db.clone();
         let tasks_migrations = komga_db::tasks_migrations();
         Migrator::new(&tasks_migrations, Placeholders::default())
-            .migrate(&tasks_db.rw())
+            .migrate(&tasks_db.rw().unwrap())
             .unwrap();
         let db_config = |register_udfs| DatabaseConfig {
             file: std::env::temp_dir(),
@@ -1196,6 +1196,7 @@ mod tests {
         state
             .db
             .rw()
+            .unwrap()
             .execute(
                 "INSERT INTO LIBRARY (ID, NAME, ROOT) VALUES (?, ?, ?)",
                 (id, name, format!("file:/data/{name}/")),
@@ -1225,7 +1226,7 @@ mod tests {
         created: &str,
         modified: &str,
     ) {
-        let conn = state.db.rw();
+        let conn = state.db.rw().unwrap();
         conn.execute(
             "INSERT INTO SERIES (ID, NAME, URL, FILE_LAST_MODIFIED, LIBRARY_ID, CREATED_DATE, LAST_MODIFIED_DATE) \
              VALUES (?, ?, ?, '2020-01-01 00:00:00.0', ?, ?, ?)",
@@ -1253,7 +1254,7 @@ mod tests {
         number_sort: f32,
         page_count: i32,
     ) {
-        let conn = state.db.rw();
+        let conn = state.db.rw().unwrap();
         conn.execute(
             "INSERT INTO BOOK (ID, NAME, URL, FILE_LAST_MODIFIED, SERIES_ID, LIBRARY_ID) \
              VALUES (?, ?, ?, '2020-01-01 00:00:00.0', ?, ?)",
@@ -1301,7 +1302,7 @@ mod tests {
     }
 
     fn seed_collection(state: &AppState, id: &str, name: &str, series_ids: &[&str]) {
-        let conn = state.db.rw();
+        let conn = state.db.rw().unwrap();
         conn.execute(
             "INSERT INTO COLLECTION (ID, NAME, SERIES_COUNT) VALUES (?, ?, ?)",
             (id, name, series_ids.len() as i64),
@@ -1325,7 +1326,7 @@ mod tests {
     ) {
         state
             .db
-            .rw()
+            .rw().unwrap()
             .execute(
                 "INSERT INTO THUMBNAIL_SERIES (ID, SERIES_ID, THUMBNAIL, SELECTED, TYPE, MEDIA_TYPE, FILE_SIZE) \
                  VALUES (?, ?, ?, ?, 'GENERATED', 'image/jpeg', ?)",
@@ -1343,7 +1344,7 @@ mod tests {
     ) {
         state
             .db
-            .rw()
+            .rw().unwrap()
             .execute(
                 "INSERT INTO THUMBNAIL_BOOK (ID, BOOK_ID, THUMBNAIL, SELECTED, TYPE, MEDIA_TYPE, FILE_SIZE) \
                  VALUES (?, ?, ?, ?, 'GENERATED', 'image/jpeg', ?)",
@@ -1567,6 +1568,7 @@ mod tests {
         state
             .db
             .rw()
+            .unwrap()
             .execute(
                 "UPDATE SERIES SET DELETED_DATE = '2020-04-01 00:00:00.0' WHERE ID = 's3'",
                 [],
@@ -1688,6 +1690,7 @@ mod tests {
         state
             .db
             .rw()
+            .unwrap()
             .execute(
                 "INSERT INTO SERIES_METADATA_SHARING (SERIES_ID, LABEL) VALUES ('s1', 'nsfw')",
                 [],
@@ -2045,7 +2048,7 @@ mod tests {
         let f2 = dir.path().join("Berserk v02.cbz");
         std::fs::write(&f1, b"fake-book-1").unwrap();
         std::fs::write(&f2, b"fake-book-2").unwrap();
-        let conn = state.db.rw();
+        let conn = state.db.rw().unwrap();
         for (id, path) in [("b1", &f1), ("b2", &f2)] {
             conn.execute(
                 "INSERT INTO BOOK (ID, NAME, URL, FILE_LAST_MODIFIED, SERIES_ID, LIBRARY_ID) \
@@ -2546,6 +2549,7 @@ mod tests {
         state
             .db
             .rw()
+            .unwrap()
             .execute("UPDATE SERIES SET ONESHOT = 1 WHERE ID = 's1'", [])
             .unwrap();
         seed_series_thumbnail(&state, "t1", "s1", true, b"img");

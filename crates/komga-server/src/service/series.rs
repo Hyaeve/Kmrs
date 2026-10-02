@@ -304,7 +304,7 @@ fn delete_read_progress_series_by_series_ids(
     db: &komga_db::pool::Database,
     series_ids: &[String],
 ) -> Result<()> {
-    let conn = db.rw();
+    let conn = db.rw()?;
     let mut stmt = conn.prepare("DELETE FROM READ_PROGRESS_SERIES WHERE SERIES_ID = ?")?;
     for id in series_ids {
         stmt.execute([id])?;
@@ -361,7 +361,7 @@ fn pages_sizes(db: &komga_db::pool::Database, book_ids: &[String]) -> Result<Vec
     if book_ids.is_empty() {
         return Ok(vec![]);
     }
-    let conn = db.ro();
+    let conn = db.ro()?;
     let placeholders = book_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
     let mut stmt = conn.prepare(&format!(
         "SELECT BOOK_ID, PAGE_COUNT FROM MEDIA WHERE BOOK_ID IN ({placeholders})"
@@ -666,12 +666,12 @@ pub(crate) mod tests {
         let db = Database::open_in_memory(true).unwrap();
         let migrations = komga_db::main_migrations();
         Migrator::new(&migrations, Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         let tasks_db = Database::open_in_memory(false).unwrap();
         let tasks_migrations = komga_db::tasks_migrations();
         Migrator::new(&tasks_migrations, Placeholders::default())
-            .migrate(&tasks_db.rw())
+            .migrate(&tasks_db.rw().unwrap())
             .unwrap();
         // in-memory databases share a single connection, so the task pools reuse
         // the same database: task execution and test assertions stay in sync
@@ -736,6 +736,7 @@ pub(crate) mod tests {
 
     pub(crate) fn seed_library(db: &Database, id: &str) {
         db.rw()
+            .unwrap()
             .execute(
                 "INSERT INTO LIBRARY (ID, NAME, ROOT) VALUES (?, 'L', 'file:/data/')",
                 [id],
@@ -1053,7 +1054,7 @@ pub(crate) mod tests {
         let collection = collection_dao.find_by_id(&collection_id).unwrap().unwrap();
         assert!(collection.series_ids.is_empty());
         // progress rows and series aggregate are gone
-        let conn = state.db.ro();
+        let conn = state.db.ro().unwrap();
         let n: i64 = conn
             .query_row("SELECT COUNT(*) FROM READ_PROGRESS", [], |r| r.get(0))
             .unwrap();

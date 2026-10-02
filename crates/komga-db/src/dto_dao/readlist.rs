@@ -56,7 +56,7 @@ impl ReadListDtoDao {
             && authorized_library_ids.is_none()
             && !restrictions.is_restricted());
 
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
 
         let total: i64 = if needs_query_ids {
             let w = make_conditions();
@@ -140,7 +140,7 @@ impl ReadListDtoDao {
         );
         let row = self
             .db
-            .ro()
+            .ro()?
             .prepare(&sql)?
             .query_map(rusqlite::params_from_iter(w.params), row_to_readlist)?
             .next()
@@ -184,7 +184,7 @@ impl ReadListDtoDao {
         );
         let rows = self
             .db
-            .ro()
+            .ro()?
             .prepare(&sql)?
             .query_map(rusqlite::params_from_iter(w.params), row_to_readlist)?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -199,7 +199,7 @@ impl ReadListDtoDao {
         authorized_library_ids: Option<&BTreeSet<String>>,
         restrictions: &ContentRestrictions,
     ) -> Result<Vec<ReadList>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut out = Vec::with_capacity(rows.len());
         for (mut readlist, book_count) in rows {
             let w = single("READLIST_BOOK.READLIST_ID", &readlist.id)
@@ -332,13 +332,14 @@ mod tests {
         let db = Database::open_in_memory(true).unwrap();
         let migrations = main_migrations();
         Migrator::new(&migrations, Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         db
     }
 
     fn seed_library(db: &Database, id: &str) {
         db.rw()
+            .unwrap()
             .execute(
                 "INSERT INTO LIBRARY (ID, NAME, ROOT) VALUES (?, 'L', 'file:/l/')",
                 [id],
@@ -347,7 +348,7 @@ mod tests {
     }
 
     fn seed_book(db: &Database, id: &str, series_id: &str, library_id: &str) {
-        let conn = db.rw();
+        let conn = db.rw().unwrap();
         conn.execute(
             "INSERT OR IGNORE INTO SERIES (ID, NAME, URL, FILE_LAST_MODIFIED, LIBRARY_ID) \
          VALUES (?, ?, 'file:/l/s/', '2020-01-01 00:00:00.0', ?)",
@@ -364,6 +365,7 @@ mod tests {
 
     fn seed_metadata(db: &Database, series_id: &str, age_rating: Option<i32>) {
         db.rw()
+            .unwrap()
             .execute(
                 "INSERT INTO SERIES_METADATA (SERIES_ID, STATUS, TITLE, TITLE_SORT, AGE_RATING) \
          VALUES (?, 'ONGOING', ?, ?, ?)",
@@ -373,7 +375,7 @@ mod tests {
     }
 
     fn seed_readlist(db: &Database, id: &str, name: &str, book_ids: &[(i32, &str)]) {
-        let conn = db.rw();
+        let conn = db.rw().unwrap();
         conn.execute(
             "INSERT INTO READLIST (ID, NAME, SUMMARY, ORDERED, BOOK_COUNT) VALUES (?, ?, '', 1, ?)",
             rusqlite::params![id, name, book_ids.len() as i64],

@@ -126,7 +126,7 @@ fn book_sync_columns(
     Option<OffsetDateTime>,
     Option<String>,
 )> {
-    let conn = state.db.ro();
+    let conn = state.db.ro()?;
     let mut stmt = conn.prepare(
         "SELECT BOOK_METADATA.LAST_MODIFIED_DATE, READ_PROGRESS.LAST_MODIFIED_DATE, THUMBNAIL_BOOK.ID \
          FROM BOOK_METADATA \
@@ -209,7 +209,7 @@ fn most_recent_read_date(
     if series_ids.is_empty() {
         return Ok(None);
     }
-    let conn = state.db.ro();
+    let conn = state.db.ro()?;
     let placeholders = series_ids
         .iter()
         .map(|_| "?")

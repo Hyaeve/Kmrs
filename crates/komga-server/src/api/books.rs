@@ -2209,14 +2209,14 @@ mod tests {
         let db = Database::open_in_memory(true).unwrap();
         let migrations = komga_db::main_migrations();
         Migrator::new(&migrations, Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         let tasks_db = Database::open_in_memory(false).unwrap();
         // dedicated task pools reuse the same in-memory database: task execution and assertions stay in sync
         let task_db = db.clone();
         let tasks_migrations = komga_db::tasks_migrations();
         Migrator::new(&tasks_migrations, Placeholders::default())
-            .migrate(&tasks_db.rw())
+            .migrate(&tasks_db.rw().unwrap())
             .unwrap();
         let config = crate::config::ServerConfig::from_env();
         AppState {
@@ -2348,6 +2348,7 @@ mod tests {
 
     fn set_series_book_count(db: &Database, series_id: &str, count: i32) {
         db.rw()
+            .unwrap()
             .execute(
                 "UPDATE SERIES SET BOOK_COUNT = ? WHERE ID = ?",
                 rusqlite::params![count, series_id],
@@ -2523,7 +2524,7 @@ mod tests {
     }
 
     fn seed_readlist(db: &Database, id: &str, book_ids: &[&str]) {
-        let conn = db.rw();
+        let conn = db.rw().unwrap();
         conn.execute(
             "INSERT INTO READLIST (ID, NAME, SUMMARY, ORDERED, BOOK_COUNT) VALUES (?, ?, '', 1, ?)",
             rusqlite::params![id, format!("ReadList {id}"), book_ids.len() as i64],
@@ -2778,18 +2779,21 @@ mod tests {
         seed_book(&db, "b1", "s1", "l1", "file:/data/b1.cbz");
         seed_book(&db, "b2", "s1", "l1", "file:/data/b2.cbz");
         db.rw()
+            .unwrap()
             .execute(
                 "UPDATE BOOK SET LAST_MODIFIED_DATE = '2020-01-01 00:00:00.0' WHERE ID = 'b1'",
                 [],
             )
             .unwrap();
         db.rw()
+            .unwrap()
             .execute(
                 "UPDATE BOOK SET LAST_MODIFIED_DATE = '2021-01-01 00:00:00.0' WHERE ID = 'b2'",
                 [],
             )
             .unwrap();
         db.rw()
+            .unwrap()
             .execute(
                 "UPDATE BOOK SET FILE_HASH = 'dup', FILE_SIZE = 42 WHERE ID IN ('b1', 'b2')",
                 [],

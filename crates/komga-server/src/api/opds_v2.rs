@@ -2462,6 +2462,7 @@ mod tests {
 
     fn admin_id(db: &Database) -> String {
         db.ro()
+            .unwrap()
             .query_row("SELECT ID FROM USER WHERE EMAIL = 'admin@x.y'", [], |r| {
                 r.get(0)
             })

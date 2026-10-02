@@ -32,7 +32,7 @@ impl BookProjectionDao {
     /// and LAST_MODIFIED_DATE. komga 1.28.0 keeps the first stored size here (its upsert sets
     /// the column to itself), which serves a stale kepub size to Kobo after a file change.
     pub fn save(&self, projection: &BookProjection) -> Result<()> {
-        self.db.rw().execute(
+        self.db.rw()?.execute(
             "INSERT INTO BOOK_PROJECTION (BOOK_ID, PROFILE, FILE_SIZE) VALUES (?,?,?) \
              ON CONFLICT(BOOK_ID, PROFILE) DO UPDATE SET FILE_SIZE = excluded.FILE_SIZE, LAST_MODIFIED_DATE = ?",
             params![
@@ -49,7 +49,7 @@ impl BookProjectionDao {
         if book_ids.is_empty() {
             return Ok(vec![]);
         }
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut out = vec![];
         for chunk in book_ids.chunks(500) {
             let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
@@ -68,13 +68,13 @@ impl BookProjectionDao {
 
     pub fn delete(&self, book_id: &str) -> Result<()> {
         self.db
-            .rw()
+            .rw()?
             .execute("DELETE FROM BOOK_PROJECTION WHERE BOOK_ID = ?", [book_id])?;
         Ok(())
     }
 
     pub fn delete_by_book_ids(&self, book_ids: &[String]) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         for chunk in book_ids.chunks(500) {
             let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
             conn.execute(
@@ -96,9 +96,9 @@ mod tests {
         let db = Database::open_in_memory(true).unwrap();
         let migrations = main_migrations();
         Migrator::new(&migrations, Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
-        let rw = db.rw();
+        let rw = db.rw().unwrap();
         rw.execute(
             "INSERT INTO LIBRARY (ID, NAME, ROOT) VALUES ('l1', 'lib', 'file:/l/')",
             [],
@@ -116,6 +116,7 @@ mod tests {
 
     fn seed_book(db: &Database, id: &str) {
         db.rw()
+            .unwrap()
             .execute(
                 "INSERT INTO BOOK (ID, NAME, URL, FILE_LAST_MODIFIED, SERIES_ID, LIBRARY_ID) \
                  VALUES (?, ?, 'file:/l/s/b.epub', '2020-01-01 00:00:00.0', 's1', 'l1')",

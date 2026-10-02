@@ -79,7 +79,7 @@ impl KomfIntegrationDao {
     }
 
     pub fn get(&self) -> Result<Option<KomfIntegration>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {COLUMNS} FROM KOMF_INTEGRATION WHERE ID = 1"
         ))?;
@@ -93,7 +93,7 @@ impl KomfIntegrationDao {
     pub fn upsert(&self, url: &str, base_url: &str, auth_key: Option<&str>) -> Result<()> {
         let auth_key = auth_key.map(str::trim).filter(|k| !k.is_empty());
         let now = time_codec::format_datetime(time_codec::now_utc());
-        self.db.rw().execute(
+        self.db.rw()?.execute(
             r#"
             INSERT INTO KOMF_INTEGRATION (ID, URL, BASE_URL, AUTH_KEY, STATE, CREATED_DATE, LAST_MODIFIED_DATE)
             VALUES (1, ?, ?, ?, 'pending', ?, ?)
@@ -111,7 +111,7 @@ impl KomfIntegrationDao {
     }
 
     pub fn mark_connected(&self, owner_user_id: &str, api_key_id: &str) -> Result<()> {
-        self.db.rw().execute(
+        self.db.rw()?.execute(
             "UPDATE KOMF_INTEGRATION \
              SET STATE = 'connected', LAST_ERROR = NULL, OWNER_USER_ID = ?, API_KEY_ID = ?, LAST_MODIFIED_DATE = ? \
              WHERE ID = 1",
@@ -125,7 +125,7 @@ impl KomfIntegrationDao {
     }
 
     pub fn mark_error(&self, last_error: &str) -> Result<()> {
-        self.db.rw().execute(
+        self.db.rw()?.execute(
             "UPDATE KOMF_INTEGRATION SET STATE = 'error', LAST_ERROR = ?, LAST_MODIFIED_DATE = ? WHERE ID = 1",
             rusqlite::params![
                 last_error,
@@ -137,7 +137,7 @@ impl KomfIntegrationDao {
 
     pub fn delete(&self) -> Result<()> {
         self.db
-            .rw()
+            .rw()?
             .execute("DELETE FROM KOMF_INTEGRATION WHERE ID = 1", [])?;
         Ok(())
     }
@@ -152,7 +152,7 @@ mod tests {
     fn test_dao() -> KomfIntegrationDao {
         let db = Database::open_in_memory(false).unwrap();
         Migrator::new(&crate::kmrs_migrations(), Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         KomfIntegrationDao::new(db)
     }

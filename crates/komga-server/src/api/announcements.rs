@@ -215,6 +215,7 @@ mod tests {
         let user_id = state
             .db
             .ro()
+            .unwrap()
             .query_row("SELECT ID FROM USER WHERE EMAIL = 'a@b.c'", [], |r| {
                 r.get::<_, String>(0)
             })

@@ -81,7 +81,7 @@ impl SyncPointDao {
     }
 
     pub fn insert(&self, sync_point: &SyncPoint) -> Result<String> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let id = if sync_point.id.is_empty() {
             self.tsid.create_string()
         } else {
@@ -100,7 +100,7 @@ impl SyncPointDao {
     }
 
     pub fn find_by_id(&self, sync_point_id: &str) -> Result<Option<SyncPoint>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt =
             conn.prepare(&format!("SELECT {SP_COLUMNS} FROM SYNC_POINT WHERE ID = ?"))?;
         let rows = stmt
@@ -110,7 +110,7 @@ impl SyncPointDao {
     }
 
     pub fn find_by_user_id(&self, user_id: &str) -> Result<Vec<SyncPoint>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {SP_COLUMNS} FROM SYNC_POINT WHERE USER_ID = ? ORDER BY CREATED_DATE DESC"
         ))?;
@@ -139,7 +139,7 @@ impl SyncPointDao {
     }
 
     pub fn insert_books(&self, books: &[SyncPointBook]) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         for b in books {
             conn.execute(
                 &format!(
@@ -169,7 +169,7 @@ impl SyncPointDao {
         sync_point_id: &str,
         only_not_synced: bool,
     ) -> Result<Vec<SyncPointBook>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let sql = format!(
             "SELECT {SPB_COLUMNS} FROM SYNC_POINT_BOOK WHERE SYNC_POINT_ID = ?{}",
             if only_not_synced {
@@ -189,7 +189,7 @@ impl SyncPointDao {
         if book_ids.is_empty() {
             return Ok(());
         }
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let placeholders = book_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
         let mut values: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(sync_point_id.to_string())];
         for id in book_ids {
@@ -209,7 +209,7 @@ impl SyncPointDao {
         sync_point_id: &str,
         book_ids: &[String],
     ) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         for id in book_ids {
             conn.execute(
         "INSERT OR IGNORE INTO SYNC_POINT_BOOK_REMOVED_SYNCED (SYNC_POINT_ID, BOOK_ID) VALUES (?, ?)",
@@ -220,7 +220,7 @@ impl SyncPointDao {
     }
 
     pub fn find_books_removed_synced(&self, sync_point_id: &str) -> Result<Vec<String>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(
             "SELECT BOOK_ID FROM SYNC_POINT_BOOK_REMOVED_SYNCED WHERE SYNC_POINT_ID = ?",
         )?;
@@ -244,7 +244,7 @@ impl SyncPointDao {
     }
 
     pub fn insert_readlist(&self, readlist: &SyncPointReadList) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
             &format!("INSERT INTO SYNC_POINT_READLIST ({SPRL_COLUMNS}) VALUES (?,?,?,?,?,?)"),
             params![
@@ -264,7 +264,7 @@ impl SyncPointDao {
         sync_point_id: &str,
         only_not_synced: bool,
     ) -> Result<Vec<SyncPointReadList>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let sql = format!(
             "SELECT {SPRL_COLUMNS} FROM SYNC_POINT_READLIST WHERE SYNC_POINT_ID = ?{}",
             if only_not_synced {
@@ -288,7 +288,7 @@ impl SyncPointDao {
         if readlist_ids.is_empty() {
             return Ok(());
         }
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let placeholders = readlist_ids
             .iter()
             .map(|_| "?")
@@ -310,7 +310,7 @@ impl SyncPointDao {
         sync_point_id: &str,
         readlist_ids: &[String],
     ) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         for id in readlist_ids {
             conn.execute(
         "INSERT OR IGNORE INTO SYNC_POINT_READLIST_REMOVED_SYNCED (SYNC_POINT_ID, READLIST_ID) VALUES (?, ?)",
@@ -323,7 +323,7 @@ impl SyncPointDao {
     // ---------- SYNC_POINT_READLIST_BOOK ----------
 
     pub fn insert_readlist_books(&self, books: &[SyncPointReadListBook]) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         for b in books {
             conn.execute(
         "INSERT INTO SYNC_POINT_READLIST_BOOK (SYNC_POINT_ID, READLIST_ID, BOOK_ID) VALUES (?, ?, ?)",
@@ -341,7 +341,7 @@ impl SyncPointDao {
         if readlist_ids.is_empty() {
             return Ok(Vec::new());
         }
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let placeholders = readlist_ids
             .iter()
             .map(|_| "?")
@@ -370,7 +370,7 @@ impl SyncPointDao {
     // ---------- deletion (child-table order matches Java) ----------
 
     pub fn delete_one(&self, sync_point_id: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         for table in [
             "SYNC_POINT_READLIST_REMOVED_SYNCED",
             "SYNC_POINT_READLIST_BOOK",
@@ -389,7 +389,7 @@ impl SyncPointDao {
 
     pub fn delete_by_user_id(&self, user_id: &str) -> Result<()> {
         let ids: Vec<String> = {
-            let conn = self.db.ro();
+            let conn = self.db.ro()?;
             let mut stmt = conn.prepare("SELECT ID FROM SYNC_POINT WHERE USER_ID = ?")?;
             let ids = stmt
                 .query_map([user_id], |r| r.get::<_, String>(0))?
@@ -416,7 +416,7 @@ impl SyncPointDao {
             .collect::<Vec<_>>()
             .join(",");
         let ids: Vec<String> = {
-            let conn = self.db.ro();
+            let conn = self.db.ro()?;
             let mut values: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(user_id.to_string())];
             for id in api_key_ids {
                 values.push(Box::new(id.clone()));
@@ -438,7 +438,7 @@ impl SyncPointDao {
     }
 
     pub fn delete_all(&self) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         for table in [
             "SYNC_POINT_READLIST_REMOVED_SYNCED",
             "SYNC_POINT_READLIST_BOOK",
@@ -461,7 +461,7 @@ impl SyncPointDao {
         page: u32,
         size: u32,
     ) -> Result<SyncPage<SyncPointBook>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let total: i64 = conn.query_row(
             &format!("SELECT COUNT(*) FROM ({sql})"),
             rusqlite::params_from_iter(params.clone()),
@@ -486,7 +486,7 @@ impl SyncPointDao {
         page: u32,
         size: u32,
     ) -> Result<SyncPage<SyncPointReadList>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let total: i64 = conn.query_row(
             &format!("SELECT COUNT(*) FROM ({sql})"),
             rusqlite::params_from_iter(params.clone()),
@@ -766,7 +766,7 @@ mod tests {
         let db = Database::open_in_memory(true).unwrap();
         let migrations = main_migrations();
         Migrator::new(&migrations, Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         SyncPointDao::new(db)
     }
@@ -887,6 +887,7 @@ mod tests {
             let n: i64 = dao
                 .db
                 .ro()
+                .unwrap()
                 .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
                 .unwrap();
             assert_eq!(n, 0, "{table} not empty after delete_one");
@@ -911,6 +912,7 @@ mod tests {
         let books_left: i64 = dao
             .db
             .ro()
+            .unwrap()
             .query_row("SELECT COUNT(*) FROM SYNC_POINT_BOOK", [], |r| r.get(0))
             .unwrap();
         assert_eq!(books_left, 1);

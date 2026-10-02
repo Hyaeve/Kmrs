@@ -67,7 +67,7 @@ impl MediaDao {
     }
 
     pub fn find_pages(&self, book_id: &str) -> Result<Vec<BookPage>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(
       "SELECT FILE_NAME, MEDIA_TYPE, WIDTH, HEIGHT, FILE_HASH, FILE_SIZE FROM MEDIA_PAGE WHERE BOOK_ID = ? ORDER BY NUMBER",
     )?;
@@ -78,7 +78,7 @@ impl MediaDao {
     }
 
     fn find_files(&self, book_id: &str) -> Result<Vec<MediaFile>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(
             "SELECT FILE_NAME, MEDIA_TYPE, SUB_TYPE, FILE_SIZE FROM MEDIA_FILE WHERE BOOK_ID = ?",
         )?;
@@ -90,7 +90,7 @@ impl MediaDao {
 
     pub fn find_by_id(&self, book_id: &str) -> Result<Option<Media>> {
         let mut media = {
-            let conn = self.db.ro();
+            let conn = self.db.ro()?;
             let mut stmt = conn.prepare(&format!(
                 "SELECT {MEDIA_COLUMNS} FROM MEDIA WHERE BOOK_ID = ?"
             ))?;
@@ -105,7 +105,7 @@ impl MediaDao {
     }
 
     pub fn insert(&self, media: &Media) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
             &format!("INSERT INTO MEDIA ({MEDIA_COLUMNS}) VALUES (?,?,?,?,?,?,?,?,?,?,?)"),
             rusqlite::params_from_iter(media_params(media)),
@@ -119,7 +119,7 @@ impl MediaDao {
     /// LAST_MODIFIED_DATE to the current time; pages/files are deleted and
     /// re-inserted.
     pub fn update(&self, media: &Media) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let mut values = media_params(media);
         values.truncate(values.len() - 2); // drop CREATED_DATE/LAST_MODIFIED_DATE
         values.remove(0); // drop BOOK_ID
@@ -146,14 +146,14 @@ impl MediaDao {
     /// Replaces pages only (e.g. for PAGE_HASH scenarios); leaves the main table
     /// and files untouched.
     pub fn replace_pages(&self, book_id: &str, pages: &[BookPage]) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute("DELETE FROM MEDIA_PAGE WHERE BOOK_ID = ?", [book_id])?;
         insert_pages(&conn, book_id, pages)?;
         Ok(())
     }
 
     pub fn delete(&self, book_id: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute("DELETE FROM MEDIA_PAGE WHERE BOOK_ID = ?", [book_id])?;
         conn.execute("DELETE FROM MEDIA_FILE WHERE BOOK_ID = ?", [book_id])?;
         conn.execute("DELETE FROM MEDIA WHERE BOOK_ID = ?", [book_id])?;
@@ -227,7 +227,7 @@ mod tests {
         let db = Database::open_in_memory(true).unwrap();
         let migrations = main_migrations();
         Migrator::new(&migrations, Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
 
         let now = now_utc();
@@ -267,13 +267,13 @@ mod tests {
             last_modified_date: now,
         };
         let library_id = library_dao.insert(&library).unwrap();
-        db.rw()
+        db.rw().unwrap()
       .execute(
         "INSERT INTO SERIES (ID, NAME, URL, FILE_LAST_MODIFIED, LIBRARY_ID) VALUES ('S1', 'S', 'file:/l/s/', ?, ?)",
         params![time_codec::format_datetime(now), library_id],
       )
       .unwrap();
-        db.rw()
+        db.rw().unwrap()
       .execute(
         "INSERT INTO BOOK (ID, NAME, URL, FILE_LAST_MODIFIED, SERIES_ID, LIBRARY_ID) VALUES ('B1', 'b.cbz', 'file:/l/s/b.cbz', ?, 'S1', ?)",
         params![time_codec::format_datetime(now), library_id],
@@ -364,7 +364,7 @@ mod tests {
 
         // page NUMBER starts from 0
         let numbers: Vec<i64> = {
-            let conn = dao.db.ro();
+            let conn = dao.db.ro().unwrap();
             let mut stmt = conn
                 .prepare("SELECT NUMBER FROM MEDIA_PAGE WHERE BOOK_ID = ? ORDER BY NUMBER")
                 .unwrap();
@@ -396,6 +396,7 @@ mod tests {
         let remaining: i64 = dao
             .db
             .ro()
+            .unwrap()
             .query_row(
                 "SELECT (SELECT COUNT(*) FROM MEDIA_PAGE) + (SELECT COUNT(*) FROM MEDIA_FILE)",
                 [],

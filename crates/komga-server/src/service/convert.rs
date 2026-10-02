@@ -84,7 +84,7 @@ fn find_all_by_library_id_and_media_types(
     library_id: &str,
     media_types: &[&str],
 ) -> komga_db::Result<Vec<Book>> {
-    let conn = state.db.ro();
+    let conn = state.db.ro()?;
     let placeholders = media_types
         .iter()
         .map(|_| "?")
@@ -131,7 +131,7 @@ fn find_all_by_library_id_and_mismatched_extension(
     media_type: &str,
     extension: &str,
 ) -> komga_db::Result<Vec<Book>> {
-    let conn = state.db.ro();
+    let conn = state.db.ro()?;
     let mut stmt = conn.prepare(&format!(
         "SELECT {book_columns} FROM BOOK LEFT JOIN MEDIA ON BOOK.ID = MEDIA.BOOK_ID \
          WHERE BOOK.LIBRARY_ID = ? AND MEDIA.MEDIA_TYPE = ? AND BOOK.URL NOT LIKE ?",
@@ -666,7 +666,7 @@ pub fn get_book_pages_to_delete_automatically(
     state: &AppState,
     library: &Library,
 ) -> komga_db::Result<BTreeMap<String, Vec<BookPageNumbered>>> {
-    let conn = state.db.ro();
+    let conn = state.db.ro()?;
     let mut stmt = conn.prepare(
         "SELECT p.BOOK_ID, p.FILE_NAME, p.NUMBER, p.FILE_HASH, p.MEDIA_TYPE, p.FILE_SIZE \
          FROM MEDIA_PAGE p INNER JOIN PAGE_HASH ph ON p.FILE_HASH = ph.HASH \
@@ -985,6 +985,7 @@ mod tests {
             .state
             .db
             .ro()
+            .unwrap()
             .query_row(
                 "SELECT COUNT(*) FROM HISTORICAL_EVENT WHERE TYPE = 'BookConverted'",
                 [],
@@ -997,6 +998,7 @@ mod tests {
             .state
             .db
             .ro()
+            .unwrap()
             .query_row(
                 "SELECT COUNT(*) FROM HISTORICAL_EVENT WHERE TYPE = 'BookFileDeleted'",
                 [],
@@ -1162,6 +1164,7 @@ mod tests {
             .state
             .db
             .ro()
+            .unwrap()
             .query_row(
                 "SELECT COUNT(*) FROM HISTORICAL_EVENT WHERE TYPE = 'DuplicatePageDeleted'",
                 [],

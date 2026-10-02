@@ -59,7 +59,7 @@ impl KoboDtoDao {
                 .or_default()
                 .insert(p.profile, p.file_size);
         }
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let authors = self.authors_by_book(&conn, book_ids)?;
         let mut rows = vec![];
         for chunk in book_ids.chunks(500) {
@@ -179,14 +179,14 @@ mod tests {
         let db = Database::open_in_memory(true).unwrap();
         let migrations = main_migrations();
         Migrator::new(&migrations, Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         db
     }
 
     fn seed(db: &Database) {
         let now = "2024-01-02 03:04:05.0";
-        let rw = db.rw();
+        let rw = db.rw().unwrap();
         rw.execute(
             "INSERT INTO LIBRARY (ID, NAME, ROOT) VALUES ('l1', 'lib', 'file:/data/')",
             [],

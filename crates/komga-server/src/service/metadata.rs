@@ -536,7 +536,7 @@ fn load_series_contribution_sources(
     state: &AppState,
     series_id: &str,
 ) -> Result<Vec<SeriesMetadataContributionSource>> {
-    let conn = state.db.ro();
+    let conn = state.db.ro()?;
     // the fingerprint seconds must truncate the stored datetime like the upsert path's
     // `unix_timestamp()`: SQLite's unixepoch() rounds the text to the nearest
     // millisecond first, so a fraction >= .9995 would roll into the next second and
@@ -1513,6 +1513,7 @@ mod tests {
         state
             .db
             .rw()
+            .unwrap()
             .execute(
                 "UPDATE BOOK SET FILE_LAST_MODIFIED = ? WHERE ID = ?",
                 rusqlite::params![format_datetime(book.file_last_modified), book.id],
@@ -1611,6 +1612,7 @@ mod tests {
         state
             .db
             .rw()
+            .unwrap()
             .execute(
                 "UPDATE BOOK SET FILE_SIZE = 999 WHERE ID = ?",
                 rusqlite::params![books[0].id],

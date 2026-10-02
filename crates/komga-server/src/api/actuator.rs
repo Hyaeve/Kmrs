@@ -130,7 +130,7 @@ async fn get_flyway(
     auth: RequireAuth,
 ) -> Result<Response, ApiError> {
     auth.0.require_admin()?;
-    let conn = state.db.ro();
+    let conn = state.db.ro()?;
     let mut stmt = conn
         .prepare(
             "SELECT installed_rank, version, description, type, script, checksum, installed_by, installed_on, execution_time, success \
@@ -302,21 +302,23 @@ async fn get_health(State(state): State<AppState>, auth: MaybeAuth) -> Response 
         });
     }
 
-    let data_source = |db: &komga_db::pool::Database| match db
-        .ro()
-        .query_row("SELECT 1", [], |r| r.get::<_, i64>(0))
-    {
-        Ok(1) => HealthComponent {
-            status: "UP",
-            details: serde_json::json!({
-                "database": "SQLite",
-                "validationQuery": "isValid()",
-            }),
-        },
-        _ => HealthComponent {
-            status: "DOWN",
-            details: serde_json::json!({}),
-        },
+    let data_source = |db: &komga_db::pool::Database| {
+        let check = || -> komga_db::Result<i64> {
+            Ok(db.ro()?.query_row("SELECT 1", [], |r| r.get::<_, i64>(0))?)
+        };
+        match check() {
+            Ok(1) => HealthComponent {
+                status: "UP",
+                details: serde_json::json!({
+                    "database": "SQLite",
+                    "validationQuery": "isValid()",
+                }),
+            },
+            _ => HealthComponent {
+                status: "DOWN",
+                details: serde_json::json!({}),
+            },
+        }
     };
     let mut db_components = std::collections::BTreeMap::new();
     db_components.insert("sqliteDataSourceRO".to_string(), data_source(&state.db));
@@ -845,7 +847,14 @@ fn multi_gauge_rows(state: &AppState, name: &str) -> Vec<(String, f64)> {
         "komga.sidecars" => "SELECT LIBRARY_ID, COUNT(*) FROM SIDECAR GROUP BY LIBRARY_ID",
         _ => return vec![],
     };
-    let conn = state.db.ro();
+    let conn = match state.db.ro() {
+        Ok(conn) => conn,
+        Err(e) => {
+            // an empty series would pass for an empty library on the scrape
+            tracing::warn!("read pool unavailable for metrics: {e}");
+            return vec![];
+        }
+    };
     let mut stmt = match conn.prepare(sql) {
         Ok(stmt) => stmt,
         Err(_) => return vec![],
@@ -871,13 +880,14 @@ fn name_static(name: &str) -> &'static str {
 }
 
 fn count_of(state: &AppState, table: &str) -> f64 {
-    state
-        .db
-        .ro()
-        .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| {
-            r.get::<_, i64>(0)
-        })
-        .unwrap_or(0) as f64
+    let Ok(conn) = state.db.ro() else {
+        tracing::warn!("read pool unavailable for metrics");
+        return 0.0;
+    };
+    conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| {
+        r.get::<_, i64>(0)
+    })
+    .unwrap_or(0) as f64
 }
 
 /// One long-lived `System` for self-process stats: CPU usage is a diff between two
@@ -1110,14 +1120,14 @@ mod tests {
         let db = Database::open_in_memory(true).unwrap();
         let migrations = komga_db::main_migrations();
         Migrator::new(&migrations, Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         let tasks_db = Database::open_in_memory(false).unwrap();
         // dedicated task pools reuse the same in-memory database: task execution and assertions stay in sync
         let task_db = db.clone();
         let tasks_migrations = komga_db::tasks_migrations();
         Migrator::new(&tasks_migrations, Placeholders::default())
-            .migrate(&tasks_db.rw())
+            .migrate(&tasks_db.rw().unwrap())
             .unwrap();
         let config = ServerConfig::from_env();
         let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
@@ -1525,7 +1535,7 @@ mod tests {
 
     /// A library with one series, one book (1 KiB) and one sidecar.
     fn seed_library_data(state: &AppState) {
-        let conn = state.db.rw();
+        let conn = state.db.rw().unwrap();
         conn.execute(
             "INSERT INTO LIBRARY (ID, NAME, ROOT) VALUES ('lib1', 'L1', 'file:/l1/')",
             [],

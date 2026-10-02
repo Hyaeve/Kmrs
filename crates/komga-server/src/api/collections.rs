@@ -654,11 +654,11 @@ pub(crate) mod tests {
         let task_db = db.clone();
         let migrations = komga_db::main_migrations();
         Migrator::new(&migrations, Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         let tasks_migrations = komga_db::tasks_migrations();
         Migrator::new(&tasks_migrations, Placeholders::default())
-            .migrate(&tasks_db.rw())
+            .migrate(&tasks_db.rw().unwrap())
             .unwrap();
         AppState {
             config: Arc::new(ServerConfig::from_env()),
@@ -718,7 +718,7 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn exec(db: &Database, sql: &str, params: impl rusqlite::Params) {
-        db.rw().execute(sql, params).unwrap();
+        db.rw().unwrap().execute(sql, params).unwrap();
     }
 
     pub(crate) async fn call(

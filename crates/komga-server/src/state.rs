@@ -60,7 +60,7 @@ pub(crate) fn test_kmrs_db() -> Database {
         &komga_db::kmrs_migrations(),
         komga_db::Placeholders::default(),
     )
-    .migrate(&kmrs_db.rw())
+    .migrate(&kmrs_db.rw().unwrap())
     .unwrap();
     kmrs_db
 }

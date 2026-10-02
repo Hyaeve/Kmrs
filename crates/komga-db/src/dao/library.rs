@@ -74,7 +74,7 @@ impl LibraryDao {
         if libraries.is_empty() {
             return Ok(());
         }
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare("SELECT LIBRARY_ID, EXCLUSION FROM LIBRARY_EXCLUSIONS")?;
         let mut map: std::collections::HashMap<String, Vec<String>> =
             std::collections::HashMap::new();
@@ -89,7 +89,7 @@ impl LibraryDao {
     }
 
     pub fn find_all(&self) -> Result<Vec<Library>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!("SELECT {COLUMNS} FROM LIBRARY ORDER BY NAME"))?;
         let mut libraries = stmt
             .query_map([], Self::row_to_library)?
@@ -101,7 +101,7 @@ impl LibraryDao {
     }
 
     pub fn find_by_id(&self, id: &str) -> Result<Option<Library>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!("SELECT {COLUMNS} FROM LIBRARY WHERE ID = ?"))?;
         let mut libraries = stmt
             .query_map([id], Self::row_to_library)?
@@ -113,7 +113,7 @@ impl LibraryDao {
     }
 
     pub fn insert(&self, library: &Library) -> Result<String> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let id = if library.id.is_empty() {
             self.tsid.create_string()
         } else {
@@ -128,7 +128,7 @@ impl LibraryDao {
     }
 
     pub fn update(&self, library: &Library) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let sets = COLUMNS
             .split(',')
             .map(|c| format!("{} = ?", c.trim()))
@@ -145,7 +145,7 @@ impl LibraryDao {
     }
 
     pub fn delete(&self, id: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute("DELETE FROM LIBRARY_EXCLUSIONS WHERE LIBRARY_ID = ?", [id])?;
         conn.execute("DELETE FROM LIBRARY WHERE ID = ?", [id])?;
         Ok(())
@@ -218,7 +218,7 @@ mod tests {
         let db = Database::open_in_memory(true).unwrap();
         let migrations = main_migrations();
         Migrator::new(&migrations, Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         LibraryDao::new(db)
     }
@@ -300,6 +300,7 @@ mod tests {
         let exclusions: i64 = dao
             .db
             .ro()
+            .unwrap()
             .query_row("SELECT COUNT(*) FROM LIBRARY_EXCLUSIONS", [], |r| r.get(0))
             .unwrap();
         assert_eq!(exclusions, 0);

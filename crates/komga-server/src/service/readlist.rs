@@ -282,7 +282,7 @@ pub struct ReadListRequestBookMatchBook {
 pub fn match_comic_rack_list(
     state: &AppState,
     file_content: &[u8],
-) -> std::result::Result<ReadListRequestMatch, komga_core::error::CodedError> {
+) -> std::result::Result<ReadListRequestMatch, MatchCblError> {
     let request = komga_media::metadata::comicinfo::import_from_cbl(file_content)?;
     let exists = ReadListDao::new(state.db.clone())
         .exists_by_name(&request.name)
@@ -295,7 +295,7 @@ pub fn match_comic_rack_list(
             String::new()
         },
     };
-    let matches = match_book_requests(state, &request.books);
+    let matches = match_book_requests(state, &request.books)?;
     Ok(ReadListRequestMatch {
         read_list_match,
         requests: matches,
@@ -303,12 +303,23 @@ pub fn match_comic_rack_list(
     })
 }
 
+/// CBL matching failures: request-level problems surface as 400 through [`CodedError`],
+/// a database failure is a server-side 500 — a transient pool timeout must not come out
+/// as "no books matched".
+#[derive(Debug, thiserror::Error)]
+pub enum MatchCblError {
+    #[error(transparent)]
+    Coded(#[from] komga_core::error::CodedError),
+    #[error(transparent)]
+    Db(#[from] komga_db::Error),
+}
+
 /// `ReadListRequestDao.matchBookRequests`: joins the (index, series-candidate, number) rows to
 /// series by title (NOCASE) and to books by number with leading zeros stripped (NOCASE).
 fn match_book_requests(
     state: &AppState,
     requests: &[komga_media::metadata::comicinfo::ReadListRequestBook],
-) -> Vec<ReadListRequestBookMatches> {
+) -> komga_db::Result<Vec<ReadListRequestBookMatches>> {
     let mut rows: Vec<(usize, String, String)> = vec![];
     for (index, request) in requests.iter().enumerate() {
         for series in &request.series {
@@ -341,7 +352,7 @@ fn match_book_requests(
              INNER JOIN BOOK_METADATA bd ON b.ID = bd.BOOK_ID \
                AND ltrim(bd.NUMBER, '0') = ltrim(req.number, '0') COLLATE NOCASE"
         );
-        let conn = state.db.ro();
+        let conn = state.db.ro()?;
         let rows: Vec<_> = match conn.prepare(&sql) {
             Ok(mut stmt) => match stmt.query_map([], |row| {
                 Ok((
@@ -377,14 +388,14 @@ fn match_book_requests(
                 });
         }
     }
-    requests
+    Ok(requests
         .iter()
         .enumerate()
         .map(|(index, request)| ReadListRequestBookMatches {
             request: request.clone(),
             matches: matched.remove(&index).unwrap_or_default(),
         })
-        .collect()
+        .collect())
 }
 
 fn escape_sql(value: &str) -> String {
@@ -641,25 +652,26 @@ mod tests {
     fn match_comic_rack_list_cbl_errors() {
         let state = test_state();
         seed_base(&state.db);
-        let err = match_comic_rack_list(&state, b"not xml at all").unwrap_err();
-        assert_eq!(err.0, "ERR_1015");
-        let err = match_comic_rack_list(
-            &state,
-            br#"<ReadingList><Name>X</Name><Books></Books></ReadingList>"#,
-        )
-        .unwrap_err();
-        assert_eq!(err.0, "ERR_1029");
-        let err = match_comic_rack_list(
-            &state,
-            br#"<ReadingList><Books><Book><Series>A</Series><Number>1</Number></Book></Books></ReadingList>"#,
-        )
-        .unwrap_err();
-        assert_eq!(err.0, "ERR_1030");
-        let err = match_comic_rack_list(
-            &state,
-            br#"<ReadingList><Name>X</Name><Books><Book><Series></Series><Number>1</Number></Book></Books></ReadingList>"#,
-        )
-        .unwrap_err();
-        assert_eq!(err.0, "ERR_1031");
+        let coded = |cbl: &[u8]| match match_comic_rack_list(&state, cbl).unwrap_err() {
+            MatchCblError::Coded(e) => e.0,
+            other => panic!("expected a coded error, got {other}"),
+        };
+        assert_eq!(coded(b"not xml at all"), "ERR_1015");
+        assert_eq!(
+            coded(br#"<ReadingList><Name>X</Name><Books></Books></ReadingList>"#),
+            "ERR_1029"
+        );
+        assert_eq!(
+            coded(
+                br#"<ReadingList><Books><Book><Series>A</Series><Number>1</Number></Book></Books></ReadingList>"#
+            ),
+            "ERR_1030"
+        );
+        assert_eq!(
+            coded(
+                br#"<ReadingList><Name>X</Name><Books><Book><Series></Series><Number>1</Number></Book></Books></ReadingList>"#
+            ),
+            "ERR_1031"
+        );
     }
 }

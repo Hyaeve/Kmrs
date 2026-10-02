@@ -28,7 +28,7 @@ impl SidecarDao {
     }
 
     pub fn find_all(&self) -> Result<Vec<SidecarStored>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!("SELECT {COLUMNS} FROM SIDECAR"))?;
         let rows = stmt
             .query_map([], Self::row_to_sidecar)?
@@ -38,7 +38,7 @@ impl SidecarDao {
 
     /// Upsert by URL (corresponds to jOOQ `onDuplicateKeyUpdate`).
     pub fn save(&self, sidecar: &SidecarStored) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
             &format!(
                 "INSERT INTO SIDECAR ({COLUMNS}) VALUES (?,?,?,?) \
@@ -59,7 +59,7 @@ impl SidecarDao {
         if urls.is_empty() {
             return Ok(());
         }
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let mut stmt = conn.prepare("DELETE FROM SIDECAR WHERE LIBRARY_ID = ? AND URL = ?")?;
         for url in urls {
             stmt.execute(params![library_id, url])?;
@@ -68,13 +68,13 @@ impl SidecarDao {
     }
 
     pub fn delete_by_library_id(&self, library_id: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute("DELETE FROM SIDECAR WHERE LIBRARY_ID = ?", [library_id])?;
         Ok(())
     }
 
     pub fn count_grouped_by_library_id(&self) -> Result<std::collections::HashMap<String, i64>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt =
             conn.prepare("SELECT LIBRARY_ID, COUNT(*) FROM SIDECAR GROUP BY LIBRARY_ID")?;
         let rows = stmt
@@ -95,7 +95,7 @@ mod tests {
         let db = Database::open_in_memory(true).unwrap();
         let migrations = main_migrations();
         Migrator::new(&migrations, Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         SidecarDao::new(db)
     }

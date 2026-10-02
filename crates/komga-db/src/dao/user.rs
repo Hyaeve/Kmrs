@@ -68,7 +68,7 @@ impl UserDao {
         if users.is_empty() {
             return Ok(());
         }
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut roles_stmt = conn.prepare("SELECT USER_ID, ROLE FROM USER_ROLE")?;
         let mut roles_map: std::collections::HashMap<String, BTreeSet<UserRole>> =
             std::collections::HashMap::new();
@@ -124,12 +124,12 @@ impl UserDao {
     pub fn count(&self) -> Result<i64> {
         Ok(self
             .db
-            .ro()
+            .ro()?
             .query_row("SELECT COUNT(*) FROM USER", [], |r| r.get(0))?)
     }
 
     pub fn find_all(&self) -> Result<Vec<KomgaUser>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!("SELECT {USER_COLUMNS} FROM USER ORDER BY EMAIL"))?;
         let mut users = stmt
             .query_map([], Self::row_to_user)?
@@ -141,7 +141,7 @@ impl UserDao {
     }
 
     pub fn find_by_id(&self, id: &str) -> Result<Option<KomgaUser>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!("SELECT {USER_COLUMNS} FROM USER WHERE ID = ?"))?;
         let mut users = stmt
             .query_map([id], Self::row_to_user)?
@@ -154,7 +154,7 @@ impl UserDao {
 
     /// jOOQ `equalIgnoreCase` → `LOWER(EMAIL) = LOWER(?)`.
     pub fn find_by_email_ignore_case(&self, email: &str) -> Result<Option<KomgaUser>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {USER_COLUMNS} FROM USER WHERE LOWER(EMAIL) = LOWER(?)"
         ))?;
@@ -168,7 +168,7 @@ impl UserDao {
     }
 
     pub fn exists_by_email_ignore_case(&self, email: &str) -> Result<bool> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         Ok(conn.query_row(
             "SELECT COUNT(*) FROM USER WHERE LOWER(EMAIL) = LOWER(?)",
             [email],
@@ -177,7 +177,7 @@ impl UserDao {
     }
 
     pub fn insert(&self, user: &KomgaUser) -> Result<String> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let id = if user.id.is_empty() {
             self.tsid.create_string()
         } else {
@@ -194,7 +194,7 @@ impl UserDao {
     /// Corresponds to `KomgaUserDao.update`: LAST_MODIFIED_DATE is forced to the
     /// current time (UTC) by the DAO.
     pub fn update(&self, user: &KomgaUser) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
             "UPDATE USER SET EMAIL = ?, PASSWORD = ?, SHARED_ALL_LIBRARIES = ?, \
        AGE_RESTRICTION = ?, AGE_RESTRICTION_ALLOW_ONLY = ?, LAST_MODIFIED_DATE = ? WHERE ID = ?",
@@ -224,7 +224,7 @@ impl UserDao {
     /// cascade, so dependents go first, all in one transaction. Activity rows
     /// match by id or email like `AuthenticationActivityDao.deleteByUser`.
     pub fn delete(&self, user_id: &str, email: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let tx = conn.unchecked_transaction()?;
         tx.execute(
             "DELETE FROM CLIENT_SETTINGS_USER WHERE USER_ID = ?",
@@ -271,7 +271,7 @@ impl UserDao {
     }
 
     pub fn delete_all(&self) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         for table in [
             "USER_API_KEY",
             "ANNOUNCEMENTS_READ",
@@ -321,7 +321,7 @@ impl UserDao {
     // ---------- ANNOUNCEMENTS_READ ----------
 
     pub fn find_announcement_ids_read(&self, user_id: &str) -> Result<BTreeSet<String>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt =
             conn.prepare("SELECT ANNOUNCEMENT_ID FROM ANNOUNCEMENTS_READ WHERE USER_ID = ?")?;
         let ids = stmt
@@ -335,7 +335,7 @@ impl UserDao {
         user_id: &str,
         announcement_ids: &BTreeSet<String>,
     ) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         for id in announcement_ids {
             conn.execute(
                 "INSERT OR IGNORE INTO ANNOUNCEMENTS_READ (USER_ID, ANNOUNCEMENT_ID) VALUES (?, ?)",
@@ -359,7 +359,7 @@ impl UserDao {
     }
 
     pub fn find_api_keys_by_user_id(&self, user_id: &str) -> Result<Vec<ApiKey>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {API_KEY_COLUMNS} FROM USER_API_KEY WHERE USER_ID = ?"
         ))?;
@@ -371,7 +371,7 @@ impl UserDao {
 
     /// `findByApiKeyOrNull`: finds the user and key record by key (SHA-512 hex).
     pub fn find_by_api_key(&self, api_key: &str) -> Result<Option<(KomgaUser, ApiKey)>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut key_stmt = conn.prepare(&format!(
             "SELECT {API_KEY_COLUMNS} FROM USER_API_KEY WHERE API_KEY = ?"
         ))?;
@@ -394,7 +394,7 @@ impl UserDao {
         api_key_id: &str,
         user_id: &str,
     ) -> Result<bool> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         Ok(conn.query_row(
             "SELECT COUNT(*) FROM USER_API_KEY WHERE ID = ? AND USER_ID = ?",
             params![api_key_id, user_id],
@@ -407,7 +407,7 @@ impl UserDao {
         comment: &str,
         user_id: &str,
     ) -> Result<bool> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         Ok(conn.query_row(
             "SELECT COUNT(*) FROM USER_API_KEY WHERE LOWER(COMMENT) = LOWER(?) AND USER_ID = ?",
             params![comment, user_id],
@@ -416,7 +416,7 @@ impl UserDao {
     }
 
     pub fn insert_api_key(&self, api_key: &ApiKey) -> Result<String> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let id = if api_key.id.is_empty() {
             self.tsid.create_string()
         } else {
@@ -437,7 +437,7 @@ impl UserDao {
     }
 
     pub fn delete_api_key_by_id_and_user_id(&self, api_key_id: &str, user_id: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
             "DELETE FROM USER_API_KEY WHERE ID = ? AND USER_ID = ?",
             params![api_key_id, user_id],
@@ -446,7 +446,7 @@ impl UserDao {
     }
 
     pub fn delete_api_keys_by_user_id(&self, user_id: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute("DELETE FROM USER_API_KEY WHERE USER_ID = ?", [user_id])?;
         Ok(())
     }
@@ -469,7 +469,7 @@ impl UserDao {
     }
 
     pub fn insert_activity(&self, activity: &AuthenticationActivity) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
       "INSERT INTO AUTHENTICATION_ACTIVITY \
        (USER_ID, EMAIL, API_KEY_ID, API_KEY_COMMENT, IP, USER_AGENT, SUCCESS, ERROR, DATE_TIME, SOURCE) \
@@ -492,7 +492,7 @@ impl UserDao {
 
     /// `AuthenticationActivityRepository.deleteOlderThan`
     pub fn delete_activity_older_than(&self, cutoff: time::OffsetDateTime) -> Result<i64> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let n = conn.execute(
             "DELETE FROM AUTHENTICATION_ACTIVITY WHERE DATE_TIME < ?",
             [time_codec::format_datetime(cutoff)],
@@ -509,7 +509,7 @@ impl UserDao {
         limit: Option<u32>,
         offset: u32,
     ) -> Result<(Vec<AuthenticationActivity>, i64)> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let total: i64 = conn.query_row(
             "SELECT COUNT(*) FROM AUTHENTICATION_ACTIVITY WHERE USER_ID = ? OR EMAIL = ?",
             params![user_id, email],
@@ -541,7 +541,7 @@ impl UserDao {
         limit: Option<u32>,
         offset: u32,
     ) -> Result<(Vec<AuthenticationActivity>, i64)> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let total: i64 =
             conn.query_row("SELECT COUNT(*) FROM AUTHENTICATION_ACTIVITY", [], |r| {
                 r.get(0)
@@ -570,7 +570,7 @@ impl UserDao {
         email: &str,
         api_key_id: Option<&str>,
     ) -> Result<Option<AuthenticationActivity>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut sql = format!(
       "SELECT {ACTIVITY_COLUMNS} FROM AUTHENTICATION_ACTIVITY WHERE (USER_ID = ? OR EMAIL = ?)"
     );
@@ -591,7 +591,7 @@ impl UserDao {
     }
 
     pub fn delete_activities_by_user(&self, user_id: &str, email: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
             "DELETE FROM AUTHENTICATION_ACTIVITY WHERE USER_ID = ? OR EMAIL = ?",
             params![user_id, email],
@@ -600,7 +600,7 @@ impl UserDao {
     }
 
     pub fn delete_activities_older_than(&self, date_time: time::OffsetDateTime) -> Result<usize> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         Ok(conn.execute(
             "DELETE FROM AUTHENTICATION_ACTIVITY WHERE DATE_TIME < ?",
             [time_codec::format_datetime(date_time)],
@@ -635,7 +635,7 @@ mod tests {
         let db = Database::open_in_memory(true).unwrap();
         let migrations = main_migrations();
         Migrator::new(&migrations, Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         UserDao::new(db)
     }
@@ -752,6 +752,7 @@ mod tests {
             let n: i64 = dao
                 .db
                 .ro()
+                .unwrap()
                 .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
                 .unwrap();
             assert_eq!(n, 0, "{table} not empty after delete");
@@ -807,6 +808,7 @@ mod tests {
         let n: i64 = dao
             .db
             .ro()
+            .unwrap()
             .query_row("SELECT COUNT(*) FROM USER_API_KEY", [], |r| r.get(0))
             .unwrap();
         assert_eq!(n, 0);
@@ -856,7 +858,7 @@ mod tests {
         .unwrap();
 
         {
-            let conn = dao.db.rw();
+            let conn = dao.db.rw().unwrap();
             conn.execute(
                 "INSERT INTO LIBRARY (ID, NAME, ROOT) VALUES ('lib1', 'L', 'file:/l/')",
                 [],
@@ -946,6 +948,7 @@ mod tests {
             let n: i64 = dao
                 .db
                 .ro()
+                .unwrap()
                 .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
                 .unwrap();
             assert_eq!(n, 0, "{table} not empty after delete");

@@ -203,7 +203,7 @@ impl SeriesDtoDao {
             "SELECT {first_char}, COUNT(*) {FROM_BASE} {join_sql} {} GROUP BY {first_char}",
             where_clause(&w)
         );
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&sql)?;
         let groups = stmt
             .query_map(
@@ -227,7 +227,7 @@ impl SeriesDtoDao {
     pub fn find_by_id(&self, series_id: &str, user_id: &str) -> Result<Option<SeriesDto>> {
         let columns = select_columns();
         let sql = format!("SELECT {columns} {FROM_BASE} WHERE SERIES.ID = ? GROUP BY {columns}");
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&sql)?;
         let records = stmt
             .query_map(
@@ -249,7 +249,7 @@ impl SeriesDtoDao {
         page: &PageRequest,
         lucene_ids: &Option<Vec<String>>,
     ) -> Result<DtoPage<SeriesDto>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let (join_sql, join_params) = render_collection_joins(&w.joins);
         let base_params = || {
             [Value::Text(user_id.to_string())]
@@ -622,7 +622,7 @@ mod tests {
         let db = Database::open_in_memory(true).unwrap();
         let migrations = main_migrations();
         Migrator::new(&migrations, Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         db
     }
@@ -661,6 +661,7 @@ mod tests {
 
     fn insert_library(db: &Database, id: &str) {
         db.rw()
+            .unwrap()
             .execute(
                 "INSERT INTO LIBRARY (ID, NAME, ROOT) VALUES (?, ?, ?)",
                 params![id, format!("lib-{id}"), format!("file:/{id}/")],
@@ -771,7 +772,7 @@ mod tests {
         read: i32,
         in_progress: i32,
     ) {
-        db.rw()
+        db.rw().unwrap()
             .execute(
                 "INSERT INTO READ_PROGRESS_SERIES (SERIES_ID, USER_ID, READ_COUNT, IN_PROGRESS_COUNT) \
                  VALUES (?, ?, ?, ?)",
@@ -782,13 +783,14 @@ mod tests {
 
     fn insert_collection(db: &Database, id: &str, entries: &[(&str, i32)]) {
         db.rw()
+            .unwrap()
             .execute(
                 "INSERT INTO COLLECTION (ID, NAME, ORDERED, SERIES_COUNT) VALUES (?, ?, 1, ?)",
                 params![id, format!("col-{id}"), entries.len() as i32],
             )
             .unwrap();
         for (series_id, number) in entries {
-            db.rw()
+            db.rw().unwrap()
                 .execute(
                     "INSERT INTO COLLECTION_SERIES (COLLECTION_ID, SERIES_ID, NUMBER) VALUES (?, ?, ?)",
                     params![id, series_id, number],
@@ -803,6 +805,7 @@ mod tests {
     fn fixtures() -> Database {
         let db = db();
         db.rw()
+            .unwrap()
             .execute(
                 "INSERT INTO USER (ID, EMAIL, PASSWORD) VALUES ('u1', 'u@x.y', 'x')",
                 [],
@@ -854,7 +857,7 @@ mod tests {
             &[],
         );
         insert_aggregation(&db, "s3", &[], &[]);
-        db.rw()
+        db.rw().unwrap()
             .execute(
                 "UPDATE SERIES SET DELETED_DATE = '2024-01-01 00:00:00', ONESHOT = 1 WHERE ID = 's3'",
                 [],
@@ -1179,6 +1182,7 @@ mod tests {
     fn recently_updated_excludes_unmodified() {
         let db = fixtures();
         db.rw()
+            .unwrap()
             .execute(
                 "UPDATE SERIES SET LAST_MODIFIED_DATE = '2030-01-01 00:00:00' WHERE ID = 's1'",
                 [],

@@ -57,7 +57,7 @@ impl ReadProgressDao {
     }
 
     pub fn find_all(&self) -> Result<Vec<ReadProgress>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!("SELECT {COLUMNS} FROM READ_PROGRESS"))?;
         let rows = stmt
             .query_map([], Self::row_to_progress)?
@@ -70,7 +70,7 @@ impl ReadProgressDao {
         book_id: &str,
         user_id: &str,
     ) -> Result<Option<ReadProgress>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {COLUMNS} FROM READ_PROGRESS WHERE BOOK_ID = ? AND USER_ID = ?"
         ))?;
@@ -83,7 +83,7 @@ impl ReadProgressDao {
     }
 
     pub fn find_by_user(&self, user_id: &str) -> Result<Vec<ReadProgress>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {COLUMNS} FROM READ_PROGRESS WHERE USER_ID = ?"
         ))?;
@@ -94,7 +94,7 @@ impl ReadProgressDao {
     }
 
     pub fn find_by_book(&self, book_id: &str) -> Result<Vec<ReadProgress>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {COLUMNS} FROM READ_PROGRESS WHERE BOOK_ID = ?"
         ))?;
@@ -112,7 +112,7 @@ impl ReadProgressDao {
         if book_ids.is_empty() {
             return Ok(Vec::new());
         }
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let placeholders = book_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
         let mut stmt = conn.prepare(&format!(
             "SELECT {COLUMNS} FROM READ_PROGRESS WHERE BOOK_ID IN ({placeholders}) AND USER_ID = ?"
@@ -132,7 +132,7 @@ impl ReadProgressDao {
     /// defaults; on conflict, LAST_MODIFIED is set to the app-side UTC now), then
     /// recompute the aggregates for the series the book belongs to.
     pub fn insert_or_update(&self, progress: &ReadProgress) -> Result<()> {
-        upsert_one(&self.db.rw(), progress)?;
+        upsert_one(&*self.db.rw()?, progress)?;
         self.aggregate_series_progress(
             std::slice::from_ref(&progress.book_id),
             Some(&progress.user_id),
@@ -147,7 +147,7 @@ impl ReadProgressDao {
             return Ok(());
         }
         {
-            let conn = self.db.rw();
+            let conn = self.db.rw()?;
             for progress in progresses {
                 upsert_one(&conn, progress)?;
             }
@@ -173,7 +173,7 @@ impl ReadProgressDao {
             return Ok(());
         }
         {
-            let conn = self.db.rw();
+            let conn = self.db.rw()?;
             // chunked to stay under SQLite's variable limit (the Java side uses a temp table)
             for chunk in book_ids.chunks(500) {
                 let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
@@ -196,7 +196,7 @@ impl ReadProgressDao {
 
     /// Aligned with Java `delete`: recompute the aggregates after deleting the row.
     pub fn delete(&self, book_id: &str, user_id: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
             "DELETE FROM READ_PROGRESS WHERE BOOK_ID = ? AND USER_ID = ?",
             params![book_id, user_id],
@@ -213,7 +213,7 @@ impl ReadProgressDao {
             return Ok(());
         }
         {
-            let conn = self.db.rw();
+            let conn = self.db.rw()?;
             for chunk in book_ids.chunks(500) {
                 let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
                 conn.execute(
@@ -227,7 +227,7 @@ impl ReadProgressDao {
     }
 
     pub fn delete_by_book(&self, book_id: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute("DELETE FROM READ_PROGRESS WHERE BOOK_ID = ?", [book_id])?;
         drop(conn);
         self.aggregate_series_progress(std::slice::from_ref(&book_id.to_string()), None)?;
@@ -235,7 +235,7 @@ impl ReadProgressDao {
     }
 
     pub fn delete_by_user(&self, user_id: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute("DELETE FROM READ_PROGRESS WHERE USER_ID = ?", [user_id])?;
         conn.execute(
             "DELETE FROM READ_PROGRESS_SERIES WHERE USER_ID = ?",
@@ -254,7 +254,7 @@ impl ReadProgressDao {
         if book_ids.is_empty() {
             return Ok(());
         }
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let placeholders = book_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
         let series_query = format!("SELECT SERIES_ID FROM BOOK WHERE ID IN ({placeholders})");
         let make_params = || -> Vec<Box<dyn rusqlite::ToSql>> {
@@ -297,7 +297,7 @@ impl ReadProgressDao {
         series_id: &str,
         user_id: &str,
     ) -> Result<Option<ReadProgressSeries>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {SERIES_COLUMNS} FROM READ_PROGRESS_SERIES WHERE SERIES_ID = ? AND USER_ID = ?"
         ))?;
@@ -310,7 +310,7 @@ impl ReadProgressDao {
     }
 
     pub fn find_series_by_user(&self, user_id: &str) -> Result<Vec<ReadProgressSeries>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {SERIES_COLUMNS} FROM READ_PROGRESS_SERIES WHERE USER_ID = ?"
         ))?;
@@ -321,7 +321,7 @@ impl ReadProgressDao {
     }
 
     pub fn delete_series_by_series(&self, series_id: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
             "DELETE FROM READ_PROGRESS_SERIES WHERE SERIES_ID = ?",
             [series_id],
@@ -380,13 +380,13 @@ mod tests {
         let db = Database::open_in_memory(true).unwrap();
         let migrations = main_migrations();
         Migrator::new(&migrations, Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         ReadProgressDao::new(db)
     }
 
     fn seed_book(db: &Database, book_id: &str, series_id: &str) {
-        let conn = db.rw();
+        let conn = db.rw().unwrap();
         conn.execute(
             "INSERT OR IGNORE INTO LIBRARY (ID, NAME, ROOT) VALUES ('lib1', 'L', 'file:/l/')",
             [],

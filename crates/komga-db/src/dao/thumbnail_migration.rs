@@ -16,7 +16,7 @@ impl ThumbnailMigrationDao {
     }
 
     pub fn is_done(&self, kind: &str) -> Result<bool> {
-        let n: i64 = self.db.ro().query_row(
+        let n: i64 = self.db.ro()?.query_row(
             "SELECT COUNT(*) FROM THUMBNAIL_STORAGE_MIGRATION WHERE KIND = ?",
             [kind],
             |r| r.get(0),
@@ -25,7 +25,7 @@ impl ThumbnailMigrationDao {
     }
 
     pub fn mark_done(&self, kind: &str) -> Result<()> {
-        self.db.rw().execute(
+        self.db.rw()?.execute(
             "INSERT INTO THUMBNAIL_STORAGE_MIGRATION (KIND, COMPLETED_DATE) VALUES (?, ?) \
              ON CONFLICT (KIND) DO UPDATE SET COMPLETED_DATE = excluded.COMPLETED_DATE",
             rusqlite::params![kind, time_codec::format_datetime(time_codec::now_utc())],
@@ -34,7 +34,7 @@ impl ThumbnailMigrationDao {
     }
 
     pub fn clear(&self, kind: &str) -> Result<()> {
-        self.db.rw().execute(
+        self.db.rw()?.execute(
             "DELETE FROM THUMBNAIL_STORAGE_MIGRATION WHERE KIND = ?",
             [kind],
         )?;
@@ -50,7 +50,7 @@ mod tests {
     fn test_dao() -> ThumbnailMigrationDao {
         let db = Database::open_in_memory(false).unwrap();
         Migrator::new(&crate::kmrs_migrations(), Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         ThumbnailMigrationDao::new(db)
     }

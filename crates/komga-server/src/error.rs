@@ -87,6 +87,15 @@ impl From<CodedError> for ApiError {
     }
 }
 
+impl From<crate::service::readlist::MatchCblError> for ApiError {
+    fn from(e: crate::service::readlist::MatchCblError) -> Self {
+        match e {
+            crate::service::readlist::MatchCblError::Coded(c) => Self::bad_request(c.0),
+            crate::service::readlist::MatchCblError::Db(d) => Self::Internal(d.to_string()),
+        }
+    }
+}
+
 impl From<komga_db::Error> for ApiError {
     fn from(e: komga_db::Error) -> Self {
         Self::Internal(e.to_string())

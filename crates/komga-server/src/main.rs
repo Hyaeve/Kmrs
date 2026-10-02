@@ -56,18 +56,18 @@ async fn main() -> anyhow::Result<()> {
     {
         let migrations = komga_db::main_migrations();
         let applied = Migrator::new(&migrations, config.migration_placeholders.clone())
-            .migrate(&db.rw())
+            .migrate(&*db.rw()?)
             .context("main db migration")?;
         if applied > 0 {
             tracing::info!("applied {applied} main db migrations");
         }
         let tasks_migrations = komga_db::tasks_migrations();
         Migrator::new(&tasks_migrations, config.migration_placeholders.clone())
-            .migrate(&tasks_db.rw())
+            .migrate(&*tasks_db.rw()?)
             .context("tasks db migration")?;
         let kmrs_migrations = komga_db::kmrs_migrations();
         Migrator::new(&kmrs_migrations, config.migration_placeholders.clone())
-            .migrate(&kmrs_db.rw())
+            .migrate(&*kmrs_db.rw()?)
             .context("kmrs db migration")?;
     }
 

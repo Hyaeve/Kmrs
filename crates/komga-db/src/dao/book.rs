@@ -50,28 +50,28 @@ impl BookDao {
     }
 
     pub fn find_by_id(&self, id: &str) -> Result<Option<Book>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!("SELECT {BOOK_COLUMNS} FROM BOOK WHERE ID = ?"))?;
         let mut rows = stmt.query_map([id], Self::row_to_book)?;
         Ok(rows.next().transpose()?)
     }
 
     pub fn get_library_id_or_null(&self, book_id: &str) -> Result<Option<String>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare("SELECT LIBRARY_ID FROM BOOK WHERE ID = ?")?;
         let mut rows = stmt.query_map([book_id], |r| r.get(0))?;
         Ok(rows.next().transpose()?)
     }
 
     pub fn get_series_id_or_null(&self, book_id: &str) -> Result<Option<String>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare("SELECT SERIES_ID FROM BOOK WHERE ID = ?")?;
         let mut rows = stmt.query_map([book_id], |r| r.get(0))?;
         Ok(rows.next().transpose()?)
     }
 
     pub fn find_by_series_id(&self, series_id: &str) -> Result<Vec<Book>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {BOOK_COLUMNS} FROM BOOK WHERE SERIES_ID = ?"
         ))?;
@@ -82,7 +82,7 @@ impl BookDao {
     }
 
     pub fn find_all(&self) -> Result<Vec<Book>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!("SELECT {BOOK_COLUMNS} FROM BOOK"))?;
         let books = stmt
             .query_map([], Self::row_to_book)?
@@ -157,7 +157,7 @@ impl BookDao {
             sql.push_str(&format!(" ORDER BY {}", order_by.join(", ")));
         }
         let params: Vec<rusqlite::types::Value> = join_params.into_iter().chain(w.params).collect();
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&sql)?;
         let books = stmt
             .query_map(rusqlite::params_from_iter(params), Self::row_to_book)?
@@ -169,7 +169,7 @@ impl BookDao {
         if series_ids.is_empty() {
             return Ok(vec![]);
         }
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut books = vec![];
         // chunked to stay under SQLite's variable limit
         for chunk in series_ids.chunks(500) {
@@ -190,7 +190,7 @@ impl BookDao {
         library_id: &str,
         urls: &[String],
     ) -> Result<Vec<Book>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         // urls is unbounded (one entry per scanned file); a SQL NOT IN would exceed
         // SQLite's variable limit, so the exclusion is applied in Rust
         let mut stmt = conn.prepare(&format!(
@@ -207,7 +207,7 @@ impl BookDao {
     }
 
     pub fn find_all_deleted_by_file_size(&self, file_size: i64) -> Result<Vec<Book>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {BOOK_COLUMNS} FROM BOOK WHERE DELETED_DATE IS NOT NULL AND FILE_SIZE = ?"
         ))?;
@@ -219,7 +219,7 @@ impl BookDao {
 
     /// `BookRepository.findAllByHashKoreader`
     pub fn find_all_by_hash_koreader(&self, hash_koreader: &str) -> Result<Vec<Book>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {BOOK_COLUMNS} FROM BOOK WHERE FILE_HASH_KOREADER = ?"
         ))?;
@@ -233,7 +233,7 @@ impl BookDao {
         &self,
         library_id: &str,
     ) -> Result<Vec<Book>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {BOOK_COLUMNS} FROM BOOK WHERE LIBRARY_ID = ? AND FILE_HASH = ''"
         ))?;
@@ -247,7 +247,7 @@ impl BookDao {
         &self,
         library_id: &str,
     ) -> Result<Vec<Book>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {BOOK_COLUMNS} FROM BOOK WHERE LIBRARY_ID = ? AND FILE_HASH_KOREADER = ''"
         ))?;
@@ -258,7 +258,7 @@ impl BookDao {
     }
 
     pub fn find_all_ids_by_series_id(&self, series_id: &str) -> Result<Vec<String>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare("SELECT ID FROM BOOK WHERE SERIES_ID = ?")?;
         let ids = stmt
             .query_map([series_id], |r| r.get(0))?
@@ -269,7 +269,7 @@ impl BookDao {
     /// Series cover candidates (`SeriesLifecycle.getThumbnailBytes`); deleted books are not
     /// filtered out, matching the jOOQ queries.
     pub fn find_first_id_in_series_or_null(&self, series_id: &str) -> Result<Option<String>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(
             "SELECT BOOK.ID FROM BOOK LEFT JOIN BOOK_METADATA ON BOOK.ID = BOOK_METADATA.BOOK_ID \
              WHERE BOOK.SERIES_ID = ? ORDER BY BOOK_METADATA.NUMBER_SORT ASC LIMIT 1",
@@ -279,7 +279,7 @@ impl BookDao {
     }
 
     pub fn find_last_id_in_series_or_null(&self, series_id: &str) -> Result<Option<String>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(
             "SELECT BOOK.ID FROM BOOK LEFT JOIN BOOK_METADATA ON BOOK.ID = BOOK_METADATA.BOOK_ID \
              WHERE BOOK.SERIES_ID = ? ORDER BY BOOK_METADATA.NUMBER_SORT DESC LIMIT 1",
@@ -293,7 +293,7 @@ impl BookDao {
         series_id: &str,
         user_id: &str,
     ) -> Result<Option<String>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(
             "SELECT BOOK.ID FROM BOOK LEFT JOIN BOOK_METADATA ON BOOK.ID = BOOK_METADATA.BOOK_ID \
              LEFT JOIN READ_PROGRESS ON BOOK.ID = READ_PROGRESS.BOOK_ID AND READ_PROGRESS.USER_ID = ? \
@@ -306,7 +306,7 @@ impl BookDao {
 
     /// Returns (id, created_date); generates a TSID when id is empty.
     pub fn insert(&self, book: &Book) -> Result<String> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let id = if book.id.is_empty() {
             self.tsid.create_string()
         } else {
@@ -322,7 +322,7 @@ impl BookDao {
     /// Same as komga's `BookDao.updateBook`: updates all fields except
     /// ID/CREATED_DATE, setting LAST_MODIFIED_DATE to the current time (UTC).
     pub fn update(&self, book: &Book) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let mut values = book_params(&book.id, book);
         values.truncate(values.len() - 2); // drop CREATED_DATE/LAST_MODIFIED_DATE
         values.remove(0); // drop ID (not in SET; bound separately in WHERE)
@@ -345,7 +345,7 @@ impl BookDao {
     /// Deletes only the BOOK row; cascading of metadata/media/thumbnail is the
     /// responsibility of the upper-layer lifecycle (same as komga).
     pub fn delete(&self, id: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute("DELETE FROM BOOK WHERE ID = ?", [id])?;
         Ok(())
     }
@@ -406,7 +406,7 @@ impl BookMetadataDao {
     }
 
     fn fill_children(&self, metadata: &mut BookMetadata) -> Result<()> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         metadata.authors = {
             let mut stmt =
                 conn.prepare("SELECT NAME, ROLE FROM BOOK_METADATA_AUTHOR WHERE BOOK_ID = ?")?;
@@ -445,7 +445,7 @@ impl BookMetadataDao {
 
     pub fn find_by_id(&self, book_id: &str) -> Result<Option<BookMetadata>> {
         let mut metadata = {
-            let conn = self.db.ro();
+            let conn = self.db.ro()?;
             let mut stmt = conn.prepare(&format!(
                 "SELECT {METADATA_COLUMNS} FROM BOOK_METADATA WHERE BOOK_ID = ?"
             ))?;
@@ -459,7 +459,7 @@ impl BookMetadataDao {
     }
 
     pub fn insert(&self, metadata: &BookMetadata) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
       &format!("INSERT INTO BOOK_METADATA ({METADATA_COLUMNS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"),
       rusqlite::params_from_iter(metadata_params(metadata)),
@@ -472,7 +472,7 @@ impl BookMetadataDao {
     /// LAST_MODIFIED_DATE to the current time; child tables are deleted and
     /// re-inserted.
     pub fn update(&self, metadata: &BookMetadata) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let mut values = metadata_params(metadata);
         values.truncate(values.len() - 2); // drop CREATED_DATE/LAST_MODIFIED_DATE
         values.remove(0); // drop BOOK_ID (not in SET; bound separately in WHERE)
@@ -495,7 +495,7 @@ impl BookMetadataDao {
     }
 
     pub fn delete(&self, book_id: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         self.delete_children(&conn, book_id)?;
         conn.execute("DELETE FROM BOOK_METADATA WHERE BOOK_ID = ?", [book_id])?;
         Ok(())
@@ -573,7 +573,7 @@ mod tests {
         let db = Database::open_in_memory(true).unwrap();
         let migrations = main_migrations();
         Migrator::new(&migrations, Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         db
     }
@@ -619,7 +619,7 @@ mod tests {
         };
         let library_id = library_dao.insert(&library).unwrap();
         let series_id = "SERIES1";
-        db.rw()
+        db.rw().unwrap()
       .execute(
         "INSERT INTO SERIES (ID, NAME, URL, FILE_LAST_MODIFIED, LIBRARY_ID) VALUES (?, ?, ?, ?, ?)",
         params![series_id, "S", "file:/l/s/", time_codec::format_datetime(now), library_id],
@@ -720,7 +720,7 @@ mod tests {
     fn find_all_by_series_ids_across_chunks() {
         let db = db();
         let (library_id, series_id) = seed_library_series(&db);
-        db.rw()
+        db.rw().unwrap()
       .execute(
         "INSERT INTO SERIES (ID, NAME, URL, FILE_LAST_MODIFIED, LIBRARY_ID) VALUES (?, ?, ?, ?, ?)",
         params!["SERIES2", "S2", "file:/l/s2/", time_codec::format_datetime(now_utc()), library_id],
@@ -835,7 +835,7 @@ mod tests {
         assert!(dao.find_by_id(&book_id).unwrap().is_none());
         let children: i64 = dao
       .db
-      .ro()
+      .ro().unwrap()
       .query_row(
         "SELECT (SELECT COUNT(*) FROM BOOK_METADATA_AUTHOR) + (SELECT COUNT(*) FROM BOOK_METADATA_TAG) + (SELECT COUNT(*) FROM BOOK_METADATA_LINK)",
         [],

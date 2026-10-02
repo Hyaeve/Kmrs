@@ -554,7 +554,7 @@ fn book_ids_with_missing_page_hash(
         tracing::info!("Page hashing is not enabled, skipping");
         return Ok(vec![]);
     }
-    let conn = state.db.ro();
+    let conn = state.db.ro()?;
     let needed = (state.config.page_hashing * 2) as i64;
     let mut stmt = conn.prepare(
         "SELECT BOOK.ID FROM BOOK \
@@ -629,7 +629,7 @@ mod tests {
     }
 
     fn seed_series(db: &Database, library_id: &str, id: &str) {
-        db.rw()
+        db.rw().unwrap()
             .execute(
                 "INSERT INTO SERIES (ID, NAME, URL, FILE_LAST_MODIFIED, LIBRARY_ID) VALUES (?, ?, ?, ?, ?)",
                 rusqlite::params![id, "S", "file:/l/s/", format_datetime(now_utc()), library_id],
@@ -638,7 +638,7 @@ mod tests {
     }
 
     fn seed_series_at(db: &Database, library_id: &str, id: &str, url: &str) {
-        db.rw()
+        db.rw().unwrap()
             .execute(
                 "INSERT INTO SERIES (ID, NAME, URL, FILE_LAST_MODIFIED, LIBRARY_ID) VALUES (?, ?, ?, ?, ?)",
                 rusqlite::params![id, "S", url, format_datetime(now_utc()), library_id],
@@ -727,6 +727,7 @@ mod tests {
         state
             .db
             .ro()
+            .unwrap()
             .query_row("SELECT COUNT(*) FROM THUMBNAIL_BOOK", [], |r| r.get(0))
             .unwrap_or(0)
     }
@@ -777,12 +778,14 @@ mod tests {
         let series_count: i64 = state
             .db
             .ro()
+            .unwrap()
             .query_row("SELECT COUNT(*) FROM SERIES", [], |r| r.get(0))
             .unwrap();
         assert_eq!(series_count, 1);
         let (status, page_count): (String, i32) = state
             .db
             .ro()
+            .unwrap()
             .query_row("SELECT STATUS, PAGE_COUNT FROM MEDIA", [], |r| {
                 Ok((r.get(0)?, r.get(1)?))
             })
@@ -792,6 +795,7 @@ mod tests {
         let page_rows: i64 = state
             .db
             .ro()
+            .unwrap()
             .query_row("SELECT COUNT(*) FROM MEDIA_PAGE", [], |r| r.get(0))
             .unwrap();
         assert_eq!(page_rows, 1);
@@ -799,6 +803,7 @@ mod tests {
         let file_hash: String = state
             .db
             .ro()
+            .unwrap()
             .query_row("SELECT FILE_HASH FROM BOOK", [], |r| r.get(0))
             .unwrap();
         assert!(!file_hash.is_empty());
@@ -810,6 +815,7 @@ mod tests {
         state
             .db
             .rw()
+            .unwrap()
             .execute(
                 "INSERT INTO SERVER_SETTINGS (KEY, VALUE) VALUES ('TASK_POOL_SIZE', '2')",
                 [],
@@ -934,6 +940,7 @@ mod tests {
         let hash: String = state
             .db
             .ro()
+            .unwrap()
             .query_row("SELECT FILE_HASH FROM BOOK WHERE ID = ?", [&book.id], |r| {
                 r.get(0)
             })
@@ -1000,6 +1007,7 @@ mod tests {
         let file_hash: String = state
             .db
             .ro()
+            .unwrap()
             .query_row("SELECT FILE_HASH FROM BOOK WHERE ID = ?", [&book.id], |r| {
                 r.get(0)
             })
@@ -1082,6 +1090,7 @@ mod tests {
         let file_hash: String = state
             .db
             .ro()
+            .unwrap()
             .query_row("SELECT FILE_HASH FROM BOOK WHERE ID = ?", [&book.id], |r| {
                 r.get(0)
             })
@@ -1143,6 +1152,7 @@ mod tests {
         let book_count: i64 = state
             .db
             .ro()
+            .unwrap()
             .query_row("SELECT COUNT(*) FROM BOOK", [], |r| r.get(0))
             .unwrap();
         assert_eq!(book_count, 1);
@@ -1150,6 +1160,7 @@ mod tests {
         let status: String = state
             .db
             .ro()
+            .unwrap()
             .query_row("SELECT STATUS FROM MEDIA", [], |r| r.get(0))
             .unwrap();
         assert_eq!(status, "READY");
@@ -1171,6 +1182,7 @@ mod tests {
         let history: i64 = state
             .db
             .ro()
+            .unwrap()
             .query_row(
                 "SELECT COUNT(*) FROM HISTORICAL_EVENT WHERE TYPE = 'BookImported'",
                 [],
@@ -1390,7 +1402,7 @@ mod tests {
         let insert_page = |book_id: &str, number: i32, hash: &str| {
             state
                 .db
-                .rw()
+                .rw().unwrap()
                 .execute(
                     "INSERT INTO MEDIA_PAGE (BOOK_ID, FILE_NAME, MEDIA_TYPE, NUMBER, FILE_HASH) VALUES (?, ?, 'image/png', ?, ?)",
                     rusqlite::params![book_id, format!("p{number}.png"), number, hash],

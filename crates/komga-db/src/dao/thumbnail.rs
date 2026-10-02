@@ -71,7 +71,7 @@ impl ThumbnailBookDao {
     }
 
     pub fn find_by_id(&self, thumbnail_id: &str) -> Result<Option<ThumbnailBook>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {BOOK_COLUMNS} FROM THUMBNAIL_BOOK WHERE ID = ?"
         ))?;
@@ -80,7 +80,7 @@ impl ThumbnailBookDao {
     }
 
     pub fn find_all_by_book_id(&self, book_id: &str) -> Result<Vec<ThumbnailBook>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {BOOK_COLUMNS} FROM THUMBNAIL_BOOK WHERE BOOK_ID = ?"
         ))?;
@@ -91,7 +91,7 @@ impl ThumbnailBookDao {
     }
 
     pub fn get_library_id_or_null(&self, thumbnail_id: &str) -> Result<Option<String>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(
             "SELECT BOOK.LIBRARY_ID FROM THUMBNAIL_BOOK LEFT JOIN BOOK ON THUMBNAIL_BOOK.BOOK_ID = BOOK.ID WHERE THUMBNAIL_BOOK.ID = ?",
         )?;
@@ -100,7 +100,7 @@ impl ThumbnailBookDao {
     }
 
     pub fn get_series_id_or_null(&self, thumbnail_id: &str) -> Result<Option<String>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(
             "SELECT BOOK.SERIES_ID FROM THUMBNAIL_BOOK LEFT JOIN BOOK ON THUMBNAIL_BOOK.BOOK_ID = BOOK.ID WHERE THUMBNAIL_BOOK.ID = ?",
         )?;
@@ -113,7 +113,7 @@ impl ThumbnailBookDao {
         book_id: &str,
         type_: ThumbnailType,
     ) -> Result<Vec<ThumbnailBook>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {BOOK_COLUMNS} FROM THUMBNAIL_BOOK WHERE BOOK_ID = ? AND TYPE = ?"
         ))?;
@@ -124,7 +124,7 @@ impl ThumbnailBookDao {
     }
 
     pub fn find_selected_by_book_id(&self, book_id: &str) -> Result<Option<ThumbnailBook>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {BOOK_COLUMNS} FROM THUMBNAIL_BOOK WHERE BOOK_ID = ? AND SELECTED = 1"
         ))?;
@@ -133,7 +133,7 @@ impl ThumbnailBookDao {
     }
 
     pub fn exists_by_id(&self, thumbnail_id: &str) -> Result<bool> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let n: i64 = conn.query_row(
             "SELECT COUNT(*) FROM THUMBNAIL_BOOK WHERE ID = ?",
             [thumbnail_id],
@@ -143,7 +143,7 @@ impl ThumbnailBookDao {
     }
 
     pub fn insert(&self, thumbnail: &ThumbnailBook) -> Result<String> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let id = if thumbnail.id.is_empty() {
             self.tsid.create_string()
         } else {
@@ -160,7 +160,7 @@ impl ThumbnailBookDao {
 
     /// Returns the number of affected rows (0 when the row was concurrently deleted).
     pub fn update(&self, thumbnail: &ThumbnailBook) -> Result<u64> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let sets = BOOK_COLUMNS
             .split(',')
             .map(|c| format!("{} = ?", c.trim()))
@@ -177,7 +177,7 @@ impl ThumbnailBookDao {
 
     /// Marks the given thumbnail as selected and deselects all others of the same book.
     pub fn mark_selected(&self, thumbnail: &ThumbnailBook) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
             "UPDATE THUMBNAIL_BOOK SET SELECTED = 0 WHERE BOOK_ID = ? AND ID <> ?",
             (&thumbnail.book_id, &thumbnail.id),
@@ -190,13 +190,13 @@ impl ThumbnailBookDao {
     }
 
     pub fn delete(&self, thumbnail_id: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute("DELETE FROM THUMBNAIL_BOOK WHERE ID = ?", [thumbnail_id])?;
         Ok(())
     }
 
     pub fn delete_by_book_id(&self, book_id: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute("DELETE FROM THUMBNAIL_BOOK WHERE BOOK_ID = ?", [book_id])?;
         Ok(())
     }
@@ -208,7 +208,7 @@ impl ThumbnailBookDao {
         type_: ThumbnailType,
         size: u32,
     ) -> Result<Vec<String>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(
             "SELECT BOOK_ID FROM THUMBNAIL_BOOK WHERE TYPE = ? AND WIDTH < ? AND HEIGHT < ?",
         )?;
@@ -219,7 +219,7 @@ impl ThumbnailBookDao {
     }
 
     pub fn delete_by_book_ids(&self, book_ids: &[String]) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let mut stmt = conn.prepare("DELETE FROM THUMBNAIL_BOOK WHERE BOOK_ID = ?")?;
         for id in book_ids {
             stmt.execute([id])?;
@@ -228,7 +228,7 @@ impl ThumbnailBookDao {
     }
 
     pub fn delete_by_book_id_and_type(&self, book_id: &str, type_: ThumbnailType) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
             "DELETE FROM THUMBNAIL_BOOK WHERE BOOK_ID = ? AND TYPE = ?",
             (book_id, type_.as_str()),
@@ -242,7 +242,7 @@ impl ThumbnailBookDao {
         after_rowid: i64,
         limit: u32,
     ) -> Result<Vec<(i64, ThumbnailBook)>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {BOOK_COLUMNS}, ROWID FROM THUMBNAIL_BOOK WHERE THUMBNAIL IS NOT NULL AND ROWID > ? ORDER BY ROWID LIMIT ?"
         ))?;
@@ -257,7 +257,7 @@ impl ThumbnailBookDao {
     }
 
     pub fn all_urls(&self) -> Result<Vec<String>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare("SELECT URL FROM THUMBNAIL_BOOK WHERE URL IS NOT NULL")?;
         let urls = stmt
             .query_map([], |r| r.get(0))?
@@ -316,7 +316,7 @@ impl ThumbnailSeriesDao {
     }
 
     pub fn find_by_id(&self, thumbnail_id: &str) -> Result<Option<ThumbnailSeries>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {SERIES_COLUMNS} FROM THUMBNAIL_SERIES WHERE ID = ?"
         ))?;
@@ -325,7 +325,7 @@ impl ThumbnailSeriesDao {
     }
 
     pub fn find_all_by_series_id(&self, series_id: &str) -> Result<Vec<ThumbnailSeries>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {SERIES_COLUMNS} FROM THUMBNAIL_SERIES WHERE SERIES_ID = ?"
         ))?;
@@ -336,7 +336,7 @@ impl ThumbnailSeriesDao {
     }
 
     pub fn get_library_id_or_null(&self, thumbnail_id: &str) -> Result<Option<String>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(
             "SELECT SERIES.LIBRARY_ID FROM THUMBNAIL_SERIES LEFT JOIN SERIES ON THUMBNAIL_SERIES.SERIES_ID = SERIES.ID WHERE THUMBNAIL_SERIES.ID = ?",
         )?;
@@ -345,7 +345,7 @@ impl ThumbnailSeriesDao {
     }
 
     pub fn get_series_id_or_null(&self, thumbnail_id: &str) -> Result<Option<String>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare("SELECT SERIES_ID FROM THUMBNAIL_SERIES WHERE ID = ?")?;
         let mut rows = stmt.query_map([thumbnail_id], |r| r.get(0))?;
         Ok(rows.next().transpose()?)
@@ -356,7 +356,7 @@ impl ThumbnailSeriesDao {
         series_id: &str,
         type_: ThumbnailType,
     ) -> Result<Vec<ThumbnailSeries>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {SERIES_COLUMNS} FROM THUMBNAIL_SERIES WHERE SERIES_ID = ? AND TYPE = ?"
         ))?;
@@ -367,7 +367,7 @@ impl ThumbnailSeriesDao {
     }
 
     pub fn find_selected_by_series_id(&self, series_id: &str) -> Result<Option<ThumbnailSeries>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {SERIES_COLUMNS} FROM THUMBNAIL_SERIES WHERE SERIES_ID = ? AND SELECTED = 1"
         ))?;
@@ -376,7 +376,7 @@ impl ThumbnailSeriesDao {
     }
 
     pub fn insert(&self, thumbnail: &ThumbnailSeries) -> Result<String> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let id = if thumbnail.id.is_empty() {
             self.tsid.create_string()
         } else {
@@ -393,7 +393,7 @@ impl ThumbnailSeriesDao {
 
     /// Returns the number of affected rows (0 when the row was concurrently deleted).
     pub fn update(&self, thumbnail: &ThumbnailSeries) -> Result<u64> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let sets = SERIES_COLUMNS
             .split(',')
             .map(|c| format!("{} = ?", c.trim()))
@@ -409,7 +409,7 @@ impl ThumbnailSeriesDao {
     }
 
     pub fn mark_selected(&self, thumbnail: &ThumbnailSeries) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
             "UPDATE THUMBNAIL_SERIES SET SELECTED = 0 WHERE SERIES_ID = ? AND ID <> ?",
             (&thumbnail.series_id, &thumbnail.id),
@@ -422,13 +422,13 @@ impl ThumbnailSeriesDao {
     }
 
     pub fn delete(&self, thumbnail_id: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute("DELETE FROM THUMBNAIL_SERIES WHERE ID = ?", [thumbnail_id])?;
         Ok(())
     }
 
     pub fn delete_by_series_id(&self, series_id: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
             "DELETE FROM THUMBNAIL_SERIES WHERE SERIES_ID = ?",
             [series_id],
@@ -437,7 +437,7 @@ impl ThumbnailSeriesDao {
     }
 
     pub fn delete_by_series_ids(&self, series_ids: &[String]) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let mut stmt = conn.prepare("DELETE FROM THUMBNAIL_SERIES WHERE SERIES_ID = ?")?;
         for id in series_ids {
             stmt.execute([id])?;
@@ -451,7 +451,7 @@ impl ThumbnailSeriesDao {
         after_rowid: i64,
         limit: u32,
     ) -> Result<Vec<(i64, ThumbnailSeries)>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {SERIES_COLUMNS}, ROWID FROM THUMBNAIL_SERIES WHERE THUMBNAIL IS NOT NULL AND ROWID > ? ORDER BY ROWID LIMIT ?"
         ))?;
@@ -466,7 +466,7 @@ impl ThumbnailSeriesDao {
     }
 
     pub fn all_urls(&self) -> Result<Vec<String>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare("SELECT URL FROM THUMBNAIL_SERIES WHERE URL IS NOT NULL")?;
         let urls = stmt
             .query_map([], |r| r.get(0))?
@@ -523,7 +523,7 @@ impl ThumbnailSeriesCollectionDao {
     }
 
     pub fn find_by_id(&self, thumbnail_id: &str) -> Result<Option<ThumbnailSeriesCollection>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {COLLECTION_COLUMNS} FROM THUMBNAIL_COLLECTION WHERE ID = ?"
         ))?;
@@ -535,7 +535,7 @@ impl ThumbnailSeriesCollectionDao {
         &self,
         collection_id: &str,
     ) -> Result<Vec<ThumbnailSeriesCollection>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {COLLECTION_COLUMNS} FROM THUMBNAIL_COLLECTION WHERE COLLECTION_ID = ?"
         ))?;
@@ -549,7 +549,7 @@ impl ThumbnailSeriesCollectionDao {
         &self,
         collection_id: &str,
     ) -> Result<Option<ThumbnailSeriesCollection>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
       "SELECT {COLLECTION_COLUMNS} FROM THUMBNAIL_COLLECTION WHERE COLLECTION_ID = ? AND SELECTED = 1"
     ))?;
@@ -558,7 +558,7 @@ impl ThumbnailSeriesCollectionDao {
     }
 
     pub fn insert(&self, thumbnail: &ThumbnailSeriesCollection) -> Result<String> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let id = if thumbnail.id.is_empty() {
             self.tsid.create_string()
         } else {
@@ -572,7 +572,7 @@ impl ThumbnailSeriesCollectionDao {
     }
 
     pub fn update(&self, thumbnail: &ThumbnailSeriesCollection) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let sets = COLLECTION_COLUMNS
             .split(',')
             .map(|c| format!("{} = ?", c.trim()))
@@ -588,7 +588,7 @@ impl ThumbnailSeriesCollectionDao {
     }
 
     pub fn mark_selected(&self, thumbnail: &ThumbnailSeriesCollection) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
             "UPDATE THUMBNAIL_COLLECTION SET SELECTED = 0 WHERE COLLECTION_ID = ? AND ID <> ?",
             (&thumbnail.collection_id, &thumbnail.id),
@@ -601,7 +601,7 @@ impl ThumbnailSeriesCollectionDao {
     }
 
     pub fn delete(&self, thumbnail_id: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
             "DELETE FROM THUMBNAIL_COLLECTION WHERE ID = ?",
             [thumbnail_id],
@@ -610,7 +610,7 @@ impl ThumbnailSeriesCollectionDao {
     }
 
     pub fn delete_by_collection_id(&self, collection_id: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
             "DELETE FROM THUMBNAIL_COLLECTION WHERE COLLECTION_ID = ?",
             [collection_id],
@@ -619,7 +619,7 @@ impl ThumbnailSeriesCollectionDao {
     }
 
     pub fn delete_by_collection_ids(&self, collection_ids: &[String]) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let mut stmt = conn.prepare("DELETE FROM THUMBNAIL_COLLECTION WHERE COLLECTION_ID = ?")?;
         for id in collection_ids {
             stmt.execute([id])?;
@@ -676,7 +676,7 @@ impl ThumbnailReadListDao {
     }
 
     pub fn find_by_id(&self, thumbnail_id: &str) -> Result<Option<ThumbnailReadList>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {READLIST_COLUMNS} FROM THUMBNAIL_READLIST WHERE ID = ?"
         ))?;
@@ -685,7 +685,7 @@ impl ThumbnailReadListDao {
     }
 
     pub fn find_all_by_read_list_id(&self, read_list_id: &str) -> Result<Vec<ThumbnailReadList>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {READLIST_COLUMNS} FROM THUMBNAIL_READLIST WHERE READLIST_ID = ?"
         ))?;
@@ -699,7 +699,7 @@ impl ThumbnailReadListDao {
         &self,
         read_list_id: &str,
     ) -> Result<Option<ThumbnailReadList>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
       "SELECT {READLIST_COLUMNS} FROM THUMBNAIL_READLIST WHERE READLIST_ID = ? AND SELECTED = 1"
     ))?;
@@ -708,7 +708,7 @@ impl ThumbnailReadListDao {
     }
 
     pub fn insert(&self, thumbnail: &ThumbnailReadList) -> Result<String> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let id = if thumbnail.id.is_empty() {
             self.tsid.create_string()
         } else {
@@ -722,7 +722,7 @@ impl ThumbnailReadListDao {
     }
 
     pub fn update(&self, thumbnail: &ThumbnailReadList) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let sets = READLIST_COLUMNS
             .split(',')
             .map(|c| format!("{} = ?", c.trim()))
@@ -738,7 +738,7 @@ impl ThumbnailReadListDao {
     }
 
     pub fn mark_selected(&self, thumbnail: &ThumbnailReadList) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
             "UPDATE THUMBNAIL_READLIST SET SELECTED = 0 WHERE READLIST_ID = ? AND ID <> ?",
             (&thumbnail.read_list_id, &thumbnail.id),
@@ -751,7 +751,7 @@ impl ThumbnailReadListDao {
     }
 
     pub fn delete(&self, thumbnail_id: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
             "DELETE FROM THUMBNAIL_READLIST WHERE ID = ?",
             [thumbnail_id],
@@ -760,7 +760,7 @@ impl ThumbnailReadListDao {
     }
 
     pub fn delete_by_read_list_id(&self, read_list_id: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
             "DELETE FROM THUMBNAIL_READLIST WHERE READLIST_ID = ?",
             [read_list_id],
@@ -769,7 +769,7 @@ impl ThumbnailReadListDao {
     }
 
     pub fn delete_by_read_list_ids(&self, read_list_ids: &[String]) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let mut stmt = conn.prepare("DELETE FROM THUMBNAIL_READLIST WHERE READLIST_ID = ?")?;
         for id in read_list_ids {
             stmt.execute([id])?;
@@ -789,14 +789,14 @@ mod tests {
         let db = Database::open_in_memory(true).unwrap();
         let migrations = main_migrations();
         Migrator::new(&migrations, Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         db
     }
 
     /// THUMBNAIL_BOOK/SERIES have FKs, so seed the library→series→book chain first.
     fn insert_book_chain(db: &Database, book_id: &str) {
-        let conn = db.rw();
+        let conn = db.rw().unwrap();
         conn
       .execute_batch(&format!(
         "INSERT INTO LIBRARY (ID, NAME, ROOT) VALUES ('lib1', 'L', 'file:/l/');
@@ -1001,7 +1001,7 @@ mod tests {
     fn collection_and_readlist_crud() {
         let db = db();
         {
-            let conn = db.rw();
+            let conn = db.rw().unwrap();
             conn.execute_batch(
                 "INSERT INTO COLLECTION (ID, NAME, ORDERED, SERIES_COUNT) VALUES ('c1', 'C', 0, 0);
            INSERT INTO READLIST (ID, NAME, BOOK_COUNT) VALUES ('r1', 'R', 0);",

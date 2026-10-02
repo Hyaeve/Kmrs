@@ -18,7 +18,7 @@ impl SettingsDao {
     // ---------- SERVER_SETTINGS ----------
 
     pub fn get_setting(&self, key: &str) -> Result<Option<String>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         Ok(conn
             .query_row(
                 "SELECT VALUE FROM SERVER_SETTINGS WHERE KEY = ?",
@@ -42,7 +42,7 @@ impl SettingsDao {
 
     /// upsert (`onDuplicateKeyUpdate`).
     pub fn save_setting(&self, key: &str, value: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
             "INSERT INTO SERVER_SETTINGS (KEY, VALUE) VALUES (?, ?) \
        ON CONFLICT(KEY) DO UPDATE SET VALUE = excluded.VALUE",
@@ -61,13 +61,13 @@ impl SettingsDao {
     }
 
     pub fn delete_setting(&self, key: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute("DELETE FROM SERVER_SETTINGS WHERE KEY = ?", [key])?;
         Ok(())
     }
 
     pub fn delete_all_settings(&self) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute("DELETE FROM SERVER_SETTINGS", [])?;
         Ok(())
     }
@@ -75,7 +75,7 @@ impl SettingsDao {
     // ---------- CLIENT_SETTINGS_GLOBAL ----------
 
     pub fn find_all_global(&self, only_unauthorized: bool) -> Result<Vec<ClientSettingGlobal>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let sql = if only_unauthorized {
             "SELECT KEY, VALUE, ALLOW_UNAUTHORIZED FROM CLIENT_SETTINGS_GLOBAL WHERE ALLOW_UNAUTHORIZED = 1"
         } else {
@@ -96,7 +96,7 @@ impl SettingsDao {
 
     /// Note: same as Java — on conflict only VALUE is updated, ALLOW_UNAUTHORIZED is not.
     pub fn save_global(&self, key: &str, value: &str, allow_unauthorized: bool) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
             "INSERT INTO CLIENT_SETTINGS_GLOBAL (KEY, VALUE, ALLOW_UNAUTHORIZED) VALUES (?, ?, ?) \
        ON CONFLICT(KEY) DO UPDATE SET VALUE = excluded.VALUE",
@@ -109,7 +109,7 @@ impl SettingsDao {
         if keys.is_empty() {
             return Ok(());
         }
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let placeholders = keys.iter().map(|_| "?").collect::<Vec<_>>().join(",");
         conn.execute(
             &format!("DELETE FROM CLIENT_SETTINGS_GLOBAL WHERE KEY IN ({placeholders})"),
@@ -121,7 +121,7 @@ impl SettingsDao {
     // ---------- CLIENT_SETTINGS_USER ----------
 
     pub fn find_all_user(&self, user_id: &str) -> Result<Vec<ClientSettingUser>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt =
             conn.prepare("SELECT USER_ID, KEY, VALUE FROM CLIENT_SETTINGS_USER WHERE USER_ID = ?")?;
         let rows = stmt
@@ -137,7 +137,7 @@ impl SettingsDao {
     }
 
     pub fn save_for_user(&self, user_id: &str, key: &str, value: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
             "INSERT INTO CLIENT_SETTINGS_USER (USER_ID, KEY, VALUE) VALUES (?, ?, ?) \
        ON CONFLICT(KEY, USER_ID) DO UPDATE SET VALUE = excluded.VALUE",
@@ -150,7 +150,7 @@ impl SettingsDao {
         if keys.is_empty() {
             return Ok(());
         }
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let placeholders = keys.iter().map(|_| "?").collect::<Vec<_>>().join(",");
         let mut values: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(user_id.to_string())];
         for k in keys {
@@ -166,7 +166,7 @@ impl SettingsDao {
     }
 
     pub fn delete_by_user_id(&self, user_id: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
             "DELETE FROM CLIENT_SETTINGS_USER WHERE USER_ID = ?",
             [user_id],
@@ -175,7 +175,7 @@ impl SettingsDao {
     }
 
     pub fn delete_all_client_settings(&self) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute("DELETE FROM CLIENT_SETTINGS_GLOBAL", [])?;
         conn.execute("DELETE FROM CLIENT_SETTINGS_USER", [])?;
         Ok(())
@@ -192,7 +192,7 @@ mod tests {
         let db = Database::open_in_memory(true).unwrap();
         let migrations = main_migrations();
         Migrator::new(&migrations, Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         SettingsDao::new(db)
     }

@@ -1338,14 +1338,14 @@ mod tests {
         let db = Database::open_in_memory(true).unwrap();
         let migrations = komga_db::main_migrations();
         Migrator::new(&migrations, Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         let tasks_db = Database::open_in_memory(false).unwrap();
         // dedicated task pools reuse the same in-memory database: task execution and assertions stay in sync
         let task_db = db.clone();
         let tasks_migrations = komga_db::tasks_migrations();
         Migrator::new(&tasks_migrations, Placeholders::default())
-            .migrate(&tasks_db.rw())
+            .migrate(&tasks_db.rw().unwrap())
             .unwrap();
         let config = ServerConfig::from_env();
         AppState {
@@ -1455,6 +1455,7 @@ mod tests {
 
     fn seed_library(db: &Database, id: &str) {
         db.rw()
+            .unwrap()
             .execute(
                 "INSERT INTO LIBRARY (ID, NAME, ROOT) VALUES (?, ?, 'file:/data/')",
                 params![id, "Manga"],
@@ -1464,7 +1465,7 @@ mod tests {
 
     fn seed_series(db: &Database, library_id: &str, id: &str) {
         let now = "2024-01-02 03:04:05.0";
-        let rw = db.rw();
+        let rw = db.rw().unwrap();
         rw.execute(
             "INSERT INTO SERIES (ID, NAME, URL, FILE_LAST_MODIFIED, LIBRARY_ID, BOOK_COUNT, ONESHOT, CREATED_DATE, LAST_MODIFIED_DATE) \
              VALUES (?, ?, 'file:/data/berserk/', ?, ?, 1, 0, ?, ?)",
@@ -1481,7 +1482,7 @@ mod tests {
 
     fn seed_book(db: &Database, series_id: &str, library_id: &str, id: &str, name: &str) {
         let now = "2024-01-02 03:04:05.0";
-        let rw = db.rw();
+        let rw = db.rw().unwrap();
         rw.execute(
             "INSERT INTO BOOK (ID, NAME, URL, FILE_LAST_MODIFIED, SERIES_ID, LIBRARY_ID, FILE_SIZE, NUMBER, FILE_HASH, FILE_HASH_KOREADER, ONESHOT, CREATED_DATE, LAST_MODIFIED_DATE) \
              VALUES (?, ?, 'file:/data/berserk/v01.epub', ?, ?, ?, 16227, 1, '', '', 0, ?, ?)",
@@ -1539,7 +1540,7 @@ mod tests {
         let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
         enc.write_all(ext.to_string().as_bytes()).unwrap();
         let blob = enc.finish().unwrap();
-        db.rw()
+        db.rw().unwrap()
             .execute(
                 "UPDATE MEDIA SET EXTENSION_CLASS = 'org.gotson.komga.domain.model.MediaExtensionEpub', EXTENSION_VALUE_BLOB = ? WHERE BOOK_ID = ?",
                 rusqlite::params![blob, book_id],
@@ -1578,7 +1579,7 @@ mod tests {
 
     fn seed_readlist(db: &Database, id: &str, book_id: &str) {
         let now = "2024-01-02 03:04:05.0";
-        let rw = db.rw();
+        let rw = db.rw().unwrap();
         rw.execute(
             "INSERT INTO READLIST (ID, NAME, SUMMARY, ORDERED, BOOK_COUNT, CREATED_DATE, LAST_MODIFIED_DATE) VALUES (?, 'Favorites', '', 1, 1, ?, ?)",
             params![id, now, now],
@@ -1686,6 +1687,7 @@ mod tests {
         state
             .db
             .rw()
+            .unwrap()
             .execute(
                 "UPDATE BOOK SET DELETED_DATE = '2024-07-01 00:00:00.0' WHERE ID = 'b3'",
                 [],
@@ -1693,7 +1695,7 @@ mod tests {
             .unwrap();
         state
             .db
-            .rw()
+            .rw().unwrap()
             .execute(
                 "UPDATE BOOK SET FILE_HASH = 'newhash', FILE_LAST_MODIFIED = '2024-07-01 00:00:00.0' WHERE ID = 'b1'",
                 [],
@@ -1752,6 +1754,7 @@ mod tests {
         let old_count: i64 = state
             .db
             .ro()
+            .unwrap()
             .query_row(
                 "SELECT COUNT(*) FROM SYNC_POINT WHERE ID = ?",
                 [last_id],
@@ -1779,6 +1782,7 @@ mod tests {
         let rl_count: i64 = state
             .db
             .ro()
+            .unwrap()
             .query_row("SELECT COUNT(*) FROM SYNC_POINT_READLIST", [], |r| r.get(0))
             .unwrap();
         assert_eq!(rl_count, 1, "On Deck readlist exists in sync point");
@@ -1813,6 +1817,7 @@ mod tests {
         let to_count: i64 = state
             .db
             .ro()
+            .unwrap()
             .query_row("SELECT COUNT(*) FROM SYNC_POINT_READLIST", [], |r| r.get(0))
             .unwrap();
         assert_eq!(to_count, 0);
@@ -1894,6 +1899,7 @@ mod tests {
             let rows: Vec<(String, String, i32, i64, String)> = state
                 .db
                 .ro()
+                .unwrap()
                 .prepare("SELECT BOOK_ID, USER_ID, PAGE, COMPLETED, READ_DATE FROM READ_PROGRESS")
                 .unwrap()
                 .query_map([], |r| {
@@ -2008,6 +2014,7 @@ mod tests {
         state
             .db
             .rw()
+            .unwrap()
             .execute(
                 "UPDATE BOOK SET URL = ? WHERE ID = 'b1'",
                 [format!("file:{}", epub.display())],
@@ -2072,6 +2079,7 @@ mod tests {
         state
             .db
             .rw()
+            .unwrap()
             .execute(
                 "UPDATE BOOK SET URL = ? WHERE ID = 'b1'",
                 [format!("file:{}", epub.display())],

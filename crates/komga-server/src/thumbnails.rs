@@ -187,7 +187,7 @@ pub fn migrate_blobs_to_files(state: &AppState) -> komga_db::Result<()> {
     // between mark_done and VACUUM is redone on the next start.
     if migrated_total > 0 || markers.is_done(VACUUM_MARKER)? {
         markers.mark_done(VACUUM_MARKER)?;
-        match state.task_db.rw().execute_batch("VACUUM") {
+        match state.task_db.rw()?.execute_batch("VACUUM") {
             Ok(()) => markers.clear(VACUUM_MARKER)?,
             // failure only costs disk space; the marker stays so the next start retries
             Err(e) => {

@@ -692,6 +692,7 @@ mod tests {
             .state
             .db
             .ro()
+            .unwrap()
             .query_row(
                 "SELECT COUNT(*) FROM HISTORICAL_EVENT WHERE TYPE = 'BookImported'",
                 [],
@@ -962,6 +963,7 @@ mod tests {
             .state
             .db
             .ro()
+            .unwrap()
             .query_row(
                 "SELECT COUNT(*) FROM HISTORICAL_EVENT WHERE TYPE = 'BookFileDeleted'",
                 [],
@@ -970,7 +972,7 @@ mod tests {
             .unwrap();
         assert_eq!(count, 1);
         let props: BTreeMap<String, String> = {
-            let conn = env.state.db.ro();
+            let conn = env.state.db.ro().unwrap();
             let mut stmt = conn
                 .prepare(
                     "SELECT KEY, VALUE FROM HISTORICAL_EVENT_PROPERTIES \

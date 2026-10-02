@@ -23,7 +23,7 @@ impl HistoricalEventDao {
     }
 
     pub fn insert(&self, event: &HistoricalEvent) -> Result<String> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let id = if event.id.is_empty() {
             self.tsid.create_string()
         } else {
@@ -49,7 +49,7 @@ impl HistoricalEventDao {
     }
 
     pub fn find_by_id(&self, id: &str) -> Result<Option<HistoricalEvent>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let event = {
             let mut stmt = conn.prepare(
                 "SELECT ID, TYPE, BOOK_ID, SERIES_ID, TIMESTAMP FROM HISTORICAL_EVENT WHERE ID = ?",
@@ -88,7 +88,7 @@ impl HistoricalEventDao {
         &self,
         page: &crate::dto_dao::PageRequest,
     ) -> Result<crate::dto_dao::DtoPage<HistoricalEvent>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let total: i64 =
             conn.query_row("SELECT COUNT(*) FROM HISTORICAL_EVENT", [], |r| r.get(0))?;
 
@@ -153,7 +153,7 @@ impl HistoricalEventDao {
     /// of events removed. Retention companion of the insert-only log (auth activity does the
     /// same for AUTHENTICATION_ACTIVITY).
     pub fn delete_older_than(&self, cutoff: time::OffsetDateTime) -> Result<i64> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
             "DELETE FROM HISTORICAL_EVENT_PROPERTIES WHERE ID IN (SELECT ID FROM HISTORICAL_EVENT WHERE TIMESTAMP < ?)",
             [time_codec::format_datetime(cutoff)],
@@ -177,7 +177,7 @@ mod tests {
         let db = Database::open_in_memory(true).unwrap();
         let migrations = main_migrations();
         Migrator::new(&migrations, Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         HistoricalEventDao::new(db)
     }

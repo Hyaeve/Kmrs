@@ -154,12 +154,12 @@ impl Database {
     }
 
     /// Write connection (always a single connection under WAL).
-    pub fn rw(&self) -> PooledConn {
-        self.rw.get().expect("RW pool exhausted")
+    pub fn rw(&self) -> crate::Result<PooledConn> {
+        Ok(self.rw.get()?)
     }
 
     /// Read connection.
-    pub fn ro(&self) -> PooledConn {
-        self.ro.get().expect("RO pool exhausted")
+    pub fn ro(&self) -> crate::Result<PooledConn> {
+        Ok(self.ro.get()?)
     }
 }

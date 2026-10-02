@@ -203,6 +203,7 @@ mod tests {
         state
             .db
             .rw()
+            .unwrap()
             .execute(
                 "INSERT INTO LIBRARY (ID, NAME, ROOT) VALUES ('l1', 'lib', ?)",
                 [root],

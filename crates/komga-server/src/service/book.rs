@@ -508,7 +508,7 @@ fn remove_books_from_all_readlists(state: &AppState, book_ids: &[String]) -> kom
     if book_ids.is_empty() {
         return Ok(());
     }
-    let conn = state.db.rw();
+    let conn = state.db.rw()?;
     for chunk in book_ids.chunks(500) {
         let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
         conn.execute(
@@ -690,14 +690,14 @@ mod tests {
         let db = Database::open_in_memory(true).unwrap();
         let migrations = komga_db::main_migrations();
         Migrator::new(&migrations, Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         let tasks_db = Database::open_in_memory(false).unwrap();
         // dedicated task pools reuse the same in-memory database: task execution and assertions stay in sync
         let task_db = db.clone();
         let tasks_migrations = komga_db::tasks_migrations();
         Migrator::new(&tasks_migrations, Placeholders::default())
-            .migrate(&tasks_db.rw())
+            .migrate(&tasks_db.rw().unwrap())
             .unwrap();
         let config = crate::config::ServerConfig::from_env();
         AppState {
@@ -770,7 +770,7 @@ mod tests {
     fn seed_series(state: &AppState, library_id: &str, id: &str) {
         state
             .db
-            .rw()
+            .rw().unwrap()
             .execute(
                 "INSERT INTO SERIES (ID, NAME, URL, FILE_LAST_MODIFIED, LIBRARY_ID) VALUES (?, ?, ?, ?, ?)",
                 rusqlite::params![id, "S", "file:/l/s/", format_datetime(now_utc()), library_id],
@@ -906,6 +906,7 @@ mod tests {
         let count: i64 = state
             .db
             .ro()
+            .unwrap()
             .query_row(
                 "SELECT COUNT(*) FROM MEDIA_PAGE WHERE BOOK_ID = ?",
                 [&book.id],
@@ -1720,7 +1721,7 @@ mod tests {
             .unwrap();
         state
             .db
-            .rw()
+            .rw().unwrap()
             .execute(
                 "INSERT INTO READLIST (ID, NAME, SUMMARY, ORDERED, BOOK_COUNT, CREATED_DATE, LAST_MODIFIED_DATE) VALUES ('rl1', 'RL', '', 1, 1, ?, ?)",
                 rusqlite::params![format_datetime(now_utc()), format_datetime(now_utc())],
@@ -1729,6 +1730,7 @@ mod tests {
         state
             .db
             .rw()
+            .unwrap()
             .execute(
                 "INSERT INTO READLIST_BOOK (READLIST_ID, BOOK_ID, NUMBER) VALUES ('rl1', ?, 0)",
                 [&book.id],
@@ -1750,7 +1752,7 @@ mod tests {
         let mut rx = state.events.subscribe();
         delete_one(&state, &book).unwrap();
 
-        let ro = state.db.ro();
+        let ro = state.db.ro().unwrap();
         let count = |table: &str| -> i64 {
             ro.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
                 .unwrap()
@@ -1762,6 +1764,7 @@ mod tests {
         let contributions: i64 = state
             .kmrs_db
             .ro()
+            .unwrap()
             .query_row(
                 "SELECT COUNT(*) FROM SERIES_METADATA_CONTRIBUTION",
                 [],
@@ -1820,18 +1823,21 @@ mod tests {
         let count: i64 = state
             .db
             .ro()
+            .unwrap()
             .query_row("SELECT COUNT(*) FROM BOOK", [], |r| r.get(0))
             .unwrap();
         assert_eq!(count, 0);
         let count: i64 = state
             .db
             .ro()
+            .unwrap()
             .query_row("SELECT COUNT(*) FROM READ_PROGRESS", [], |r| r.get(0))
             .unwrap();
         assert_eq!(count, 0);
         let contributions: i64 = state
             .kmrs_db
             .ro()
+            .unwrap()
             .query_row(
                 "SELECT COUNT(*) FROM SERIES_METADATA_CONTRIBUTION",
                 [],
@@ -1905,7 +1911,7 @@ mod tests {
         assert!(!series_dir.exists());
 
         let events: Vec<(String, String)> = {
-            let ro = state.db.ro();
+            let ro = state.db.ro().unwrap();
             let mut stmt = ro.prepare("SELECT TYPE, (SELECT VALUE FROM HISTORICAL_EVENT_PROPERTIES p WHERE p.ID = HISTORICAL_EVENT.ID AND KEY = 'reason') FROM HISTORICAL_EVENT ORDER BY TIMESTAMP").unwrap();
             let rows = stmt
                 .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
@@ -1943,6 +1949,7 @@ mod tests {
         let count: i64 = state
             .db
             .ro()
+            .unwrap()
             .query_row("SELECT COUNT(*) FROM HISTORICAL_EVENT", [], |r| r.get(0))
             .unwrap();
         assert_eq!(count, 0);

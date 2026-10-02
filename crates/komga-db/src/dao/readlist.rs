@@ -41,7 +41,7 @@ impl ReadListDao {
     }
 
     fn fill_members(&self, readlists: &mut [(ReadList, i32)]) -> Result<()> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(
             "SELECT NUMBER, BOOK_ID FROM READLIST_BOOK WHERE READLIST_ID = ? ORDER BY NUMBER ASC",
         )?;
@@ -58,7 +58,7 @@ impl ReadListDao {
     }
 
     fn find_where(&self, condition: &str, param: Option<&str>) -> Result<Vec<ReadList>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let sql = format!("SELECT {COLUMNS} FROM READLIST {condition}");
         let mut stmt = conn.prepare(&sql)?;
         let mut readlists: Vec<(ReadList, i32)> = match param {
@@ -88,7 +88,7 @@ impl ReadListDao {
     }
 
     pub fn exists_by_name(&self, name: &str) -> Result<bool> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         Ok(conn.query_row(
             "SELECT COUNT(*) > 0 FROM READLIST WHERE lower(NAME) = lower(?)",
             [name],
@@ -117,13 +117,13 @@ impl ReadListDao {
     }
 
     pub fn count(&self) -> Result<i64> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         Ok(conn.query_row("SELECT COUNT(*) FROM READLIST", [], |r| r.get(0))?)
     }
 
     /// insert: BOOK_COUNT = book_ids.len(); member NUMBER = the map key.
     pub fn insert(&self, readlist: &ReadList) -> Result<String> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let id = if readlist.id.is_empty() {
             self.tsid.create_string()
         } else {
@@ -146,7 +146,7 @@ impl ReadListDao {
     /// update: name/summary/flags/count + LAST_MODIFIED = app-side UTC now; members
     /// are fully deleted and re-inserted.
     pub fn update(&self, readlist: &ReadList) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
       "UPDATE READLIST SET NAME = ?, SUMMARY = ?, ORDERED = ?, BOOK_COUNT = ?, LAST_MODIFIED_DATE = ? WHERE ID = ?",
       params![
@@ -182,13 +182,13 @@ impl ReadListDao {
     }
 
     pub fn remove_book_from_all(&self, book_id: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute("DELETE FROM READLIST_BOOK WHERE BOOK_ID = ?", [book_id])?;
         Ok(())
     }
 
     pub fn delete(&self, id: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute("DELETE FROM READLIST_BOOK WHERE READLIST_ID = ?", [id])?;
         conn.execute("DELETE FROM READLIST WHERE ID = ?", [id])?;
         Ok(())
@@ -206,13 +206,13 @@ mod tests {
         let db = Database::open_in_memory(true).unwrap();
         let migrations = main_migrations();
         Migrator::new(&migrations, Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         ReadListDao::new(db)
     }
 
     fn seed_book(db: &Database, id: &str) {
-        let conn = db.rw();
+        let conn = db.rw().unwrap();
         conn.execute(
             "INSERT OR IGNORE INTO LIBRARY (ID, NAME, ROOT) VALUES ('lib1', 'L', 'file:/l/')",
             [],
@@ -298,6 +298,7 @@ mod tests {
         let members: i64 = dao
             .db
             .ro()
+            .unwrap()
             .query_row("SELECT COUNT(*) FROM READLIST_BOOK", [], |r| r.get(0))
             .unwrap();
         assert_eq!(members, 0);

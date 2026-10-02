@@ -1594,14 +1594,14 @@ mod tests {
         let db = Database::open_in_memory(true).unwrap();
         let migrations = komga_db::main_migrations();
         Migrator::new(&migrations, Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         let tasks_db = Database::open_in_memory(false).unwrap();
         // dedicated task pools reuse the same in-memory database: task execution and assertions stay in sync
         let task_db = db.clone();
         let tasks_migrations = komga_db::tasks_migrations();
         Migrator::new(&tasks_migrations, Placeholders::default())
-            .migrate(&tasks_db.rw())
+            .migrate(&tasks_db.rw().unwrap())
             .unwrap();
         let db_config = |register_udfs| DatabaseConfig {
             file: std::env::temp_dir(),
@@ -1718,6 +1718,7 @@ mod tests {
         state
             .db
             .rw()
+            .unwrap()
             .execute(
                 "INSERT INTO LIBRARY (ID, NAME, ROOT) VALUES (?, ?, ?)",
                 (id, name, format!("file:/data/{name}/")),
@@ -1726,7 +1727,7 @@ mod tests {
     }
 
     fn seed_series(state: &AppState, id: &str, library_id: &str, name: &str) {
-        let conn = state.db.rw();
+        let conn = state.db.rw().unwrap();
         conn.execute(
             "INSERT INTO SERIES (ID, NAME, URL, FILE_LAST_MODIFIED, LIBRARY_ID) \
              VALUES (?, ?, ?, '2020-01-01 00:00:00.0', ?)",
@@ -1758,7 +1759,7 @@ mod tests {
         number_sort: f32,
         page_types: &[&str],
     ) {
-        let conn = state.db.rw();
+        let conn = state.db.rw().unwrap();
         conn.execute(
             "INSERT INTO BOOK (ID, NAME, URL, FILE_LAST_MODIFIED, SERIES_ID, LIBRARY_ID) \
              VALUES (?, ?, ?, '2020-01-01 00:00:00.0', ?, ?)",
@@ -1813,7 +1814,7 @@ mod tests {
     }
 
     fn seed_collection(state: &AppState, id: &str, name: &str, series_ids: &[&str]) {
-        let conn = state.db.rw();
+        let conn = state.db.rw().unwrap();
         conn.execute(
             "INSERT INTO COLLECTION (ID, NAME, SERIES_COUNT) VALUES (?, ?, ?)",
             (id, name, series_ids.len() as i64),
@@ -1829,7 +1830,7 @@ mod tests {
     }
 
     fn seed_readlist(state: &AppState, id: &str, name: &str, book_ids: &[&str]) {
-        let conn = state.db.rw();
+        let conn = state.db.rw().unwrap();
         conn.execute(
             "INSERT INTO READLIST (ID, NAME, ORDERED, BOOK_COUNT) VALUES (?, ?, 1, ?)",
             (id, name, book_ids.len() as i64),
@@ -1848,6 +1849,7 @@ mod tests {
         state
             .db
             .rw()
+            .unwrap()
             .execute(
                 "UPDATE SERIES_METADATA SET PUBLISHER = ? WHERE SERIES_ID = ?",
                 (publisher, series_id),
@@ -2200,7 +2202,7 @@ mod tests {
         )
         .expect("copy zip fixture");
         {
-            let conn = state.db.rw();
+            let conn = state.db.rw().unwrap();
             conn.execute(
                 "INSERT INTO BOOK (ID, NAME, URL, FILE_LAST_MODIFIED, SERIES_ID, LIBRARY_ID) \
                  VALUES ('b1', 'v01', ?, '2020-01-01 00:00:00.0', 's1', 'lib1')",

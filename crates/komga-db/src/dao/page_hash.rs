@@ -45,7 +45,7 @@ impl PageHashDao {
     }
 
     pub fn find_known(&self, hash: &str) -> Result<Option<PageHashKnown>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!("SELECT {COLUMNS} FROM PAGE_HASH WHERE HASH = ?"))?;
         let mut rows = stmt.query_map([hash], |row| Self::row_to_known(row, 0))?;
         Ok(rows.next().transpose()?)
@@ -54,7 +54,7 @@ impl PageHashDao {
     /// List of known hashes; match_count is the number of occurrences in MEDIA_PAGE
     /// (corresponds to jOOQ's leftJoin count).
     pub fn find_all_known(&self, actions: Option<&[PageHashAction]>) -> Result<Vec<PageHashKnown>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let filter = match actions {
             Some(actions) if !actions.is_empty() => format!(
                 "WHERE ph.ACTION IN ({})",
@@ -95,7 +95,7 @@ impl PageHashDao {
 
     /// Corresponds to the jOOQ insert: DELETE_COUNT and the dates use DB defaults.
     pub fn insert(&self, page_hash: &PageHashKnown, thumbnail: Option<&[u8]>) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
             "INSERT INTO PAGE_HASH (HASH, SIZE, ACTION) VALUES (?,?,?)",
             params![page_hash.hash, page_hash.size, page_hash.action.as_str()],
@@ -111,7 +111,7 @@ impl PageHashDao {
 
     /// Corresponds to the jOOQ update: LAST_MODIFIED_DATE is set to the current UTC time.
     pub fn update(&self, page_hash: &PageHashKnown) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
       "UPDATE PAGE_HASH SET ACTION = ?, SIZE = ?, DELETE_COUNT = ?, LAST_MODIFIED_DATE = ? WHERE HASH = ?",
       params![
@@ -126,7 +126,7 @@ impl PageHashDao {
     }
 
     pub fn get_known_thumbnail(&self, hash: &str) -> Result<Option<Vec<u8>>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare("SELECT THUMBNAIL FROM PAGE_HASH_THUMBNAIL WHERE HASH = ?")?;
         let mut rows = stmt.query_map([hash], |r| r.get(0))?;
         Ok(rows.next().transpose()?)
@@ -152,7 +152,7 @@ impl PageHashDao {
         let count_sql = format!(
             "SELECT COUNT(*) FROM (SELECT ph.HASH FROM PAGE_HASH ph LEFT JOIN MEDIA_PAGE p ON ph.HASH = p.FILE_HASH {filter} GROUP BY ph.HASH)"
         );
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let total: i64 = conn.query_row(&count_sql, [], |r| r.get(0))?;
 
         let order_sql = page
@@ -216,7 +216,7 @@ impl PageHashDao {
         &self,
         page: &crate::dto_dao::PageRequest,
     ) -> Result<crate::dto_dao::DtoPage<komga_core::model::page_hash::PageHashUnknown>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let total: i64 = conn.query_row(
             "SELECT COUNT(*) FROM (SELECT FILE_HASH FROM MEDIA_PAGE WHERE FILE_HASH != '' AND NOT EXISTS (SELECT 1 FROM PAGE_HASH WHERE PAGE_HASH.HASH = MEDIA_PAGE.FILE_HASH) GROUP BY FILE_HASH HAVING COUNT(BOOK_ID) > 1)",
             [],
@@ -279,7 +279,7 @@ impl PageHashDao {
         hash: &str,
         page: &crate::dto_dao::PageRequest,
     ) -> Result<crate::dto_dao::DtoPage<PageHashMatchRow>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let total: i64 = conn.query_row(
             "SELECT COUNT(*) FROM MEDIA_PAGE p WHERE p.FILE_HASH = ?",
             [hash],
@@ -365,7 +365,7 @@ impl PageHashDao {
             sql.push_str(" AND b.LIBRARY_ID = ?");
             params.push(Box::new(library_id.to_string()));
         }
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(rusqlite::params_from_iter(params), |row| {
             Ok((
@@ -401,7 +401,7 @@ mod tests {
         let db = Database::open_in_memory(true).unwrap();
         let migrations = main_migrations();
         Migrator::new(&migrations, Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         PageHashDao::new(db)
     }

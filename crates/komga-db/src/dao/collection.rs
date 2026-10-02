@@ -39,7 +39,7 @@ impl CollectionDao {
     }
 
     fn fill_members(&self, collections: &mut [(SeriesCollection, i32)]) -> Result<()> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(
             "SELECT SERIES_ID FROM COLLECTION_SERIES WHERE COLLECTION_ID = ? ORDER BY NUMBER ASC",
         )?;
@@ -54,7 +54,7 @@ impl CollectionDao {
     }
 
     fn find_where(&self, condition: &str, param: Option<&str>) -> Result<Vec<SeriesCollection>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let sql = format!("SELECT {COLUMNS} FROM COLLECTION {condition}");
         let mut stmt = conn.prepare(&sql)?;
         let mut collections: Vec<(SeriesCollection, i32)> = match param {
@@ -84,7 +84,7 @@ impl CollectionDao {
     }
 
     pub fn exists_by_name(&self, name: &str) -> Result<bool> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         Ok(conn.query_row(
             "SELECT COUNT(*) > 0 FROM COLLECTION WHERE lower(NAME) = lower(?)",
             [name],
@@ -113,13 +113,13 @@ impl CollectionDao {
     }
 
     pub fn count(&self) -> Result<i64> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         Ok(conn.query_row("SELECT COUNT(*) FROM COLLECTION", [], |r| r.get(0))?)
     }
 
     /// insert: SERIES_COUNT = series_ids.len(); member NUMBER = index (0-based).
     pub fn insert(&self, collection: &SeriesCollection) -> Result<String> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let id = if collection.id.is_empty() {
             self.tsid.create_string()
         } else {
@@ -141,7 +141,7 @@ impl CollectionDao {
     /// update: name/flags/count + LAST_MODIFIED = app-side UTC now; members are
     /// fully deleted and re-inserted.
     pub fn update(&self, collection: &SeriesCollection) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
       "UPDATE COLLECTION SET NAME = ?, ORDERED = ?, SERIES_COUNT = ?, LAST_MODIFIED_DATE = ? WHERE ID = ?",
       params![
@@ -176,7 +176,7 @@ impl CollectionDao {
     }
 
     pub fn remove_series_from_all(&self, series_id: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
             "DELETE FROM COLLECTION_SERIES WHERE SERIES_ID = ?",
             [series_id],
@@ -185,7 +185,7 @@ impl CollectionDao {
     }
 
     pub fn delete(&self, id: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
             "DELETE FROM COLLECTION_SERIES WHERE COLLECTION_ID = ?",
             [id],
@@ -206,13 +206,13 @@ mod tests {
         let db = Database::open_in_memory(true).unwrap();
         let migrations = main_migrations();
         Migrator::new(&migrations, Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         CollectionDao::new(db)
     }
 
     fn seed_series(db: &Database, id: &str) {
-        let conn = db.rw();
+        let conn = db.rw().unwrap();
         conn.execute(
             "INSERT OR IGNORE INTO LIBRARY (ID, NAME, ROOT) VALUES ('lib1', 'L', 'file:/l/')",
             [],
@@ -266,7 +266,7 @@ mod tests {
         // NUMBER order preserved: s3 comes first
         let numbers: Vec<(String, i64)> = dao
       .db
-      .ro()
+      .ro().unwrap()
       .prepare("SELECT SERIES_ID, NUMBER FROM COLLECTION_SERIES WHERE COLLECTION_ID = ? ORDER BY NUMBER")
       .unwrap()
       .query_map([&id], |r| Ok((r.get(0)?, r.get(1)?)))
@@ -287,6 +287,7 @@ mod tests {
         let members: i64 = dao
             .db
             .ro()
+            .unwrap()
             .query_row("SELECT COUNT(*) FROM COLLECTION_SERIES", [], |r| r.get(0))
             .unwrap();
         assert_eq!(members, 0);

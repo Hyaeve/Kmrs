@@ -55,7 +55,7 @@ impl SeriesDao {
     }
 
     pub fn find_all(&self) -> Result<Vec<Series>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!("SELECT {SERIES_COLUMNS} FROM SERIES"))?;
         let series = stmt
             .query_map([], Self::row_to_series)?
@@ -64,7 +64,7 @@ impl SeriesDao {
     }
 
     pub fn find_by_id(&self, id: &str) -> Result<Option<Series>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt =
             conn.prepare(&format!("SELECT {SERIES_COLUMNS} FROM SERIES WHERE ID = ?"))?;
         let series = stmt
@@ -74,7 +74,7 @@ impl SeriesDao {
     }
 
     pub fn find_by_library_id(&self, library_id: &str) -> Result<Vec<Series>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {SERIES_COLUMNS} FROM SERIES WHERE LIBRARY_ID = ?"
         ))?;
@@ -85,7 +85,7 @@ impl SeriesDao {
     }
 
     pub fn find_all_ids_by_library_id(&self, library_id: &str) -> Result<Vec<String>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare("SELECT ID FROM SERIES WHERE LIBRARY_ID = ?")?;
         let ids = stmt
             .query_map([library_id], |r| r.get(0))?
@@ -98,7 +98,7 @@ impl SeriesDao {
         library_id: &str,
         url: &str,
     ) -> Result<Option<Series>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
       "SELECT {SERIES_COLUMNS} FROM SERIES WHERE LIBRARY_ID = ? AND URL = ? AND DELETED_DATE IS NULL \
        ORDER BY LAST_MODIFIED_DATE DESC"
@@ -110,7 +110,7 @@ impl SeriesDao {
     }
 
     pub fn get_library_id(&self, series_id: &str) -> Result<Option<String>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare("SELECT LIBRARY_ID FROM SERIES WHERE ID = ?")?;
         let ids = stmt
             .query_map([series_id], |r| r.get(0))?
@@ -120,7 +120,7 @@ impl SeriesDao {
 
     /// Audit columns and BOOK_COUNT fall back to DB defaults, matching the jOOQ insert behavior.
     pub fn insert(&self, series: &Series) -> Result<String> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let id = if series.id.is_empty() {
             self.tsid.create_string()
         } else {
@@ -143,7 +143,7 @@ impl SeriesDao {
     }
 
     pub fn update(&self, series: &Series, update_modified_time: bool) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let mut sql =
             "UPDATE SERIES SET NAME = ?, URL = ?, FILE_LAST_MODIFIED = ?, LIBRARY_ID = ?, \
                    BOOK_COUNT = ?, DELETED_DATE = ?, ONESHOT = ?"
@@ -170,13 +170,13 @@ impl SeriesDao {
     }
 
     pub fn delete(&self, id: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute("DELETE FROM SERIES WHERE ID = ?", [id])?;
         Ok(())
     }
 
     pub fn delete_many(&self, ids: &[String]) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let mut stmt = conn.prepare("DELETE FROM SERIES WHERE ID = ?")?;
         for id in ids {
             stmt.execute([id])?;
@@ -185,7 +185,7 @@ impl SeriesDao {
     }
 
     pub fn count(&self) -> Result<i64> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let count = conn.query_row("SELECT COUNT(*) FROM SERIES", [], |r| r.get(0))?;
         Ok(count)
     }
@@ -234,7 +234,7 @@ impl SeriesDao {
             sql.push_str(&format!(" WHERE {}", w.sql));
         }
         let params: Vec<rusqlite::types::Value> = join_params.into_iter().chain(w.params).collect();
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&sql)?;
         let series = stmt
             .query_map(rusqlite::params_from_iter(params), Self::row_to_series)?
@@ -247,7 +247,7 @@ impl SeriesDao {
         library_id: &str,
         urls: &[String],
     ) -> Result<Vec<Series>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         // urls is unbounded (one entry per scanned directory); a SQL NOT IN would exceed
         // SQLite's variable limit, so the exclusion is applied in Rust
         let mut stmt = conn.prepare(&format!(
@@ -264,7 +264,7 @@ impl SeriesDao {
     }
 
     pub fn count_grouped_by_library_id(&self) -> Result<HashMap<String, i64>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt =
             conn.prepare("SELECT LIBRARY_ID, COUNT(ID) FROM SERIES GROUP BY LIBRARY_ID")?;
         let map = stmt
@@ -328,7 +328,7 @@ impl SeriesMetadataDao {
     }
 
     pub fn find_by_id(&self, series_id: &str) -> Result<Option<SeriesMetadata>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {METADATA_COLUMNS} FROM SERIES_METADATA WHERE SERIES_ID = ?"
         ))?;
@@ -376,7 +376,7 @@ impl SeriesMetadataDao {
 
     /// Audit columns fall back to DB defaults, matching the jOOQ insert behavior.
     pub fn insert(&self, metadata: &SeriesMetadata) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
       "INSERT INTO SERIES_METADATA (SERIES_ID, STATUS, STATUS_LOCK, TITLE, TITLE_LOCK, TITLE_SORT, TITLE_SORT_LOCK, \
        SUMMARY, SUMMARY_LOCK, READING_DIRECTION, READING_DIRECTION_LOCK, PUBLISHER, PUBLISHER_LOCK, \
@@ -392,7 +392,7 @@ impl SeriesMetadataDao {
     /// Child tables are replaced as a whole, matching the jOOQ update behavior;
     /// LAST_MODIFIED_DATE is set to the current UTC time.
     pub fn update(&self, metadata: &SeriesMetadata) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         // metadata_params' first element is series_id (for the INSERT column order);
         // UPDATE's SET starts at STATUS, so it must be removed
         let mut values = metadata_params(metadata);
@@ -471,7 +471,7 @@ impl SeriesMetadataDao {
     }
 
     pub fn delete(&self, series_id: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
             "DELETE FROM SERIES_METADATA_GENRE WHERE SERIES_ID = ?",
             [series_id],
@@ -500,7 +500,7 @@ impl SeriesMetadataDao {
     }
 
     pub fn count(&self) -> Result<i64> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let count = conn.query_row("SELECT COUNT(*) FROM SERIES_METADATA", [], |r| r.get(0))?;
         Ok(count)
     }
@@ -549,7 +549,7 @@ impl BookMetadataAggregationDao {
     }
 
     pub fn find_by_id(&self, series_id: &str) -> Result<Option<BookMetadataAggregation>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&format!(
             "SELECT {AGGREGATION_COLUMNS} FROM BOOK_METADATA_AGGREGATION WHERE SERIES_ID = ?"
         ))?;
@@ -590,7 +590,7 @@ impl BookMetadataAggregationDao {
 
     /// Audit columns fall back to DB defaults, matching the jOOQ insert behavior.
     pub fn insert(&self, metadata: &BookMetadataAggregation) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
       "INSERT INTO BOOK_METADATA_AGGREGATION (SERIES_ID, RELEASE_DATE, SUMMARY, SUMMARY_NUMBER) \
        VALUES (?, ?, ?, ?)",
@@ -608,7 +608,7 @@ impl BookMetadataAggregationDao {
     /// Child tables are replaced as a whole, matching the jOOQ update behavior;
     /// LAST_MODIFIED_DATE is set to the current UTC time.
     pub fn update(&self, metadata: &BookMetadataAggregation) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
       "UPDATE BOOK_METADATA_AGGREGATION SET SUMMARY = ?, SUMMARY_NUMBER = ?, RELEASE_DATE = ?, LAST_MODIFIED_DATE = ? \
        WHERE SERIES_ID = ?",
@@ -654,7 +654,7 @@ impl BookMetadataAggregationDao {
     }
 
     pub fn delete(&self, series_id: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute(
             "DELETE FROM BOOK_METADATA_AGGREGATION_AUTHOR WHERE SERIES_ID = ?",
             [series_id],
@@ -671,7 +671,7 @@ impl BookMetadataAggregationDao {
     }
 
     pub fn count(&self) -> Result<i64> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let count = conn.query_row("SELECT COUNT(*) FROM BOOK_METADATA_AGGREGATION", [], |r| {
             r.get(0)
         })?;
@@ -715,13 +715,14 @@ mod tests {
         let db = Database::open_in_memory(true).unwrap();
         let migrations = main_migrations();
         Migrator::new(&migrations, Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         db
     }
 
     fn insert_library(db: &Database, id: &str) {
         db.rw()
+            .unwrap()
             .execute(
                 "INSERT INTO LIBRARY (ID, NAME, ROOT) VALUES (?, ?, ?)",
                 params![id, "lib", "file:/data/"],
@@ -985,6 +986,7 @@ mod tests {
         ] {
             let n: i64 = db
                 .ro()
+                .unwrap()
                 .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
                 .unwrap();
             assert_eq!(n, 0, "{table} not cleaned");
@@ -1043,6 +1045,7 @@ mod tests {
         ] {
             let n: i64 = db
                 .ro()
+                .unwrap()
                 .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
                 .unwrap();
             assert_eq!(n, 0, "{table} not cleaned");

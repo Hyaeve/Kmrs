@@ -125,7 +125,7 @@ impl BookDtoDao {
         );
         let conditions = book_condition(search.condition.as_ref(), ctx)
             .and(id_in_or_no_condition("BOOK.ID", ids.as_deref()));
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
 
         let total = count(&conn, &conditions, user_id)?;
 
@@ -154,7 +154,7 @@ impl BookDtoDao {
     }
 
     pub fn find_by_id(&self, book_id: &str, user_id: &str) -> Result<Option<BookDto>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let (from, mut params) = select_from(user_id, &BTreeSet::new());
         let sql = format!("{SELECT_CLAUSE} {from} WHERE BOOK.ID = ?");
         params.push(Value::Text(book_id.to_string()));
@@ -220,7 +220,7 @@ impl BookDtoDao {
         next: bool,
         skip_read: bool,
     ) -> Result<Option<BookDto>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         // Kotlin uses fetchOne()!! here: an unknown book id is an internal error (500), not a 404
         let (series_id, number_sort): (String, Option<f32>) = conn.query_row(
             "SELECT BOOK.SERIES_ID, BOOK_METADATA.NUMBER_SORT FROM BOOK \
@@ -269,7 +269,7 @@ impl BookDtoDao {
         next: bool,
         skip_read: bool,
     ) -> Result<Option<BookDto>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let library_vec: Option<Vec<String>> =
             filter_library_ids.map(|ids| ids.iter().cloned().collect());
         if readlist.ordered {
@@ -411,7 +411,7 @@ impl BookDtoDao {
         restrictions: &ContentRestrictions,
         page: &PageRequest,
     ) -> Result<DtoPage<BookDto>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let library_vec: Option<Vec<String>> =
             filter_library_ids.map(|ids| ids.iter().cloned().collect());
         let mut cte_conditions = SqlWhere {
@@ -504,7 +504,7 @@ impl BookDtoDao {
         user_id: &str,
         page: &PageRequest,
     ) -> Result<DtoPage<BookDto>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(
             "SELECT FILE_HASH, COUNT(ID) FROM BOOK WHERE FILE_HASH <> '' \
              GROUP BY FILE_HASH, FILE_SIZE HAVING COUNT(ID) > 1",
@@ -824,7 +824,7 @@ mod tests {
         let db = Database::open_in_memory(true).unwrap();
         let migrations = main_migrations();
         Migrator::new(&migrations, Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         db
     }
@@ -965,7 +965,7 @@ mod tests {
     /// Base dataset: l1/s1(b1,b2,b3) + l1/s2(b4,b5) + l2/s3(b6 oneshot+deleted)
     fn base_db() -> Database {
         let db = db();
-        let conn = db.rw();
+        let conn = db.rw().unwrap();
         insert_library(&conn, "l1");
         insert_library(&conn, "l2");
         conn.execute(
@@ -1128,6 +1128,7 @@ mod tests {
     fn find_all_decode_error_names_column_and_row() {
         let db = base_db();
         db.rw()
+            .unwrap()
             .execute(
                 "UPDATE READ_PROGRESS SET READ_DATE = 'garbage' WHERE BOOK_ID = 'b1'",
                 [],
@@ -1144,7 +1145,7 @@ mod tests {
     #[test]
     fn find_all_parses_iso8601_read_date() {
         let db = base_db();
-        db.rw()
+        db.rw().unwrap()
             .execute(
                 "UPDATE READ_PROGRESS SET READ_DATE = '2026-09-21T05:33:30.327Z' WHERE BOOK_ID = 'b1'",
                 [],
@@ -1506,7 +1507,7 @@ mod tests {
     #[test]
     fn find_all_filter_poster() {
         let db = base_db();
-        db.rw()
+        db.rw().unwrap()
             .execute(
                 "INSERT INTO THUMBNAIL_BOOK (ID, BOOK_ID, TYPE, SELECTED) VALUES ('t1', 'b3', 'GENERATED', 1)",
                 [],
@@ -1777,7 +1778,7 @@ mod tests {
                 .map(|b| b.id),
             Some("b2".to_string())
         );
-        let conn = db.rw();
+        let conn = db.rw().unwrap();
         conn.execute(
             "UPDATE READ_PROGRESS SET COMPLETED = 1 WHERE BOOK_ID = 'b2'",
             [],
@@ -1791,7 +1792,7 @@ mod tests {
             Some("b3".to_string())
         );
         // every later book read: falls back to the plain next
-        let conn = db.rw();
+        let conn = db.rw().unwrap();
         insert_read_progress(&conn, "b3", "u1", 10, true);
         drop(conn);
         assert_eq!(
@@ -1810,7 +1811,7 @@ mod tests {
     #[test]
     fn sibling_series_navigation_breaks_number_sort_ties_by_book_id() {
         let db = base_db();
-        let conn = db.rw();
+        let conn = db.rw().unwrap();
         insert_series(&conn, "s9", "l1", 4, false);
         insert_series_metadata(&conn, "s9", "Zeta", "P1", None);
         for (id, sort) in [("c1", 1.0), ("c2", 2.0), ("c3", 2.0), ("c4", 3.0)] {
@@ -1978,7 +1979,7 @@ mod tests {
                 .map(|b| b.id),
             Some("b3".to_string())
         );
-        let conn = db.rw();
+        let conn = db.rw().unwrap();
         insert_read_progress(&conn, "b3", "u1", 10, true);
         drop(conn);
         assert_eq!(
@@ -1988,7 +1989,7 @@ mod tests {
             Some("b5".to_string())
         );
         // every later book read: falls back to the plain next
-        let conn = db.rw();
+        let conn = db.rw().unwrap();
         insert_read_progress(&conn, "b5", "u1", 10, true);
         drop(conn);
         assert_eq!(
@@ -2008,7 +2009,7 @@ mod tests {
             Some("b3".to_string())
         );
         // with b1 unread again, skipping walks past the read b3
-        let conn = db.rw();
+        let conn = db.rw().unwrap();
         conn.execute("DELETE FROM READ_PROGRESS WHERE BOOK_ID = 'b1'", [])
             .unwrap();
         drop(conn);
@@ -2024,7 +2025,7 @@ mod tests {
     fn on_deck_returns_first_unread_of_partially_read_series() {
         let db = base_db();
         // a second on-deck series with a newer read date to exercise the ordering
-        let conn = db.rw();
+        let conn = db.rw().unwrap();
         insert_series(&conn, "s4", "l1", 2, false);
         insert_series_metadata(&conn, "s4", "Delta", "P1", None);
         insert_book(&conn, "b7", "s4", "l1", 50, "h4", false, false);
@@ -2081,7 +2082,7 @@ mod tests {
         let db = base_db();
         // s5 has three unread books: b10 sorts last; b11 and b12 tie on number_sort,
         // so the smaller book id must win
-        let conn = db.rw();
+        let conn = db.rw().unwrap();
         insert_series(&conn, "s5", "l1", 4, false);
         insert_series_metadata(&conn, "s5", "Echo", "P1", None);
         for (id, size, hash, sort) in [
@@ -2128,7 +2129,7 @@ mod tests {
     #[test]
     fn on_deck_paged_total_exceeds_page_size() {
         let db = base_db();
-        let conn = db.rw();
+        let conn = db.rw().unwrap();
         insert_series(&conn, "s4", "l1", 2, false);
         insert_series_metadata(&conn, "s4", "Delta", "P1", None);
         insert_book(&conn, "b7", "s4", "l1", 50, "h4", false, false);

@@ -27,7 +27,7 @@ impl TasksDao {
     }
 
     pub fn has_available(&self) -> Result<bool> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let exists: bool = conn.query_row(
             &format!("SELECT EXISTS(SELECT 1 FROM TASK WHERE {AVAILABLE})"),
             [],
@@ -39,7 +39,7 @@ impl TasksDao {
     /// Claims the first available task, or None when the queue has nothing runnable.
     /// The read-write pool is a single connection, so the select+update is inherently serialized.
     pub fn take_first(&self, owner: &str) -> Result<Option<Task>> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let task = {
             let mut stmt = conn.prepare(&format!(
                 "SELECT CLASS, PAYLOAD FROM TASK WHERE {AVAILABLE} \
@@ -67,7 +67,7 @@ impl TasksDao {
     }
 
     pub fn find_all(&self) -> Result<Vec<Task>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare("SELECT CLASS, PAYLOAD FROM TASK")?;
         let rows = stmt.query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -84,7 +84,7 @@ impl TasksDao {
     }
 
     pub fn find_all_grouped_by_owner(&self) -> Result<BTreeMap<Option<String>, Vec<Task>>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare("SELECT OWNER, CLASS, PAYLOAD FROM TASK")?;
         let rows = stmt.query_map([], |row| {
             Ok((
@@ -105,13 +105,13 @@ impl TasksDao {
     }
 
     pub fn count(&self) -> Result<i64> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let count = conn.query_row("SELECT COUNT(*) FROM TASK", [], |r| r.get(0))?;
         Ok(count)
     }
 
     pub fn count_by_simple_type(&self) -> Result<BTreeMap<String, i64>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt =
             conn.prepare("SELECT SIMPLE_TYPE, COUNT(SIMPLE_TYPE) FROM TASK GROUP BY SIMPLE_TYPE")?;
         let map = stmt
@@ -129,7 +129,7 @@ impl TasksDao {
     /// affected book, and per-row autocommit would mean one fsync per book with the single
     /// RW connection held for the entire loop (Java commits every 1000-task chunk).
     pub fn save_many(&self, tasks: &[Task]) -> Result<()> {
-        let mut conn = self.db.rw();
+        let mut conn = self.db.rw()?;
         let tx = conn.transaction()?;
         {
             let mut stmt = tx.prepare(
@@ -157,25 +157,25 @@ impl TasksDao {
     }
 
     pub fn delete(&self, unique_id: &str) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute("DELETE FROM TASK WHERE ID = ?", [unique_id])?;
         Ok(())
     }
 
     pub fn delete_all(&self) -> Result<()> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         conn.execute("DELETE FROM TASK", [])?;
         Ok(())
     }
 
     pub fn delete_all_without_owner(&self) -> Result<i64> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let n = conn.execute("DELETE FROM TASK WHERE OWNER IS NULL", [])?;
         Ok(n as i64)
     }
 
     pub fn disown(&self) -> Result<i64> {
-        let conn = self.db.rw();
+        let conn = self.db.rw()?;
         let n = conn.execute("UPDATE TASK SET OWNER = NULL WHERE OWNER IS NOT NULL", [])?;
         Ok(n as i64)
     }
@@ -192,7 +192,7 @@ mod tests {
         let db = Database::open_in_memory(false).unwrap();
         let migrations = tasks_migrations();
         Migrator::new(&migrations, Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         db
     }

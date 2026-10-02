@@ -295,7 +295,7 @@ mod tests {
     }
 
     fn seed_book_pages(db: &komga_db::pool::Database, book_id: &str, hash: &str, pages: i32) {
-        let conn = db.rw();
+        let conn = db.rw().unwrap();
         conn.execute(
             "INSERT INTO LIBRARY (ID, NAME, ROOT) SELECT 'l1', 'lib', 'file:/l/' WHERE NOT EXISTS (SELECT 1 FROM LIBRARY WHERE ID = 'l1')",
             [],

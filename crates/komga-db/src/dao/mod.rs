@@ -1,5 +1,5 @@
 //! DAO layer. Conventions:
-//! - Reads go through `db.ro()`, writes through `db.rw()`.
+//! - Reads go through `db.ro()?`, writes through `db.rw()?`.
 //! - datetime columns are read/written via `time_codec` (TEXT, UTC); bool columns
 //!   are INTEGER 0/1; enums are stored as `as_str()`.
 //! - Row mapping returns `rusqlite::Result` (parse failures become

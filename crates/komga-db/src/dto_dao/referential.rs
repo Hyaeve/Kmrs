@@ -1122,7 +1122,7 @@ impl ReferentialDao {
         let (sql, params) = q.paged_sql(page);
 
         let mut items = Vec::new();
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(&sql)?;
         let mut rows = stmt.query(rusqlite::params_from_iter(params))?;
         while let Some(row) = rows.next()? {
@@ -1197,7 +1197,7 @@ impl ReferentialDao {
         params: Vec<Value>,
         mut map: impl FnMut(&Row<'_>) -> rusqlite::Result<T>,
     ) -> Result<Vec<T>> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let mut stmt = conn.prepare(sql)?;
         let mut rows = stmt.query(rusqlite::params_from_iter(params))?;
         let mut out = Vec::new();
@@ -1208,7 +1208,7 @@ impl ReferentialDao {
     }
 
     fn count(&self, sql: &str, params: &[Value]) -> Result<i64> {
-        let conn = self.db.ro();
+        let conn = self.db.ro()?;
         let n = conn.query_row(sql, rusqlite::params_from_iter(params), |r| {
             r.get::<_, i64>(0)
         })?;
@@ -1342,13 +1342,13 @@ mod tests {
         let db = Database::open_in_memory(true).unwrap();
         let migrations = main_migrations();
         Migrator::new(&migrations, Placeholders::default())
-            .migrate(&db.rw())
+            .migrate(&db.rw().unwrap())
             .unwrap();
         db
     }
 
     fn exec(db: &Database, sql: &str, params: impl rusqlite::Params) {
-        db.rw().execute(sql, params).unwrap();
+        db.rw().unwrap().execute(sql, params).unwrap();
     }
 
     fn library(db: &Database, id: &str) {
