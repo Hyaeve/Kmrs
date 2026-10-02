@@ -626,11 +626,18 @@ async fn event_payload(
 
 /// `ThumbnailBookSseDto.seriesId`: unresolved book ids become an empty string.
 async fn book_series_id(state: &AppState, book_id: &str) -> String {
-    BookDao::new(state.db.clone())
-        .get_series_id_or_null(book_id)
-        .ok()
-        .flatten()
-        .unwrap_or_default()
+    let db = state.db.clone();
+    let book_id = book_id.to_string();
+    // per-event lookups wait on the read pool under load; keep them off the async workers
+    tokio::task::spawn_blocking(move || {
+        BookDao::new(db)
+            .get_series_id_or_null(&book_id)
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+    })
+    .await
+    .unwrap_or_default()
 }
 
 /// Attaches DTOs on upsert events: `series` on SeriesAdded/SeriesUpdated, `book` on
@@ -676,23 +683,37 @@ async fn enrich_data(state: &AppState, event: &DomainEvent, data: &mut serde_jso
 /// full (unredacted) `url`. The DTO needs its complete row set (series metadata plus
 /// the aggregation row the scanner maintains); deleted or half-written rows yield null.
 async fn series_dto_value(state: &AppState, series_id: &str) -> serde_json::Value {
-    komga_db::dto_dao::series::SeriesDtoDao::new(state.db.clone())
-        .find_by_id(series_id, "")
-        .ok()
-        .flatten()
-        .and_then(|dto| serde_json::to_value(dto).ok())
-        .unwrap_or(serde_json::Value::Null)
+    let db = state.db.clone();
+    let series_id = series_id.to_string();
+    // the DTO query is one of the heaviest reads; during an event storm it must not
+    // occupy an async worker while waiting on the read pool
+    tokio::task::spawn_blocking(move || {
+        komga_db::dto_dao::series::SeriesDtoDao::new(db)
+            .find_by_id(&series_id, "")
+            .ok()
+            .flatten()
+            .and_then(|dto| serde_json::to_value(dto).ok())
+            .unwrap_or(serde_json::Value::Null)
+    })
+    .await
+    .unwrap_or(serde_json::Value::Null)
 }
 
 /// Full DTO for the event's book, or null when the row is gone. Same admin-scope
 /// semantics as [`series_dto_value`]; equivalent to `GET /api/v1/books/{id}`.
 async fn book_dto_value(state: &AppState, book_id: &str) -> serde_json::Value {
-    komga_db::dto_dao::book::BookDtoDao::new(state.db.clone())
-        .find_by_id(book_id, "")
-        .ok()
-        .flatten()
-        .and_then(|dto| serde_json::to_value(dto).ok())
-        .unwrap_or(serde_json::Value::Null)
+    let db = state.db.clone();
+    let book_id = book_id.to_string();
+    tokio::task::spawn_blocking(move || {
+        komga_db::dto_dao::book::BookDtoDao::new(db)
+            .find_by_id(&book_id, "")
+            .ok()
+            .flatten()
+            .and_then(|dto| serde_json::to_value(dto).ok())
+            .unwrap_or(serde_json::Value::Null)
+    })
+    .await
+    .unwrap_or(serde_json::Value::Null)
 }
 
 fn insert_value(data: &mut serde_json::Value, key: &str, value: serde_json::Value) {

@@ -109,7 +109,14 @@ async fn sse_events(
                     if !user.is_admin() {
                         continue;
                     }
-                    match TasksDao::new(state.tasks_db.clone()).count_by_simple_type() {
+                    let counts = {
+                        let db = state.tasks_db.clone();
+                        tokio::task::spawn_blocking(move || TasksDao::new(db).count_by_simple_type())
+                            .await
+                            .map_err(|e| e.to_string())
+                            .and_then(|r| r.map_err(|e| e.to_string()))
+                    };
+                    match counts {
                         Ok(counts) => {
                             let total = counts.values().sum();
                             let dto = dto::TaskQueueSseDto { count: total, count_by_type: counts };
@@ -396,11 +403,19 @@ async fn map_event(state: &AppState, user: &KomgaUser, event: DomainEvent) -> Op
 
 /// `ThumbnailBookSseDto.seriesId`: unresolved book ids become an empty string
 async fn book_series_id(state: &AppState, book_id: &str) -> String {
-    BookDao::new(state.db.clone())
-        .get_series_id_or_null(book_id)
-        .ok()
-        .flatten()
-        .unwrap_or_default()
+    let db = state.db.clone();
+    let book_id = book_id.to_string();
+    // one lookup per event per connection; under an event storm the read-pool checkout can
+    // wait, and that wait must not park an async worker
+    tokio::task::spawn_blocking(move || {
+        BookDao::new(db)
+            .get_series_id_or_null(&book_id)
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+    })
+    .await
+    .unwrap_or_default()
 }
 
 #[cfg(test)]
