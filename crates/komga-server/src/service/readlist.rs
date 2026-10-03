@@ -198,20 +198,16 @@ pub fn delete_thumbnail(state: &AppState, thumbnail: &ThumbnailReadList) -> komg
     Ok(())
 }
 
-/// `ReadListLifecycle.getThumbnailBytes`: the selected thumbnail, or a 2x2 mosaic of the first
-/// 4 member books' thumbnails (the id list is cycled to fill the grid, as in komga)
+/// `ReadListLifecycle.getThumbnailBytes`: the selected thumbnail, or a collage of the first
+/// member books' thumbnails; kmrs uses an adaptive crop-filled grid instead of komga's fixed
+/// 2x2 mosaic, and never repeats a cover to fill cells
 pub fn get_thumbnail_bytes(state: &AppState, readlist: &ReadList) -> komga_db::Result<Vec<u8>> {
     if let Some(selected) =
         ThumbnailReadListDao::new(state.db.clone()).find_selected_by_read_list_id(&readlist.id)?
     {
         return Ok(selected.thumbnail);
     }
-    let mut ids = Vec::new();
-    let book_ids: Vec<&String> = readlist.book_ids.values().collect();
-    while ids.len() < 4 && !book_ids.is_empty() {
-        ids.extend(book_ids.iter().take(4).map(|id| id.to_string()));
-    }
-    ids.truncate(4);
+    let ids: Vec<String> = readlist.book_ids.values().take(4).cloned().collect();
     let mut images = Vec::new();
     for id in &ids {
         if let Some(content) = crate::service::book::get_thumbnail_bytes(state, id, None)? {

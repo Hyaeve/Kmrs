@@ -193,8 +193,9 @@ pub fn delete_thumbnail(
     Ok(())
 }
 
-/// `SeriesCollectionLifecycle.getThumbnailBytes`: the selected thumbnail, or a 2x2 mosaic of the
-/// first 4 member series' covers (the id list is cycled to fill the grid, as in komga)
+/// `SeriesCollectionLifecycle.getThumbnailBytes`: the selected thumbnail, or a collage of the
+/// first member series' covers; kmrs uses an adaptive crop-filled grid instead of komga's fixed
+/// 2x2 mosaic, and never repeats a cover to fill cells
 pub fn get_thumbnail_bytes(
     state: &AppState,
     collection: &SeriesCollection,
@@ -205,11 +206,7 @@ pub fn get_thumbnail_bytes(
     {
         return Ok(selected.thumbnail);
     }
-    let mut ids = Vec::new();
-    while ids.len() < 4 && !collection.series_ids.is_empty() {
-        ids.extend(collection.series_ids.iter().take(4).cloned());
-    }
-    ids.truncate(4);
+    let ids: Vec<String> = collection.series_ids.iter().take(4).cloned().collect();
     let mut images = Vec::new();
     for id in &ids {
         if let Some(bytes) = crate::service::series::get_thumbnail_bytes(state, id, user_id)? {
@@ -236,29 +233,47 @@ fn thumbnails_house_keeping(state: &AppState, collection_id: &str) -> komga_db::
     Ok(())
 }
 
-/// `MosaicGenerator.createMosaic`: 2x2 grid with top-left anchored cells on a black background,
-/// JPEG output; width = round(height * 0.7066666667)
+/// Adaptive collage of up to 4 covers on a black background, JPEG output;
+/// width = round(height * 0.7066666667). Every cover is center-cropped to fill its
+/// cell, so any aspect ratio tiles without black bars: 1 cover full-size, 2 side by
+/// side, 3 as one tall cell plus two stacked, 4 in a 2x2 grid. A wide margin frames
+/// the collage (marks it as a set rather than a single cover); cells are separated
+/// by a thin gap.
 pub(crate) fn create_mosaic(images: &[Vec<u8>], max_edge: u32) -> komga_db::Result<Vec<u8>> {
     let height = max_edge;
     let width = (height as f64 * 0.7066666667).round() as u32;
     let mut mosaic = image::RgbImage::new(width, height);
-    let positions = [
-        (0i64, 0i64),
-        ((width / 2) as i64, 0),
-        (0, (height / 2) as i64),
-        ((width / 2) as i64, (height / 2) as i64),
-    ];
-    for (bytes, (x, y)) in images.iter().take(4).zip(positions) {
+    let margin = height / 12;
+    let gap = (margin / 4).max(1);
+    let cell_w = (width - 2 * margin - gap) / 2;
+    let cell_h = (height - 2 * margin - gap) / 2;
+    let right = width - margin - cell_w;
+    let bottom = height - margin - cell_h;
+    let rects: &[(u32, u32, u32, u32)] = match images.len().min(4) {
+        0 => &[],
+        1 => &[(margin, margin, width - 2 * margin, height - 2 * margin)],
+        2 => &[
+            (margin, margin, cell_w, height - 2 * margin),
+            (right, margin, cell_w, height - 2 * margin),
+        ],
+        3 => &[
+            (margin, margin, cell_w, height - 2 * margin),
+            (right, margin, cell_w, cell_h),
+            (right, bottom, cell_w, cell_h),
+        ],
+        _ => &[
+            (margin, margin, cell_w, cell_h),
+            (right, margin, cell_w, cell_h),
+            (margin, bottom, cell_w, cell_h),
+            (right, bottom, cell_w, cell_h),
+        ],
+    };
+    for (bytes, &(x, y, w, h)) in images.iter().zip(rects) {
         let img = image::load_from_memory(bytes).map_err(|e| {
             komga_db::Error::EnumValue(format!("could not decode mosaic image: {e}"))
         })?;
-        // `resize` keeps the aspect ratio and never upscales, like Thumbnailator's size()
-        let thumb = img.resize(
-            height / 2,
-            height / 2,
-            image::imageops::FilterType::Lanczos3,
-        );
-        image::imageops::overlay(&mut mosaic, &thumb.to_rgb8(), x, y);
+        let thumb = img.resize_to_fill(w, h, image::imageops::FilterType::Lanczos3);
+        image::imageops::overlay(&mut mosaic, &thumb.to_rgb8(), x as i64, y as i64);
     }
     let mut out = std::io::Cursor::new(Vec::new());
     image::DynamicImage::ImageRgb8(mosaic)
@@ -500,11 +515,91 @@ mod tests {
         let state = test_state();
         seed_base(&state.db);
         let collection = add_collection(&state, sample_collection("Empty")).unwrap();
-        // empty collection: no member images, the mosaic is a plain black JPEG (no infinite loop)
+        // empty collection: no member images, the mosaic is a plain black JPEG
         let out = get_thumbnail_bytes(&state, &collection, "u1").unwrap();
         let img = image::load_from_memory(&out).unwrap();
         let max_edge = state.settings.get().thumbnail_size.max_edge();
         assert_eq!(img.height(), max_edge);
         assert_eq!(img.width(), (max_edge as f64 * 0.7066666667).round() as u32);
+    }
+
+    fn solid_jpeg(color: [u8; 3], w: u32, h: u32) -> Vec<u8> {
+        let img = image::RgbImage::from_pixel(w, h, image::Rgb(color));
+        let mut out = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(img)
+            .write_to(&mut out, image::ImageFormat::Jpeg)
+            .unwrap();
+        out.into_inner()
+    }
+
+    fn mosaic_pixels(images: &[Vec<u8>]) -> image::RgbImage {
+        let out = create_mosaic(images, 300).unwrap();
+        image::load_from_memory(&out).unwrap().to_rgb8()
+    }
+
+    fn assert_close(px: &image::Rgb<u8>, expected: [u8; 3]) {
+        for (a, e) in px.0.iter().zip(expected) {
+            assert!(
+                (*a as i16 - e as i16).abs() <= 40,
+                "pixel {px:?} too far from {expected:?}"
+            );
+        }
+    }
+
+    // probe coordinates assume the 300px canvas: width 212, margin 25 (height/12),
+    // gap 6 (margin/4), cells 78x122
+    #[test]
+    fn mosaic_single_cover_fills_frame() {
+        let img = mosaic_pixels(&[solid_jpeg([200, 30, 30], 200, 300)]);
+        for (x, y) in [(40, 40), (170, 40), (40, 260), (170, 260), (106, 150)] {
+            assert_close(img.get_pixel(x, y), [200, 30, 30]);
+        }
+        for (x, y) in [(10, 10), (10, 150)] {
+            assert!(img.get_pixel(x, y).0.iter().all(|&c| c < 60));
+        }
+    }
+
+    #[test]
+    fn mosaic_two_covers_split_left_right() {
+        let img = mosaic_pixels(&[
+            solid_jpeg([200, 30, 30], 200, 300),
+            solid_jpeg([30, 30, 200], 200, 300),
+        ]);
+        assert_close(img.get_pixel(60, 150), [200, 30, 30]);
+        assert_close(img.get_pixel(60, 260), [200, 30, 30]);
+        assert_close(img.get_pixel(147, 150), [30, 30, 200]);
+        assert!(img.get_pixel(106, 150).0.iter().all(|&c| c < 150));
+        assert!(img.get_pixel(104, 150).0.iter().all(|&c| c < 150));
+        assert!(img.get_pixel(108, 150).0.iter().all(|&c| c < 150));
+        assert!(img.get_pixel(10, 150).0.iter().all(|&c| c < 60));
+    }
+
+    #[test]
+    fn mosaic_three_covers_tall_left_stacked_right() {
+        let img = mosaic_pixels(&[
+            solid_jpeg([200, 30, 30], 200, 300),
+            solid_jpeg([30, 200, 30], 200, 300),
+            solid_jpeg([30, 30, 200], 200, 300),
+        ]);
+        assert_close(img.get_pixel(60, 150), [200, 30, 30]);
+        assert_close(img.get_pixel(60, 260), [200, 30, 30]);
+        assert_close(img.get_pixel(147, 80), [30, 200, 30]);
+        assert_close(img.get_pixel(147, 210), [30, 30, 200]);
+    }
+
+    #[test]
+    fn mosaic_four_covers_grid_crops_to_fill() {
+        // landscape covers: center-crop must fill each cell vertically, no black bars
+        let img = mosaic_pixels(&[
+            solid_jpeg([200, 30, 30], 400, 300),
+            solid_jpeg([30, 200, 30], 400, 300),
+            solid_jpeg([30, 30, 200], 400, 300),
+            solid_jpeg([220, 220, 220], 400, 300),
+        ]);
+        assert_close(img.get_pixel(60, 80), [200, 30, 30]);
+        assert_close(img.get_pixel(147, 80), [30, 200, 30]);
+        assert_close(img.get_pixel(60, 210), [30, 30, 200]);
+        assert_close(img.get_pixel(147, 210), [220, 220, 220]);
+        assert_close(img.get_pixel(60, 140), [200, 30, 30]);
     }
 }
