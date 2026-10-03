@@ -2,6 +2,7 @@
 
 pub mod base_url;
 pub mod cache;
+pub mod cors;
 pub mod error_path;
 pub mod etag;
 pub mod headers;

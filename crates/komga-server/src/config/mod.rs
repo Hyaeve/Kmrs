@@ -284,6 +284,14 @@ impl ServerConfig {
             .or_else(|| server.and_then(|s| s.sort_locale.clone()))
             .filter(|v| !v.is_empty());
 
+        let cors_allowed_origins = env_list(env, "KOMGA_CORS_ALLOWEDORIGINS")
+            .or_else(|| {
+                file.and_then(|f| f.cors.as_ref())
+                    .and_then(|c| c.allowed_origins.clone())
+            })
+            .unwrap_or_default();
+        crate::http::cors::validate_origins(&cors_allowed_origins)?;
+
         Ok(Self {
             lucene_dir: env_path(env, "KOMGA_LUCENE_DATADIRECTORY")
                 .or_else(|| {
@@ -304,12 +312,7 @@ impl ServerConfig {
             kmrs_db,
             session_timeout,
             sort_locale,
-            cors_allowed_origins: env_list(env, "KOMGA_CORS_ALLOWEDORIGINS")
-                .or_else(|| {
-                    file.and_then(|f| f.cors.as_ref())
-                        .and_then(|c| c.allowed_origins.clone())
-                })
-                .unwrap_or_default(),
+            cors_allowed_origins,
             page_hashing: env_u32(env, "KOMGA_PAGEHASHING")
                 .or_else(|| {
                     file.and_then(|f| f.books.as_ref())
@@ -809,6 +812,13 @@ retention-days = 90
             config.kepubify_path,
             Some(PathBuf::from("/usr/local/bin/kepubify"))
         );
+    }
+
+    #[test]
+    fn cors_wildcard_origin_is_rejected() {
+        let file: FileConfig = toml::from_str("[cors]\nallowed-origins = [\"*\"]").unwrap();
+        let err = ServerConfig::resolve(Some(&file), &Cli::default(), &[]).unwrap_err();
+        assert!(err.to_string().contains("wildcard"), "{err}");
     }
 
     #[test]

@@ -193,7 +193,7 @@ pub fn build_router(state: AppState) -> axum::Router {
     #[cfg(all(feature = "profiling", unix))]
     let routes = routes.merge(profiling::router());
 
-    routes
+    let app = routes
         .fallback(webui::fallback)
         .layer(axum::middleware::from_fn(
             http::error_path::error_path_middleware,
@@ -210,8 +210,15 @@ pub fn build_router(state: AppState) -> axum::Router {
             auth::auth_middleware,
         ))
         .layer(TraceLayer::new_for_http())
-        .layer(axum::middleware::from_fn(http::offload::offload_middleware))
-        .with_state(state)
+        .layer(axum::middleware::from_fn(http::offload::offload_middleware));
+
+    // outermost: preflight OPTIONS must be answered before the auth middleware runs
+    let app = match http::cors::layer(&state.config.cors_allowed_origins) {
+        Some(cors) => app.layer(cors),
+        None => app,
+    };
+
+    app.with_state(state)
 }
 
 async fn shutdown_signal(mut shutdown_rx: tokio::sync::watch::Receiver<bool>) {

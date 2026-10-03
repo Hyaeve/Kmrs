@@ -336,4 +336,75 @@ mod tests {
         let (status, _, _) = get(&app, "/").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
     }
+
+    fn preflight(origin: &str) -> Request<Body> {
+        Request::options("/api/v1/series")
+            .header(header::ORIGIN, origin)
+            .header(header::ACCESS_CONTROL_REQUEST_METHOD, "GET")
+            .body(Body::empty())
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn cors_preflight_follows_configured_origins() {
+        let mut state = test_state(None);
+        let mut config = (*state.config).clone();
+        config.cors_allowed_origins = vec!["https://a.example".to_string()];
+        state.config = Arc::new(config);
+        let app = crate::build_router(state);
+
+        let response = app
+            .clone()
+            .oneshot(preflight("https://a.example"))
+            .await
+            .unwrap();
+        assert_eq!(
+            response.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN),
+            Some(&HeaderValue::from_static("https://a.example"))
+        );
+
+        let response = app
+            .oneshot(preflight("https://evil.example"))
+            .await
+            .unwrap();
+        assert!(response
+            .headers()
+            .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn no_cors_headers_without_configured_origins() {
+        let app = crate::build_router(test_state(None));
+        let response = app.oneshot(preflight("https://a.example")).await.unwrap();
+        assert!(response
+            .headers()
+            .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn cors_headers_survive_an_unauthorized_actual_request() {
+        let mut state = test_state(None);
+        let mut config = (*state.config).clone();
+        config.cors_allowed_origins = vec!["https://a.example".to_string()];
+        state.config = Arc::new(config);
+        let app = crate::build_router(state);
+
+        // the layer wraps auth: a cross-origin browser client must see the 401
+        let response = app
+            .oneshot(
+                Request::get("/api/v2/users/me")
+                    .header(header::ORIGIN, "https://a.example")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            response.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN),
+            Some(&HeaderValue::from_static("https://a.example"))
+        );
+    }
 }
