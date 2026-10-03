@@ -7,19 +7,98 @@
 //! - `MultiLingualAnalyzer.normalize` (used for prefix/wildcard query terms): t2s -> CJK width ->
 //!   lowercase -> ASCII fold, without bigramming
 
-use opencc_jieba_rs::OpenCC;
+use std::collections::HashMap;
 use std::sync::OnceLock;
 use tantivy::tokenizer::{Token, TokenStream, Tokenizer};
 use unicode_normalization::UnicodeNormalization;
 
-/// Traditional→simplified conversion (OpenCC phrase dictionaries) mapping both index and
-/// query text to one canonical form, so simplified and traditional queries cross-match.
-/// Runs on the raw text because phrase-level rules (乾隆 stays 乾隆, but 乾燥 → 干燥)
-/// need character context that single-character tokens no longer have. The mapping is
-/// many-to-one (乾/幹 → 干), so a few titles can over-merge.
+/// Traditional→simplified conversion mapping both index and query text to one canonical
+/// form, so simplified and traditional queries cross-match. Runs on the raw text because
+/// phrase-level exceptions (乾隆 stays 乾隆, but 乾燥 → 干燥) need character context that
+/// single-character tokens no longer have. The mapping is many-to-one (乾/幹 → 干), so a
+/// few titles can over-merge.
+///
+/// Longest-match over the OpenCC ts tables (`t2s_data.tsv`). The phrase table is an
+/// exception list for words whose characters must not convert individually, and
+/// everything else converts per character, so no word segmenter is needed.
+/// opencc-jieba-rs segments with jieba first and produced the same output on the
+/// full production corpus (63,831 titles); longest-match also stays faithful to
+/// OpenCC semantics where a segmenter would split an exception word — at ~80 MiB
+/// less dictionary memory.
 pub fn t2s_str(text: &str) -> String {
-    static CONVERTER: OnceLock<OpenCC> = OnceLock::new();
-    CONVERTER.get_or_init(OpenCC::new).t2s(text, false)
+    static TABLES: OnceLock<T2sTables> = OnceLock::new();
+    TABLES.get_or_init(T2sTables::load).convert(text)
+}
+
+struct T2sTables {
+    phrases: HashMap<&'static str, &'static str>,
+    chars: HashMap<&'static str, &'static str>,
+    max_phrase_chars: usize,
+}
+
+impl T2sTables {
+    fn load() -> Self {
+        let mut phrases = HashMap::new();
+        let mut chars = HashMap::new();
+        let mut max_phrase_chars = 1;
+        for line in include_str!("t2s_data.tsv").lines() {
+            if line.starts_with('#') {
+                continue;
+            }
+            let Some((key, value)) = line.split_once('\t') else {
+                continue;
+            };
+            let key_chars = key.chars().count();
+            if key_chars > 1 {
+                max_phrase_chars = max_phrase_chars.max(key_chars);
+                phrases.insert(key, value);
+            } else {
+                chars.insert(key, value);
+            }
+        }
+        Self {
+            phrases,
+            chars,
+            max_phrase_chars,
+        }
+    }
+
+    fn convert(&self, input: &str) -> String {
+        let mut out = String::with_capacity(input.len());
+        let mut rest = input;
+        while let Some(ch) = rest.chars().next() {
+            let mut hit = None;
+            let mut end = 0;
+            for (n, (i, c)) in rest.char_indices().enumerate() {
+                if n == self.max_phrase_chars {
+                    break;
+                }
+                let e = i + c.len_utf8();
+                if let Some(v) = self.phrases.get(&rest[..e]) {
+                    hit = Some(*v);
+                    end = e;
+                }
+            }
+            if hit.is_none() {
+                let mut buf = [0u8; 4];
+                if let Some(v) = self.chars.get(ch.encode_utf8(&mut buf)) {
+                    hit = Some(*v);
+                    end = ch.len_utf8();
+                }
+            }
+            match hit {
+                Some(v) => {
+                    out.push_str(v);
+                    rest = &rest[end..];
+                }
+                None => {
+                    out.push(ch);
+                    rest = &rest[ch.len_utf8()..];
+                }
+            }
+        }
+        out
+    }
 }
 
 /// Lucene `StandardTokenizer` (UAX#29 word segmentation, komga-relevant subset):
@@ -684,6 +763,27 @@ mod tests {
         assert_eq!(search_analyze("名偵探柯南"), search_analyze("名侦探柯南"));
         assert_eq!(index_analyze("名偵探柯南"), index_analyze("名侦探柯南"));
         assert_eq!(normalize("名偵探"), "名侦探");
+    }
+
+    #[test]
+    fn t2s_tables_convert_every_entry() {
+        for line in include_str!("t2s_data.tsv").lines() {
+            if line.starts_with('#') {
+                continue;
+            }
+            let Some((key, value)) = line.split_once('\t') else {
+                continue;
+            };
+            assert_eq!(t2s_str(key), value, "key {key:?}");
+        }
+    }
+
+    #[test]
+    fn t2s_phrase_exceptions_hold_inside_text() {
+        // longest-match protects exception words even mid-sentence
+        assert_eq!(t2s_str("x乾隆y"), "x乾隆y");
+        assert_eq!(t2s_str("話說乾坤一擲"), "话说乾坤一掷");
+        assert_eq!(t2s_str("乾燥的乾隆年间"), "干燥的乾隆年间");
     }
 
     #[test]
