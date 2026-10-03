@@ -4,6 +4,7 @@ use crate::metadata::patch::{
     bcp47, isbn_validate, BookMetadataPatch, BookMetadataProvider, MetadataPatchTarget,
     MetadataProvider, SeriesMetadataFromBookProvider, SeriesMetadataPatch,
 };
+use crate::zip as zip_utils;
 use komga_core::model::common::Author;
 use komga_core::model::library::Library;
 use komga_core::model::media::Media;
@@ -44,7 +45,7 @@ enum PackageFile {
 /// Locate the OPF document text via META-INF/container.xml's rootfile, reporting
 /// whether the failure was a read error or a structurally invalid document.
 fn read_package_file(book_path: &Path) -> PackageFile {
-    let container = match crate::zip::get_entry_bytes(book_path, CONTAINER_XML) {
+    let container = match zip_utils::get_entry_bytes(book_path, CONTAINER_XML) {
         Ok(container) => container,
         Err(_) => return PackageFile::Unreadable,
     };
@@ -63,7 +64,7 @@ fn read_package_file(book_path: &Path) -> PackageFile {
     else {
         return PackageFile::Invalid;
     };
-    let bytes = match crate::zip::get_entry_bytes(book_path, full_path) {
+    let bytes = match zip_utils::get_entry_bytes(book_path, full_path) {
         Ok(bytes) => bytes,
         Err(_) => return PackageFile::Unreadable,
     };
