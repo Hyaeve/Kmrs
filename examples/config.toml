@@ -32,6 +32,7 @@
 # concurrent writes wait instead of failing.
 # [database.pragmas] # extra SQLite pragmas, TOML only
 # synchronous = "NORMAL"
+# cache_size = "-1820" # page cache per connection, negative = KiB. Default: a 16 MiB budget per database divided evenly between its (read + write) connections, clamped to 512..2048 KiB
 
 [tasks-db]
 # file = "<config-dir>/tasks.sqlite" # env: KOMGA_TASKSDB_FILE; same keys as [database], env prefix KOMGA_TASKSDB
