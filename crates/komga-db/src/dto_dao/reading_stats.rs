@@ -5,7 +5,7 @@
 
 use crate::error::Result;
 use crate::pool::Database;
-use crate::search_sql::SqlWhere;
+use crate::search_sql::{RequiredJoin, SqlWhere};
 use komga_core::time_codec;
 use rusqlite::types::Value;
 use std::collections::HashSet;
@@ -36,11 +36,37 @@ pub struct CompletedBook {
     pub read_day: Date,
 }
 
-/// FROM skeleton over READ_PROGRESS ⨝ BOOK with the metadata join the visibility
-/// fragment references. The progress user id binds first (JOIN precedes WHERE).
-const PROGRESS_FROM: &str = "FROM READ_PROGRESS \
-     INNER JOIN BOOK ON (READ_PROGRESS.BOOK_ID = BOOK.ID) \
-     LEFT JOIN SERIES_METADATA ON (BOOK.SERIES_ID = SERIES_METADATA.SERIES_ID)";
+/// SERIES_METADATA joins on its primary key (1:1), so when the visibility fragment
+/// does not reference it (no content restrictions) the join cannot change the result
+/// and is skipped. `series_id_column` is the left side of the join condition.
+fn series_metadata_join(visibility: &SqlWhere, series_id_column: &str) -> String {
+    if visibility.joins.contains(&RequiredJoin::SeriesMetadata) {
+        format!(" LEFT JOIN SERIES_METADATA ON ({series_id_column} = SERIES_METADATA.SERIES_ID)")
+    } else {
+        String::new()
+    }
+}
+
+/// FROM skeleton over READ_PROGRESS ⨝ BOOK, with the metadata join the visibility
+/// fragment may reference.
+fn progress_from(visibility: &SqlWhere) -> String {
+    format!(
+        "FROM READ_PROGRESS \
+         INNER JOIN BOOK ON (READ_PROGRESS.BOOK_ID = BOOK.ID){}",
+        series_metadata_join(visibility, "BOOK.SERIES_ID")
+    )
+}
+
+/// FROM skeleton over BOOK ⨝ MEDIA ⨝ READ_PROGRESS for [`ReadingStatsDtoDao::totals`];
+/// the progress user id binds first (JOIN precedes WHERE).
+fn totals_from(visibility: &SqlWhere) -> String {
+    format!(
+        "FROM BOOK \
+         LEFT JOIN MEDIA ON (BOOK.ID = MEDIA.BOOK_ID) \
+         LEFT JOIN READ_PROGRESS ON (BOOK.ID = READ_PROGRESS.BOOK_ID AND READ_PROGRESS.USER_ID = ?){}",
+        series_metadata_join(visibility, "BOOK.SERIES_ID")
+    )
+}
 
 fn where_clause(visibility: &SqlWhere) -> String {
     if visibility.sql.is_empty() {
@@ -68,8 +94,9 @@ fn user_params(user_id: &str, visibility: &SqlWhere) -> Vec<Value> {
 /// top/distribution lists.
 fn completed_series(visibility: &SqlWhere) -> String {
     format!(
-        "SELECT DISTINCT BOOK.SERIES_ID {PROGRESS_FROM} \
+        "SELECT DISTINCT BOOK.SERIES_ID {} \
          WHERE READ_PROGRESS.USER_ID = ? AND READ_PROGRESS.COMPLETED = 1{}",
+        progress_from(visibility),
         and_where(visibility)
     )
 }
@@ -88,10 +115,8 @@ impl ReadingStatsDtoDao {
                COALESCE(SUM(CASE WHEN READ_PROGRESS.COMPLETED = 1 THEN 1 ELSE 0 END), 0), \
                COALESCE(SUM(CASE WHEN READ_PROGRESS.COMPLETED = 1 THEN MEDIA.PAGE_COUNT ELSE READ_PROGRESS.PAGE END), 0), \
                COALESCE(SUM(CASE WHEN READ_PROGRESS.COMPLETED = 1 THEN MEDIA.PAGE_COUNT ELSE 0 END), 0) \
-             FROM BOOK \
-             LEFT JOIN MEDIA ON (BOOK.ID = MEDIA.BOOK_ID) \
-             LEFT JOIN READ_PROGRESS ON (BOOK.ID = READ_PROGRESS.BOOK_ID AND READ_PROGRESS.USER_ID = ?) \
-             LEFT JOIN SERIES_METADATA ON (BOOK.SERIES_ID = SERIES_METADATA.SERIES_ID){}",
+             {}{}",
+            totals_from(visibility),
             where_clause(visibility)
         );
         let totals = conn.query_row(
@@ -114,8 +139,9 @@ impl ReadingStatsDtoDao {
     pub fn read_dates(&self, user_id: &str, visibility: &SqlWhere) -> Result<Vec<Date>> {
         let conn = self.db.ro()?;
         let sql = format!(
-            "SELECT DISTINCT date(READ_PROGRESS.READ_DATE) {PROGRESS_FROM} \
+            "SELECT DISTINCT date(READ_PROGRESS.READ_DATE) {} \
              WHERE READ_PROGRESS.USER_ID = ?{} ORDER BY 1",
+            progress_from(visibility),
             and_where(visibility)
         );
         let mut stmt = conn.prepare(&sql)?;
@@ -139,8 +165,9 @@ impl ReadingStatsDtoDao {
     ) -> Result<Option<OffsetDateTime>> {
         let conn = self.db.ro()?;
         let sql = format!(
-            "SELECT MAX(READ_PROGRESS.READ_DATE) {PROGRESS_FROM} \
+            "SELECT MAX(READ_PROGRESS.READ_DATE) {} \
              WHERE READ_PROGRESS.USER_ID = ?{}",
+            progress_from(visibility),
             and_where(visibility)
         );
         let last = conn.query_row(
@@ -169,9 +196,10 @@ impl ReadingStatsDtoDao {
     ) -> Result<Vec<(Date, i64)>> {
         let conn = self.db.ro()?;
         let sql = format!(
-            "SELECT date(READ_PROGRESS.READ_DATE), COUNT(*) {PROGRESS_FROM} \
+            "SELECT date(READ_PROGRESS.READ_DATE), COUNT(*) {} \
              WHERE READ_PROGRESS.USER_ID = ? AND READ_PROGRESS.COMPLETED = 1{} \
              GROUP BY 1 ORDER BY 1",
+            progress_from(visibility),
             and_where(visibility)
         );
         let mut stmt = conn.prepare(&sql)?;
@@ -200,8 +228,9 @@ impl ReadingStatsDtoDao {
     ) -> Result<Vec<(String, OffsetDateTime)>> {
         let conn = self.db.ro()?;
         let sql = format!(
-            "SELECT READ_PROGRESS.BOOK_ID, READ_PROGRESS.READ_DATE {PROGRESS_FROM} \
+            "SELECT READ_PROGRESS.BOOK_ID, READ_PROGRESS.READ_DATE {} \
              WHERE READ_PROGRESS.USER_ID = ?{}",
+            progress_from(visibility),
             and_where(visibility)
         );
         let mut stmt = conn.prepare(&sql)?;
@@ -226,8 +255,8 @@ impl ReadingStatsDtoDao {
     pub fn visible_series_ids(&self, visibility: &SqlWhere) -> Result<HashSet<String>> {
         let conn = self.db.ro()?;
         let sql = format!(
-            "SELECT SERIES.ID FROM SERIES \
-             LEFT JOIN SERIES_METADATA ON (SERIES.ID = SERIES_METADATA.SERIES_ID){}",
+            "SELECT SERIES.ID FROM SERIES{}{}",
+            series_metadata_join(visibility, "SERIES.ID"),
             where_clause(visibility)
         );
         let mut stmt = conn.prepare(&sql)?;
@@ -251,9 +280,9 @@ impl ReadingStatsDtoDao {
             "SELECT READ_PROGRESS.BOOK_ID, COALESCE(MEDIA.PAGE_COUNT, 0), date(READ_PROGRESS.READ_DATE) \
              FROM READ_PROGRESS \
              INNER JOIN BOOK ON (READ_PROGRESS.BOOK_ID = BOOK.ID) \
-             LEFT JOIN MEDIA ON (BOOK.ID = MEDIA.BOOK_ID) \
-             LEFT JOIN SERIES_METADATA ON (BOOK.SERIES_ID = SERIES_METADATA.SERIES_ID) \
+             LEFT JOIN MEDIA ON (BOOK.ID = MEDIA.BOOK_ID){} \
              WHERE READ_PROGRESS.USER_ID = ? AND READ_PROGRESS.COMPLETED = 1{}",
+            series_metadata_join(visibility, "BOOK.SERIES_ID"),
             and_where(visibility)
         );
         let mut stmt = conn.prepare(&sql)?;
@@ -298,10 +327,10 @@ impl ReadingStatsDtoDao {
                FROM BOOK_METADATA_TAG \
                INNER JOIN BOOK ON (BOOK_METADATA_TAG.BOOK_ID = BOOK.ID) \
                INNER JOIN READ_PROGRESS ON (BOOK_METADATA_TAG.BOOK_ID = READ_PROGRESS.BOOK_ID \
-                   AND READ_PROGRESS.USER_ID = ? AND READ_PROGRESS.COMPLETED = 1) \
-               LEFT JOIN SERIES_METADATA ON (BOOK.SERIES_ID = SERIES_METADATA.SERIES_ID){} \
+                   AND READ_PROGRESS.USER_ID = ? AND READ_PROGRESS.COMPLETED = 1){}{} \
              ) GROUP BY name",
             completed_series(visibility),
+            series_metadata_join(visibility, "BOOK.SERIES_ID"),
             where_clause(visibility)
         );
         let mut params = user_params(user_id, visibility);
@@ -326,10 +355,10 @@ impl ReadingStatsDtoDao {
                FROM BOOK_METADATA_AUTHOR \
                INNER JOIN BOOK ON (BOOK_METADATA_AUTHOR.BOOK_ID = BOOK.ID) \
                INNER JOIN READ_PROGRESS ON (BOOK_METADATA_AUTHOR.BOOK_ID = READ_PROGRESS.BOOK_ID \
-                   AND READ_PROGRESS.USER_ID = ? AND READ_PROGRESS.COMPLETED = 1) \
-               LEFT JOIN SERIES_METADATA ON (BOOK.SERIES_ID = SERIES_METADATA.SERIES_ID){} \
+                   AND READ_PROGRESS.USER_ID = ? AND READ_PROGRESS.COMPLETED = 1){}{} \
              ) WHERE name <> '' GROUP BY name",
             completed_series(visibility),
+            series_metadata_join(visibility, "BOOK.SERIES_ID"),
             where_clause(visibility)
         );
         let mut params = user_params(user_id, visibility);
@@ -637,5 +666,36 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn from_clauses_join_series_metadata_only_when_restricted() {
+        // unrestricted visibility never references SERIES_METADATA: the join is skipped
+        let open = book_visibility(&unrestricted(), None);
+        for from in [
+            totals_from(&open),
+            progress_from(&open),
+            series_metadata_join(&open, "SERIES.ID"),
+        ] {
+            assert!(!from.contains("SERIES_METADATA"), "{from}");
+        }
+
+        // content restrictions reference SERIES_METADATA: the join renders
+        let restricted = ContentRestrictions::new(
+            Some(AgeRestriction {
+                age: 18,
+                restriction: AllowExclude::Exclude,
+            }),
+            BTreeSet::new(),
+            BTreeSet::new(),
+        );
+        let vis = book_visibility(&restricted, None);
+        for from in [
+            totals_from(&vis),
+            progress_from(&vis),
+            series_metadata_join(&vis, "SERIES.ID"),
+        ] {
+            assert!(from.contains("LEFT JOIN SERIES_METADATA ON"), "{from}");
+        }
     }
 }

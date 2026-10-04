@@ -16,8 +16,8 @@ use rusqlite::types::Value;
 use std::collections::BTreeSet;
 
 /// Tables that must be added to the query for a condition to work (`RequiredJoin.kt`).
-/// Only the read-list and collection joins are actually dynamic; the rest are always
-/// joined by the DTO queries and are kept for parity with the Kotlin model.
+/// Read-list and collection joins render as aliased dynamic fragments; the rest key
+/// the static joins of the DTO base selects.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RequiredJoin {
     BookMetadata,
@@ -27,6 +27,17 @@ pub enum RequiredJoin {
     Collection(String),
     BookMetadataAggregation,
     SeriesMetadata,
+}
+
+/// Whether a condition's join set references `key`. The payload-carrying `ReadProgress`
+/// variant matches by kind: any read-progress condition needs the same user-scoped join.
+pub fn join_referenced(key: &RequiredJoin, joins: &BTreeSet<RequiredJoin>) -> bool {
+    match key {
+        RequiredJoin::ReadProgress(_) => joins
+            .iter()
+            .any(|j| matches!(j, RequiredJoin::ReadProgress(_))),
+        other => joins.contains(other),
+    }
 }
 
 /// A WHERE fragment plus its bind parameters, in placeholder order.
@@ -596,10 +607,12 @@ pub fn series_regex_condition(regex: &str, field: SearchField) -> SqlWhere {
         SearchField::Title => "SERIES_METADATA.TITLE",
         SearchField::TitleSort => "SERIES_METADATA.TITLE_SORT",
     };
-    SqlWhere::bind(
+    let mut w = SqlWhere::bind(
         format!("{column} REGEXP ?"),
         vec![Value::Text(regex.to_string())],
-    )
+    );
+    w.joins.insert(RequiredJoin::SeriesMetadata);
+    w
 }
 
 pub fn collection_alias(collection_id: &str) -> String {
@@ -1164,6 +1177,7 @@ mod tests {
     fn regex_condition() {
         let w = series_regex_condition("^ber", SearchField::Title);
         assert_eq!(w.sql, "SERIES_METADATA.TITLE REGEXP ?");
+        assert!(w.joins.contains(&RequiredJoin::SeriesMetadata));
         let w = series_regex_condition("^ber", SearchField::TitleSort);
         assert_eq!(w.sql, "SERIES_METADATA.TITLE_SORT REGEXP ?");
     }
