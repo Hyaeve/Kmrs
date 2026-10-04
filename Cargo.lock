@@ -1844,7 +1844,7 @@ dependencies = [
 
 [[package]]
 name = "komga-core"
-version = "0.17.5"
+version = "0.17.6"
 dependencies = [
  "icu_collator",
  "icu_locale",
@@ -1859,7 +1859,7 @@ dependencies = [
 
 [[package]]
 name = "komga-db"
-version = "0.17.5"
+version = "0.17.6"
 dependencies = [
  "crc32fast",
  "flate2",
@@ -1877,11 +1877,12 @@ dependencies = [
  "thiserror 2.0.21",
  "time",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
 name = "komga-media"
-version = "0.17.5"
+version = "0.17.6"
 dependencies = [
  "anyhow",
  "flate2",
@@ -1908,7 +1909,7 @@ dependencies = [
 
 [[package]]
 name = "komga-search"
-version = "0.17.5"
+version = "0.17.6"
 dependencies = [
  "komga-core",
  "serde",
@@ -1922,7 +1923,7 @@ dependencies = [
 
 [[package]]
 name = "komga-server"
-version = "0.17.5"
+version = "0.17.6"
 dependencies = [
  "anyhow",
  "axum",
@@ -5006,7 +5007,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.17.5"
+version = "0.17.6"
 dependencies = [
  "anyhow",
  "crc32fast",

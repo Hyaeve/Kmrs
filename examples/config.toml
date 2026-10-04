@@ -21,7 +21,7 @@
 
 [database]
 # file = "<config-dir>/database.sqlite" # env: KOMGA_DATABASE_FILE
-# pool-size = 8 # read pool size; default clamp(CPU cores, 8, max-pool-size). env: KOMGA_DATABASE_POOLSIZE
+# pool-size = 8 # read pool size; default min(CPU cores, max-pool-size). env: KOMGA_DATABASE_POOLSIZE
 # max-pool-size = 16 # env: KOMGA_DATABASE_MAXPOOLSIZE
 # journal-mode = "WAL" # WAL/DELETE/TRUNCATE/PERSIST/MEMORY/OFF; env: KOMGA_DATABASE_JOURNALMODE
 # busy-timeout = "30s" # default 30s when unset; env: KOMGA_DATABASE_BUSYTIMEOUT
@@ -29,16 +29,18 @@
 # uses a dedicated read/write pool over the same database file, so background
 # tasks never contend with HTTP/API connections for pool slots. The task write
 # pool is a second writer on the file; keep a busy timeout (default 30s) so
-# concurrent writes wait instead of failing.
+# concurrent writes wait instead of failing. The task read pool defaults to 2
+# connections — task work is serial per worker (TASK_POOL_SIZE defaults to 1);
+# an explicit pool-size applies to the task pool too.
 # [database.pragmas] # extra SQLite pragmas, TOML only
 # synchronous = "NORMAL"
 # cache_size = "-1820" # page cache per connection, negative = KiB. Default: a 16 MiB budget per database divided evenly between its (read + write) connections, clamped to 512..2048 KiB
 
 [tasks-db]
-# file = "<config-dir>/tasks.sqlite" # env: KOMGA_TASKSDB_FILE; same keys as [database], env prefix KOMGA_TASKSDB
+# file = "<config-dir>/tasks.sqlite" # env: KOMGA_TASKSDB_FILE; same keys as [database] but the read pool defaults to 2, env prefix KOMGA_TASKSDB
 
 [kmrs-db]
-# file = "<config-dir>/kmrs.sqlite" # kmrs-private state (per-book series metadata contributions, komf integration); env: KOMGA_KMRSDB_FILE; same keys as [database], env prefix KOMGA_KMRSDB
+# file = "<config-dir>/kmrs.sqlite" # kmrs-private state (per-book series metadata contributions, komf integration); env: KOMGA_KMRSDB_FILE; same keys as [database] but the read pool defaults to 2, env prefix KOMGA_KMRSDB
 
 [search]
 # data-directory = "<config-dir>/lucene" # tantivy index; env: KOMGA_LUCENE_DATA_DIRECTORY

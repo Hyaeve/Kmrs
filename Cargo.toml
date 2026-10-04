@@ -10,7 +10,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.17.5"
+version = "0.17.6"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/kmworks/kmrs"
@@ -23,7 +23,7 @@ axum = { version = "0.8", features = ["multipart"] }
 tower = "0.5"
 tower-http = { version = "0.7", features = ["cors", "fs", "trace"] }
 # db
-rusqlite = { version = "0.32", features = ["bundled", "collation", "functions"] }
+rusqlite = { version = "0.32", features = ["bundled", "collation", "functions", "trace"] }
 r2d2 = "0.8"
 r2d2_sqlite = "0.25"
 # serde

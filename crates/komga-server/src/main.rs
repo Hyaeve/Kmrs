@@ -64,10 +64,12 @@ async fn main() -> anyhow::Result<()> {
 
     let db = Database::open(&config.database).context("open main database")?;
     // Dedicated pools over the same file for background task execution; task
-    // reads/writes never share pool slots with HTTP/API requests.
-    let task_db = Database::open(&config.database).context("open task database pools")?;
-    let tasks_db = Database::open(&config.tasks_db).context("open tasks database")?;
-    let kmrs_db = Database::open(&config.kmrs_db).context("open kmrs database")?;
+    // reads/writes never share pool slots with HTTP/API requests. The task side,
+    // tasks queue and kmrs database are low-concurrency auxiliary pools.
+    let task_db =
+        Database::open(&config.database.aux_pools()).context("open task database pools")?;
+    let tasks_db = Database::open(&config.tasks_db.aux_pools()).context("open tasks database")?;
+    let kmrs_db = Database::open(&config.kmrs_db.aux_pools()).context("open kmrs database")?;
 
     {
         let migrations = komga_db::main_migrations();
