@@ -132,11 +132,15 @@ impl ReadProgressDao {
     /// defaults; on conflict, LAST_MODIFIED is set to the app-side UTC now), then
     /// recompute the aggregates for the series the book belongs to.
     pub fn insert_or_update(&self, progress: &ReadProgress) -> Result<()> {
-        upsert_one(&*self.db.rw()?, progress)?;
-        self.aggregate_series_progress(
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        upsert_one(&tx, progress)?;
+        self.aggregate_series_progress_on(
+            &tx,
             std::slice::from_ref(&progress.book_id),
             Some(&progress.user_id),
         )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -146,12 +150,6 @@ impl ReadProgressDao {
         if progresses.is_empty() {
             return Ok(());
         }
-        {
-            let conn = self.db.rw()?;
-            for progress in progresses {
-                upsert_one(&conn, progress)?;
-            }
-        }
         let mut by_user: std::collections::BTreeMap<&str, Vec<String>> =
             std::collections::BTreeMap::new();
         for p in progresses {
@@ -160,9 +158,15 @@ impl ReadProgressDao {
                 .or_default()
                 .push(p.book_id.clone());
         }
-        for (user_id, book_ids) in by_user {
-            self.aggregate_series_progress(&book_ids, Some(user_id))?;
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        for progress in progresses {
+            upsert_one(&tx, progress)?;
         }
+        for (user_id, book_ids) in by_user {
+            self.aggregate_series_progress_on(&tx, &book_ids, Some(user_id))?;
+        }
+        tx.commit()?;
         Ok(())
     }
 
@@ -172,37 +176,42 @@ impl ReadProgressDao {
         if book_ids.is_empty() {
             return Ok(());
         }
-        {
-            let conn = self.db.rw()?;
-            // chunked to stay under SQLite's variable limit (the Java side uses a temp table)
-            for chunk in book_ids.chunks(500) {
-                let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-                let mut params: Vec<Box<dyn rusqlite::ToSql>> = chunk
-                    .iter()
-                    .map(|id| Box::new(id.clone()) as Box<dyn rusqlite::ToSql>)
-                    .collect();
-                params.push(Box::new(user_id.to_string()));
-                conn.execute(
-                    &format!(
-                        "DELETE FROM READ_PROGRESS WHERE BOOK_ID IN ({placeholders}) AND USER_ID = ?"
-                    ),
-                    rusqlite::params_from_iter(params),
-                )?;
-            }
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        // chunked to stay under SQLite's variable limit (the Java side uses a temp table)
+        for chunk in book_ids.chunks(500) {
+            let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+            let mut params: Vec<Box<dyn rusqlite::ToSql>> = chunk
+                .iter()
+                .map(|id| Box::new(id.clone()) as Box<dyn rusqlite::ToSql>)
+                .collect();
+            params.push(Box::new(user_id.to_string()));
+            tx.execute(
+                &format!(
+                    "DELETE FROM READ_PROGRESS WHERE BOOK_ID IN ({placeholders}) AND USER_ID = ?"
+                ),
+                rusqlite::params_from_iter(params),
+            )?;
         }
-        self.aggregate_series_progress(book_ids, Some(user_id))?;
+        self.aggregate_series_progress_on(&tx, book_ids, Some(user_id))?;
+        tx.commit()?;
         Ok(())
     }
 
     /// Aligned with Java `delete`: recompute the aggregates after deleting the row.
     pub fn delete(&self, book_id: &str, user_id: &str) -> Result<()> {
-        let conn = self.db.rw()?;
-        conn.execute(
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        tx.execute(
             "DELETE FROM READ_PROGRESS WHERE BOOK_ID = ? AND USER_ID = ?",
             params![book_id, user_id],
         )?;
-        drop(conn);
-        self.aggregate_series_progress(std::slice::from_ref(&book_id.to_string()), Some(user_id))?;
+        self.aggregate_series_progress_on(
+            &tx,
+            std::slice::from_ref(&book_id.to_string()),
+            Some(user_id),
+        )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -212,35 +221,38 @@ impl ReadProgressDao {
         if book_ids.is_empty() {
             return Ok(());
         }
-        {
-            let conn = self.db.rw()?;
-            for chunk in book_ids.chunks(500) {
-                let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-                conn.execute(
-                    &format!("DELETE FROM READ_PROGRESS WHERE BOOK_ID IN ({placeholders})"),
-                    rusqlite::params_from_iter(chunk.iter()),
-                )?;
-            }
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        for chunk in book_ids.chunks(500) {
+            let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+            tx.execute(
+                &format!("DELETE FROM READ_PROGRESS WHERE BOOK_ID IN ({placeholders})"),
+                rusqlite::params_from_iter(chunk.iter()),
+            )?;
         }
-        self.aggregate_series_progress(book_ids, None)?;
+        self.aggregate_series_progress_on(&tx, book_ids, None)?;
+        tx.commit()?;
         Ok(())
     }
 
     pub fn delete_by_book(&self, book_id: &str) -> Result<()> {
-        let conn = self.db.rw()?;
-        conn.execute("DELETE FROM READ_PROGRESS WHERE BOOK_ID = ?", [book_id])?;
-        drop(conn);
-        self.aggregate_series_progress(std::slice::from_ref(&book_id.to_string()), None)?;
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM READ_PROGRESS WHERE BOOK_ID = ?", [book_id])?;
+        self.aggregate_series_progress_on(&tx, std::slice::from_ref(&book_id.to_string()), None)?;
+        tx.commit()?;
         Ok(())
     }
 
     pub fn delete_by_user(&self, user_id: &str) -> Result<()> {
-        let conn = self.db.rw()?;
-        conn.execute("DELETE FROM READ_PROGRESS WHERE USER_ID = ?", [user_id])?;
-        conn.execute(
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM READ_PROGRESS WHERE USER_ID = ?", [user_id])?;
+        tx.execute(
             "DELETE FROM READ_PROGRESS_SERIES WHERE USER_ID = ?",
             [user_id],
         )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -254,7 +266,19 @@ impl ReadProgressDao {
         if book_ids.is_empty() {
             return Ok(());
         }
-        let conn = self.db.rw()?;
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        self.aggregate_series_progress_on(&tx, book_ids, user_id)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn aggregate_series_progress_on(
+        &self,
+        conn: &rusqlite::Connection,
+        book_ids: &[String],
+        user_id: Option<&str>,
+    ) -> Result<()> {
         let placeholders = book_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
         let series_query = format!("SELECT SERIES_ID FROM BOOK WHERE ID IN ({placeholders})");
         let make_params = || -> Vec<Box<dyn rusqlite::ToSql>> {

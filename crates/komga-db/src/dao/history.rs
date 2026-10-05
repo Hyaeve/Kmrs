@@ -23,13 +23,14 @@ impl HistoricalEventDao {
     }
 
     pub fn insert(&self, event: &HistoricalEvent) -> Result<String> {
-        let conn = self.db.rw()?;
+        let mut conn = self.db.rw()?;
         let id = if event.id.is_empty() {
             self.tsid.create_string()
         } else {
             event.id.clone()
         };
-        conn.execute(
+        let tx = conn.transaction()?;
+        tx.execute(
       "INSERT INTO HISTORICAL_EVENT (ID, TYPE, BOOK_ID, SERIES_ID, TIMESTAMP) VALUES (?,?,?,?,?)",
       params![
         id,
@@ -40,11 +41,12 @@ impl HistoricalEventDao {
       ],
     )?;
         for (key, value) in &event.properties {
-            conn.execute(
+            tx.execute(
                 "INSERT INTO HISTORICAL_EVENT_PROPERTIES (ID, KEY, VALUE) VALUES (?,?,?)",
                 params![id, key, value],
             )?;
         }
+        tx.commit()?;
         Ok(id)
     }
 
@@ -153,15 +155,17 @@ impl HistoricalEventDao {
     /// of events removed. Retention companion of the insert-only log (auth activity does the
     /// same for AUTHENTICATION_ACTIVITY).
     pub fn delete_older_than(&self, cutoff: time::OffsetDateTime) -> Result<i64> {
-        let conn = self.db.rw()?;
-        conn.execute(
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        tx.execute(
             "DELETE FROM HISTORICAL_EVENT_PROPERTIES WHERE ID IN (SELECT ID FROM HISTORICAL_EVENT WHERE TIMESTAMP < ?)",
             [time_codec::format_datetime(cutoff)],
         )?;
-        let n = conn.execute(
+        let n = tx.execute(
             "DELETE FROM HISTORICAL_EVENT WHERE TIMESTAMP < ?",
             [time_codec::format_datetime(cutoff)],
         )?;
+        tx.commit()?;
         Ok(n as i64)
     }
 }

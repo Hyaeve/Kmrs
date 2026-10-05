@@ -851,15 +851,17 @@ async fn update_book_metadata_by_batch(
     }
     let metadata_dao = BookMetadataDao::new(state.db.clone());
     let mut updated_books = vec![];
+    let mut metadatas = vec![];
     for (book_id, dto) in patches {
         let Some(existing) = metadata_dao.find_by_id(&book_id)? else {
             continue;
         };
-        metadata_dao.update(&dto.apply_to(&existing))?;
+        metadatas.push(dto.apply_to(&existing));
         if let Some(book) = book_dao(&state).find_by_id(&book_id)? {
             updated_books.push(book);
         }
     }
+    metadata_dao.update_many(&metadatas)?;
     for book in &updated_books {
         let _ = state
             .events

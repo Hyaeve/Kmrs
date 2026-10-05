@@ -123,13 +123,14 @@ impl ReadListDao {
 
     /// insert: BOOK_COUNT = book_ids.len(); member NUMBER = the map key.
     pub fn insert(&self, readlist: &ReadList) -> Result<String> {
-        let conn = self.db.rw()?;
+        let mut conn = self.db.rw()?;
         let id = if readlist.id.is_empty() {
             self.tsid.create_string()
         } else {
             readlist.id.clone()
         };
-        conn.execute(
+        let tx = conn.transaction()?;
+        tx.execute(
             "INSERT INTO READLIST (ID, NAME, SUMMARY, ORDERED, BOOK_COUNT) VALUES (?,?,?,?,?)",
             params![
                 id,
@@ -139,15 +140,17 @@ impl ReadListDao {
                 readlist.book_ids.len() as i64
             ],
         )?;
-        self.insert_members(&conn, &id, &readlist.book_ids)?;
+        self.insert_members(&tx, &id, &readlist.book_ids)?;
+        tx.commit()?;
         Ok(id)
     }
 
     /// update: name/summary/flags/count + LAST_MODIFIED = app-side UTC now; members
     /// are fully deleted and re-inserted.
     pub fn update(&self, readlist: &ReadList) -> Result<()> {
-        let conn = self.db.rw()?;
-        conn.execute(
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        tx.execute(
       "UPDATE READLIST SET NAME = ?, SUMMARY = ?, ORDERED = ?, BOOK_COUNT = ?, LAST_MODIFIED_DATE = ? WHERE ID = ?",
       params![
         readlist.name,
@@ -158,11 +161,12 @@ impl ReadListDao {
         readlist.id,
       ],
     )?;
-        conn.execute(
+        tx.execute(
             "DELETE FROM READLIST_BOOK WHERE READLIST_ID = ?",
             [&readlist.id],
         )?;
-        self.insert_members(&conn, &readlist.id, &readlist.book_ids)?;
+        self.insert_members(&tx, &readlist.id, &readlist.book_ids)?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -188,9 +192,11 @@ impl ReadListDao {
     }
 
     pub fn delete(&self, id: &str) -> Result<()> {
-        let conn = self.db.rw()?;
-        conn.execute("DELETE FROM READLIST_BOOK WHERE READLIST_ID = ?", [id])?;
-        conn.execute("DELETE FROM READLIST WHERE ID = ?", [id])?;
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM READLIST_BOOK WHERE READLIST_ID = ?", [id])?;
+        tx.execute("DELETE FROM READLIST WHERE ID = ?", [id])?;
+        tx.commit()?;
         Ok(())
     }
 }

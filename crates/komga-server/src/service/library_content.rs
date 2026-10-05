@@ -401,14 +401,15 @@ pub fn scan_root_folder(
 /// so directory URLs get their trailing slash right; komga-cn reads `file:` URLs fine, so
 /// the rewrite is safe for users who switch back.
 fn normalize_foreign_urls(state: &AppState, library: &Library, root: &Path) -> Result<()> {
-    let conn = state.db.rw()?;
+    let mut conn = state.db.rw()?;
+    let tx = conn.transaction()?;
     let mut normalized = 0usize;
 
     // canonical URLs always carry the `file:/` prefix with an empty authority; anything
     // else (plain paths, `file:///`) is a candidate. Rows already canonical are skipped
     // before any per-row stat, so komga-written databases pay only the SELECT.
     for table in ["SERIES", "BOOK"] {
-        let rows: Vec<(String, String)> = conn
+        let rows: Vec<(String, String)> = tx
             .prepare(&format!(
                 "SELECT ID, URL FROM {table} WHERE LIBRARY_ID = ? AND (URL NOT LIKE 'file:/%' OR URL LIKE 'file:///%')"
             ))?
@@ -419,7 +420,7 @@ fn normalize_foreign_urls(state: &AppState, library: &Library, root: &Path) -> R
         for (id, url) in rows {
             let canonical = canonical_file_url(&url, root);
             if canonical != url {
-                conn.execute(
+                tx.execute(
                     &format!("UPDATE {table} SET URL = ? WHERE ID = ?"),
                     rusqlite::params![canonical, id],
                 )?;
@@ -428,7 +429,7 @@ fn normalize_foreign_urls(state: &AppState, library: &Library, root: &Path) -> R
         }
     }
 
-    let sidecars: Vec<(String, String)> = conn
+    let sidecars: Vec<(String, String)> = tx
         .prepare(
             "SELECT URL, PARENT_URL FROM SIDECAR WHERE LIBRARY_ID = ? AND (URL NOT LIKE 'file:/%' OR URL LIKE 'file:///%' OR PARENT_URL NOT LIKE 'file:/%' OR PARENT_URL LIKE 'file:///%')",
         )?
@@ -440,7 +441,7 @@ fn normalize_foreign_urls(state: &AppState, library: &Library, root: &Path) -> R
         let canonical = canonical_file_url(&url, root);
         let canonical_parent = canonical_file_url(&parent_url, root);
         if canonical != url || canonical_parent != parent_url {
-            conn.execute(
+            tx.execute(
                 "UPDATE SIDECAR SET URL = ?, PARENT_URL = ? WHERE URL = ?",
                 rusqlite::params![canonical, canonical_parent, url],
             )?;
@@ -451,13 +452,14 @@ fn normalize_foreign_urls(state: &AppState, library: &Library, root: &Path) -> R
     if !library.root.starts_with("file:/") || library.root.starts_with("file:///") {
         let canonical = canonical_file_url(&library.root, root);
         if canonical != library.root {
-            conn.execute(
+            tx.execute(
                 "UPDATE LIBRARY SET ROOT = ? WHERE ID = ?",
                 rusqlite::params![canonical, library.id],
             )?;
             normalized += 1;
         }
     }
+    tx.commit()?;
 
     if normalized > 0 {
         tracing::info!(

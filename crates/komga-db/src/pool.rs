@@ -3,8 +3,9 @@
 //!   poolSize ?: min(CPU cores, maxPoolSize).
 //! - Without WAL (or for an in-memory database): RO and RW share the same pool.
 //! - Per connection: `PRAGMA foreign_keys=ON`, busy_timeout (default 30s), journal_mode,
-//!   and extra pragmas; main-database connections also register UDFs/collations (see
-//!   the `udf` module), tasks-database connections do not.
+//!   synchronous=NORMAL under WAL, and extra pragmas (an explicit entry there wins
+//!   over these defaults); main-database connections also register UDFs/collations
+//!   (see the `udf` module), tasks-database connections do not.
 //! - Background task execution (library scan / analysis / hashing / conversion /
 //!   maintenance) runs against a dedicated `Database` over the same file, opened
 //!   with [`Database::open`]; under WAL its reads and writes never contend with
@@ -191,8 +192,17 @@ impl Database {
         let make_manager = || {
             let config = config.clone();
             SqliteConnectionManager::file(&config.file).with_init(move |conn| {
+                // WAL is corruption-safe at NORMAL per SQLite's docs, and skipping the
+                // per-commit fsync is what keeps write bursts (komf full-library match,
+                // scans) from saturating the disk. A `synchronous` entry in `pragmas`
+                // overrides this below.
+                let synchronous = if config.journal_mode == JournalMode::Wal {
+                    " PRAGMA synchronous=NORMAL;"
+                } else {
+                    ""
+                };
                 conn.execute_batch(&format!(
-                    "PRAGMA journal_mode={}; PRAGMA foreign_keys=ON; PRAGMA busy_timeout={};",
+                    "PRAGMA journal_mode={}; PRAGMA foreign_keys=ON; PRAGMA busy_timeout={};{synchronous}",
                     config.journal_mode.as_str(),
                     busy_timeout.as_millis()
                 ))?;
@@ -336,6 +346,38 @@ mod tests {
         config.pragmas = vec![("main.cache_size".into(), "-4096".into())];
         let db = Database::open(&config).unwrap();
         assert_eq!(cache_size(&db), -4096);
+    }
+
+    fn synchronous(db: &Database) -> i64 {
+        db.ro()
+            .unwrap()
+            .query_row("PRAGMA synchronous", [], |row| row.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn wal_defaults_to_synchronous_normal() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Database::open(&file_config(dir.path(), 1)).unwrap();
+        assert_eq!(synchronous(&db), 1);
+    }
+
+    #[test]
+    fn user_synchronous_wins() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = file_config(dir.path(), 1);
+        config.pragmas = vec![("synchronous".into(), "FULL".into())];
+        let db = Database::open(&config).unwrap();
+        assert_eq!(synchronous(&db), 2);
+    }
+
+    #[test]
+    fn non_wal_keeps_synchronous_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = file_config(dir.path(), 1);
+        config.journal_mode = JournalMode::Delete;
+        let db = Database::open(&config).unwrap();
+        assert_eq!(synchronous(&db), 2);
     }
 
     #[test]

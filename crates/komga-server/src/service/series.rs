@@ -304,11 +304,15 @@ fn delete_read_progress_series_by_series_ids(
     db: &komga_db::pool::Database,
     series_ids: &[String],
 ) -> Result<()> {
-    let conn = db.rw()?;
-    let mut stmt = conn.prepare("DELETE FROM READ_PROGRESS_SERIES WHERE SERIES_ID = ?")?;
-    for id in series_ids {
-        stmt.execute([id])?;
+    let mut conn = db.rw()?;
+    let tx = conn.transaction()?;
+    {
+        let mut stmt = tx.prepare("DELETE FROM READ_PROGRESS_SERIES WHERE SERIES_ID = ?")?;
+        for id in series_ids {
+            stmt.execute([id])?;
+        }
     }
+    tx.commit()?;
     Ok(())
 }
 

@@ -113,22 +113,24 @@ impl LibraryDao {
     }
 
     pub fn insert(&self, library: &Library) -> Result<String> {
-        let conn = self.db.rw()?;
+        let mut conn = self.db.rw()?;
         let id = if library.id.is_empty() {
             self.tsid.create_string()
         } else {
             library.id.clone()
         };
-        conn.execute(
+        let tx = conn.transaction()?;
+        tx.execute(
       &format!("INSERT INTO LIBRARY ({COLUMNS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"),
       rusqlite::params_from_iter(library_params(&id, library)),
     )?;
-        self.replace_exclusions(&conn, &id, &library.scan_directory_exclusions)?;
+        self.replace_exclusions(&tx, &id, &library.scan_directory_exclusions)?;
+        tx.commit()?;
         Ok(id)
     }
 
     pub fn update(&self, library: &Library) -> Result<()> {
-        let conn = self.db.rw()?;
+        let mut conn = self.db.rw()?;
         let sets = COLUMNS
             .split(',')
             .map(|c| format!("{} = ?", c.trim()))
@@ -136,18 +138,22 @@ impl LibraryDao {
             .join(", ");
         let mut values = library_params(&library.id, library);
         values.push(Box::new(library.id.clone()));
-        conn.execute(
+        let tx = conn.transaction()?;
+        tx.execute(
             &format!("UPDATE LIBRARY SET {sets} WHERE ID = ?"),
             rusqlite::params_from_iter(values),
         )?;
-        self.replace_exclusions(&conn, &library.id, &library.scan_directory_exclusions)?;
+        self.replace_exclusions(&tx, &library.id, &library.scan_directory_exclusions)?;
+        tx.commit()?;
         Ok(())
     }
 
     pub fn delete(&self, id: &str) -> Result<()> {
-        let conn = self.db.rw()?;
-        conn.execute("DELETE FROM LIBRARY_EXCLUSIONS WHERE LIBRARY_ID = ?", [id])?;
-        conn.execute("DELETE FROM LIBRARY WHERE ID = ?", [id])?;
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM LIBRARY_EXCLUSIONS WHERE LIBRARY_ID = ?", [id])?;
+        tx.execute("DELETE FROM LIBRARY WHERE ID = ?", [id])?;
+        tx.commit()?;
         Ok(())
     }
 

@@ -459,12 +459,14 @@ impl BookMetadataDao {
     }
 
     pub fn insert(&self, metadata: &BookMetadata) -> Result<()> {
-        let conn = self.db.rw()?;
-        conn.execute(
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        tx.execute(
       &format!("INSERT INTO BOOK_METADATA ({METADATA_COLUMNS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"),
       rusqlite::params_from_iter(metadata_params(metadata)),
     )?;
-        self.insert_children(&conn, metadata)?;
+        self.insert_children(&tx, metadata)?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -472,7 +474,28 @@ impl BookMetadataDao {
     /// LAST_MODIFIED_DATE to the current time; child tables are deleted and
     /// re-inserted.
     pub fn update(&self, metadata: &BookMetadata) -> Result<()> {
-        let conn = self.db.rw()?;
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        self.update_on(&tx, metadata)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// One transaction per chunk: a batch-spanning transaction would hold the
+    /// write lock (and stall WAL checkpointing) for the whole batch.
+    pub fn update_many(&self, metadatas: &[BookMetadata]) -> Result<()> {
+        let mut conn = self.db.rw()?;
+        for chunk in metadatas.chunks(100) {
+            let tx = conn.transaction()?;
+            for metadata in chunk {
+                self.update_on(&tx, metadata)?;
+            }
+            tx.commit()?;
+        }
+        Ok(())
+    }
+
+    fn update_on(&self, conn: &rusqlite::Connection, metadata: &BookMetadata) -> Result<()> {
         let mut values = metadata_params(metadata);
         values.truncate(values.len() - 2); // drop CREATED_DATE/LAST_MODIFIED_DATE
         values.remove(0); // drop BOOK_ID (not in SET; bound separately in WHERE)
@@ -489,15 +512,17 @@ impl BookMetadataDao {
             &format!("UPDATE BOOK_METADATA SET {sets}, LAST_MODIFIED_DATE = ? WHERE BOOK_ID = ?"),
             rusqlite::params_from_iter(values),
         )?;
-        self.delete_children(&conn, &metadata.book_id)?;
-        self.insert_children(&conn, metadata)?;
+        self.delete_children(conn, &metadata.book_id)?;
+        self.insert_children(conn, metadata)?;
         Ok(())
     }
 
     pub fn delete(&self, book_id: &str) -> Result<()> {
-        let conn = self.db.rw()?;
-        self.delete_children(&conn, book_id)?;
-        conn.execute("DELETE FROM BOOK_METADATA WHERE BOOK_ID = ?", [book_id])?;
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        self.delete_children(&tx, book_id)?;
+        tx.execute("DELETE FROM BOOK_METADATA WHERE BOOK_ID = ?", [book_id])?;
+        tx.commit()?;
         Ok(())
     }
 

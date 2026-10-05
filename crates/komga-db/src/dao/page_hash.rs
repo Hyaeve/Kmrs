@@ -95,17 +95,19 @@ impl PageHashDao {
 
     /// Corresponds to the jOOQ insert: DELETE_COUNT and the dates use DB defaults.
     pub fn insert(&self, page_hash: &PageHashKnown, thumbnail: Option<&[u8]>) -> Result<()> {
-        let conn = self.db.rw()?;
-        conn.execute(
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        tx.execute(
             "INSERT INTO PAGE_HASH (HASH, SIZE, ACTION) VALUES (?,?,?)",
             params![page_hash.hash, page_hash.size, page_hash.action.as_str()],
         )?;
         if let Some(thumbnail) = thumbnail {
-            conn.execute(
+            tx.execute(
                 "INSERT INTO PAGE_HASH_THUMBNAIL (HASH, THUMBNAIL) VALUES (?,?)",
                 params![page_hash.hash, thumbnail],
             )?;
         }
+        tx.commit()?;
         Ok(())
     }
 

@@ -175,9 +175,11 @@ impl SettingsDao {
     }
 
     pub fn delete_all_client_settings(&self) -> Result<()> {
-        let conn = self.db.rw()?;
-        conn.execute("DELETE FROM CLIENT_SETTINGS_GLOBAL", [])?;
-        conn.execute("DELETE FROM CLIENT_SETTINGS_USER", [])?;
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM CLIENT_SETTINGS_GLOBAL", [])?;
+        tx.execute("DELETE FROM CLIENT_SETTINGS_USER", [])?;
+        tx.commit()?;
         Ok(())
     }
 }

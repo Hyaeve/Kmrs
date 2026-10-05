@@ -177,15 +177,17 @@ impl ThumbnailBookDao {
 
     /// Marks the given thumbnail as selected and deselects all others of the same book.
     pub fn mark_selected(&self, thumbnail: &ThumbnailBook) -> Result<()> {
-        let conn = self.db.rw()?;
-        conn.execute(
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        tx.execute(
             "UPDATE THUMBNAIL_BOOK SET SELECTED = 0 WHERE BOOK_ID = ? AND ID <> ?",
             (&thumbnail.book_id, &thumbnail.id),
         )?;
-        conn.execute(
+        tx.execute(
             "UPDATE THUMBNAIL_BOOK SET SELECTED = 1 WHERE BOOK_ID = ? AND ID = ?",
             (&thumbnail.book_id, &thumbnail.id),
         )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -219,11 +221,15 @@ impl ThumbnailBookDao {
     }
 
     pub fn delete_by_book_ids(&self, book_ids: &[String]) -> Result<()> {
-        let conn = self.db.rw()?;
-        let mut stmt = conn.prepare("DELETE FROM THUMBNAIL_BOOK WHERE BOOK_ID = ?")?;
-        for id in book_ids {
-            stmt.execute([id])?;
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        {
+            let mut stmt = tx.prepare("DELETE FROM THUMBNAIL_BOOK WHERE BOOK_ID = ?")?;
+            for id in book_ids {
+                stmt.execute([id])?;
+            }
         }
+        tx.commit()?;
         Ok(())
     }
 
@@ -409,15 +415,17 @@ impl ThumbnailSeriesDao {
     }
 
     pub fn mark_selected(&self, thumbnail: &ThumbnailSeries) -> Result<()> {
-        let conn = self.db.rw()?;
-        conn.execute(
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        tx.execute(
             "UPDATE THUMBNAIL_SERIES SET SELECTED = 0 WHERE SERIES_ID = ? AND ID <> ?",
             (&thumbnail.series_id, &thumbnail.id),
         )?;
-        conn.execute(
+        tx.execute(
             "UPDATE THUMBNAIL_SERIES SET SELECTED = 1 WHERE SERIES_ID = ? AND ID = ?",
             (&thumbnail.series_id, &thumbnail.id),
         )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -437,11 +445,15 @@ impl ThumbnailSeriesDao {
     }
 
     pub fn delete_by_series_ids(&self, series_ids: &[String]) -> Result<()> {
-        let conn = self.db.rw()?;
-        let mut stmt = conn.prepare("DELETE FROM THUMBNAIL_SERIES WHERE SERIES_ID = ?")?;
-        for id in series_ids {
-            stmt.execute([id])?;
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        {
+            let mut stmt = tx.prepare("DELETE FROM THUMBNAIL_SERIES WHERE SERIES_ID = ?")?;
+            for id in series_ids {
+                stmt.execute([id])?;
+            }
         }
+        tx.commit()?;
         Ok(())
     }
 
@@ -588,15 +600,17 @@ impl ThumbnailSeriesCollectionDao {
     }
 
     pub fn mark_selected(&self, thumbnail: &ThumbnailSeriesCollection) -> Result<()> {
-        let conn = self.db.rw()?;
-        conn.execute(
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        tx.execute(
             "UPDATE THUMBNAIL_COLLECTION SET SELECTED = 0 WHERE COLLECTION_ID = ? AND ID <> ?",
             (&thumbnail.collection_id, &thumbnail.id),
         )?;
-        conn.execute(
+        tx.execute(
             "UPDATE THUMBNAIL_COLLECTION SET SELECTED = 1 WHERE COLLECTION_ID = ? AND ID = ?",
             (&thumbnail.collection_id, &thumbnail.id),
         )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -619,11 +633,16 @@ impl ThumbnailSeriesCollectionDao {
     }
 
     pub fn delete_by_collection_ids(&self, collection_ids: &[String]) -> Result<()> {
-        let conn = self.db.rw()?;
-        let mut stmt = conn.prepare("DELETE FROM THUMBNAIL_COLLECTION WHERE COLLECTION_ID = ?")?;
-        for id in collection_ids {
-            stmt.execute([id])?;
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        {
+            let mut stmt =
+                tx.prepare("DELETE FROM THUMBNAIL_COLLECTION WHERE COLLECTION_ID = ?")?;
+            for id in collection_ids {
+                stmt.execute([id])?;
+            }
         }
+        tx.commit()?;
         Ok(())
     }
 }
@@ -738,15 +757,17 @@ impl ThumbnailReadListDao {
     }
 
     pub fn mark_selected(&self, thumbnail: &ThumbnailReadList) -> Result<()> {
-        let conn = self.db.rw()?;
-        conn.execute(
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        tx.execute(
             "UPDATE THUMBNAIL_READLIST SET SELECTED = 0 WHERE READLIST_ID = ? AND ID <> ?",
             (&thumbnail.read_list_id, &thumbnail.id),
         )?;
-        conn.execute(
+        tx.execute(
             "UPDATE THUMBNAIL_READLIST SET SELECTED = 1 WHERE READLIST_ID = ? AND ID = ?",
             (&thumbnail.read_list_id, &thumbnail.id),
         )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -769,11 +790,15 @@ impl ThumbnailReadListDao {
     }
 
     pub fn delete_by_read_list_ids(&self, read_list_ids: &[String]) -> Result<()> {
-        let conn = self.db.rw()?;
-        let mut stmt = conn.prepare("DELETE FROM THUMBNAIL_READLIST WHERE READLIST_ID = ?")?;
-        for id in read_list_ids {
-            stmt.execute([id])?;
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        {
+            let mut stmt = tx.prepare("DELETE FROM THUMBNAIL_READLIST WHERE READLIST_ID = ?")?;
+            for id in read_list_ids {
+                stmt.execute([id])?;
+            }
         }
+        tx.commit()?;
         Ok(())
     }
 }

@@ -105,13 +105,15 @@ impl MediaDao {
     }
 
     pub fn insert(&self, media: &Media) -> Result<()> {
-        let conn = self.db.rw()?;
-        conn.execute(
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        tx.execute(
             &format!("INSERT INTO MEDIA ({MEDIA_COLUMNS}) VALUES (?,?,?,?,?,?,?,?,?,?,?)"),
             rusqlite::params_from_iter(media_params(media)),
         )?;
-        insert_pages(&conn, &media.book_id, &media.pages)?;
-        insert_files(&conn, &media.book_id, &media.files)?;
+        insert_pages(&tx, &media.book_id, &media.pages)?;
+        insert_files(&tx, &media.book_id, &media.files)?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -119,7 +121,7 @@ impl MediaDao {
     /// LAST_MODIFIED_DATE to the current time; pages/files are deleted and
     /// re-inserted.
     pub fn update(&self, media: &Media) -> Result<()> {
-        let conn = self.db.rw()?;
+        let mut conn = self.db.rw()?;
         let mut values = media_params(media);
         values.truncate(values.len() - 2); // drop CREATED_DATE/LAST_MODIFIED_DATE
         values.remove(0); // drop BOOK_ID
@@ -132,31 +134,37 @@ impl MediaDao {
             .map(|c| format!("{c} = ?"))
             .collect::<Vec<_>>()
             .join(", ");
-        conn.execute(
+        let tx = conn.transaction()?;
+        tx.execute(
             &format!("UPDATE MEDIA SET {sets}, LAST_MODIFIED_DATE = ? WHERE BOOK_ID = ?"),
             rusqlite::params_from_iter(values),
         )?;
-        conn.execute("DELETE FROM MEDIA_PAGE WHERE BOOK_ID = ?", [&media.book_id])?;
-        conn.execute("DELETE FROM MEDIA_FILE WHERE BOOK_ID = ?", [&media.book_id])?;
-        insert_pages(&conn, &media.book_id, &media.pages)?;
-        insert_files(&conn, &media.book_id, &media.files)?;
+        tx.execute("DELETE FROM MEDIA_PAGE WHERE BOOK_ID = ?", [&media.book_id])?;
+        tx.execute("DELETE FROM MEDIA_FILE WHERE BOOK_ID = ?", [&media.book_id])?;
+        insert_pages(&tx, &media.book_id, &media.pages)?;
+        insert_files(&tx, &media.book_id, &media.files)?;
+        tx.commit()?;
         Ok(())
     }
 
     /// Replaces pages only (e.g. for PAGE_HASH scenarios); leaves the main table
     /// and files untouched.
     pub fn replace_pages(&self, book_id: &str, pages: &[BookPage]) -> Result<()> {
-        let conn = self.db.rw()?;
-        conn.execute("DELETE FROM MEDIA_PAGE WHERE BOOK_ID = ?", [book_id])?;
-        insert_pages(&conn, book_id, pages)?;
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM MEDIA_PAGE WHERE BOOK_ID = ?", [book_id])?;
+        insert_pages(&tx, book_id, pages)?;
+        tx.commit()?;
         Ok(())
     }
 
     pub fn delete(&self, book_id: &str) -> Result<()> {
-        let conn = self.db.rw()?;
-        conn.execute("DELETE FROM MEDIA_PAGE WHERE BOOK_ID = ?", [book_id])?;
-        conn.execute("DELETE FROM MEDIA_FILE WHERE BOOK_ID = ?", [book_id])?;
-        conn.execute("DELETE FROM MEDIA WHERE BOOK_ID = ?", [book_id])?;
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM MEDIA_PAGE WHERE BOOK_ID = ?", [book_id])?;
+        tx.execute("DELETE FROM MEDIA_FILE WHERE BOOK_ID = ?", [book_id])?;
+        tx.execute("DELETE FROM MEDIA WHERE BOOK_ID = ?", [book_id])?;
+        tx.commit()?;
         Ok(())
     }
 }

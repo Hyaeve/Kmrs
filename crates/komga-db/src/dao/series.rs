@@ -376,8 +376,9 @@ impl SeriesMetadataDao {
 
     /// Audit columns fall back to DB defaults, matching the jOOQ insert behavior.
     pub fn insert(&self, metadata: &SeriesMetadata) -> Result<()> {
-        let conn = self.db.rw()?;
-        conn.execute(
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        tx.execute(
       "INSERT INTO SERIES_METADATA (SERIES_ID, STATUS, STATUS_LOCK, TITLE, TITLE_LOCK, TITLE_SORT, TITLE_SORT_LOCK, \
        SUMMARY, SUMMARY_LOCK, READING_DIRECTION, READING_DIRECTION_LOCK, PUBLISHER, PUBLISHER_LOCK, \
        AGE_RATING, AGE_RATING_LOCK, LANGUAGE, LANGUAGE_LOCK, GENRES_LOCK, TAGS_LOCK, \
@@ -385,21 +386,23 @@ impl SeriesMetadataDao {
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
       rusqlite::params_from_iter(metadata_params(metadata)),
     )?;
-        self.replace_children(&conn, metadata)?;
+        self.replace_children(&tx, metadata)?;
+        tx.commit()?;
         Ok(())
     }
 
     /// Child tables are replaced as a whole, matching the jOOQ update behavior;
     /// LAST_MODIFIED_DATE is set to the current UTC time.
     pub fn update(&self, metadata: &SeriesMetadata) -> Result<()> {
-        let conn = self.db.rw()?;
+        let mut conn = self.db.rw()?;
         // metadata_params' first element is series_id (for the INSERT column order);
         // UPDATE's SET starts at STATUS, so it must be removed
         let mut values = metadata_params(metadata);
         values.remove(0);
         values.push(Box::new(time_codec::format_datetime(time_codec::now_utc())));
         values.push(Box::new(metadata.series_id.clone()));
-        conn.execute(
+        let tx = conn.transaction()?;
+        tx.execute(
       "UPDATE SERIES_METADATA SET STATUS = ?, STATUS_LOCK = ?, TITLE = ?, TITLE_LOCK = ?, TITLE_SORT = ?, TITLE_SORT_LOCK = ?, \
        SUMMARY = ?, SUMMARY_LOCK = ?, READING_DIRECTION = ?, READING_DIRECTION_LOCK = ?, PUBLISHER = ?, PUBLISHER_LOCK = ?, \
        AGE_RATING = ?, AGE_RATING_LOCK = ?, LANGUAGE = ?, LANGUAGE_LOCK = ?, GENRES_LOCK = ?, TAGS_LOCK = ?, \
@@ -407,7 +410,8 @@ impl SeriesMetadataDao {
        LAST_MODIFIED_DATE = ? WHERE SERIES_ID = ?",
       rusqlite::params_from_iter(values),
     )?;
-        self.replace_children(&conn, metadata)?;
+        self.replace_children(&tx, metadata)?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -471,31 +475,33 @@ impl SeriesMetadataDao {
     }
 
     pub fn delete(&self, series_id: &str) -> Result<()> {
-        let conn = self.db.rw()?;
-        conn.execute(
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        tx.execute(
             "DELETE FROM SERIES_METADATA_GENRE WHERE SERIES_ID = ?",
             [series_id],
         )?;
-        conn.execute(
+        tx.execute(
             "DELETE FROM SERIES_METADATA_TAG WHERE SERIES_ID = ?",
             [series_id],
         )?;
-        conn.execute(
+        tx.execute(
             "DELETE FROM SERIES_METADATA_SHARING WHERE SERIES_ID = ?",
             [series_id],
         )?;
-        conn.execute(
+        tx.execute(
             "DELETE FROM SERIES_METADATA_LINK WHERE SERIES_ID = ?",
             [series_id],
         )?;
-        conn.execute(
+        tx.execute(
             "DELETE FROM SERIES_METADATA_ALTERNATE_TITLE WHERE SERIES_ID = ?",
             [series_id],
         )?;
-        conn.execute(
+        tx.execute(
             "DELETE FROM SERIES_METADATA WHERE SERIES_ID = ?",
             [series_id],
         )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -590,8 +596,9 @@ impl BookMetadataAggregationDao {
 
     /// Audit columns fall back to DB defaults, matching the jOOQ insert behavior.
     pub fn insert(&self, metadata: &BookMetadataAggregation) -> Result<()> {
-        let conn = self.db.rw()?;
-        conn.execute(
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        tx.execute(
       "INSERT INTO BOOK_METADATA_AGGREGATION (SERIES_ID, RELEASE_DATE, SUMMARY, SUMMARY_NUMBER) \
        VALUES (?, ?, ?, ?)",
       params![
@@ -601,15 +608,17 @@ impl BookMetadataAggregationDao {
         metadata.summary_number,
       ],
     )?;
-        self.replace_children(&conn, metadata)?;
+        self.replace_children(&tx, metadata)?;
+        tx.commit()?;
         Ok(())
     }
 
     /// Child tables are replaced as a whole, matching the jOOQ update behavior;
     /// LAST_MODIFIED_DATE is set to the current UTC time.
     pub fn update(&self, metadata: &BookMetadataAggregation) -> Result<()> {
-        let conn = self.db.rw()?;
-        conn.execute(
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        tx.execute(
       "UPDATE BOOK_METADATA_AGGREGATION SET SUMMARY = ?, SUMMARY_NUMBER = ?, RELEASE_DATE = ?, LAST_MODIFIED_DATE = ? \
        WHERE SERIES_ID = ?",
       params![
@@ -620,7 +629,8 @@ impl BookMetadataAggregationDao {
         metadata.series_id,
       ],
     )?;
-        self.replace_children(&conn, metadata)?;
+        self.replace_children(&tx, metadata)?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -654,19 +664,21 @@ impl BookMetadataAggregationDao {
     }
 
     pub fn delete(&self, series_id: &str) -> Result<()> {
-        let conn = self.db.rw()?;
-        conn.execute(
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        tx.execute(
             "DELETE FROM BOOK_METADATA_AGGREGATION_AUTHOR WHERE SERIES_ID = ?",
             [series_id],
         )?;
-        conn.execute(
+        tx.execute(
             "DELETE FROM BOOK_METADATA_AGGREGATION_TAG WHERE SERIES_ID = ?",
             [series_id],
         )?;
-        conn.execute(
+        tx.execute(
             "DELETE FROM BOOK_METADATA_AGGREGATION WHERE SERIES_ID = ?",
             [series_id],
         )?;
+        tx.commit()?;
         Ok(())
     }
 

@@ -139,9 +139,10 @@ impl SyncPointDao {
     }
 
     pub fn insert_books(&self, books: &[SyncPointBook]) -> Result<()> {
-        let conn = self.db.rw()?;
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
         for b in books {
-            conn.execute(
+            tx.execute(
                 &format!(
                     "INSERT INTO SYNC_POINT_BOOK ({SPB_COLUMNS}) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
                 ),
@@ -161,6 +162,7 @@ impl SyncPointDao {
                 ],
             )?;
         }
+        tx.commit()?;
         Ok(())
     }
 
@@ -209,13 +211,15 @@ impl SyncPointDao {
         sync_point_id: &str,
         book_ids: &[String],
     ) -> Result<()> {
-        let conn = self.db.rw()?;
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
         for id in book_ids {
-            conn.execute(
+            tx.execute(
         "INSERT OR IGNORE INTO SYNC_POINT_BOOK_REMOVED_SYNCED (SYNC_POINT_ID, BOOK_ID) VALUES (?, ?)",
         params![sync_point_id, id],
       )?;
         }
+        tx.commit()?;
         Ok(())
     }
 
@@ -310,26 +314,30 @@ impl SyncPointDao {
         sync_point_id: &str,
         readlist_ids: &[String],
     ) -> Result<()> {
-        let conn = self.db.rw()?;
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
         for id in readlist_ids {
-            conn.execute(
+            tx.execute(
         "INSERT OR IGNORE INTO SYNC_POINT_READLIST_REMOVED_SYNCED (SYNC_POINT_ID, READLIST_ID) VALUES (?, ?)",
         params![sync_point_id, id],
       )?;
         }
+        tx.commit()?;
         Ok(())
     }
 
     // ---------- SYNC_POINT_READLIST_BOOK ----------
 
     pub fn insert_readlist_books(&self, books: &[SyncPointReadListBook]) -> Result<()> {
-        let conn = self.db.rw()?;
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
         for b in books {
-            conn.execute(
+            tx.execute(
         "INSERT INTO SYNC_POINT_READLIST_BOOK (SYNC_POINT_ID, READLIST_ID, BOOK_ID) VALUES (?, ?, ?)",
         params![b.sync_point_id, b.readlist_id, b.book_id],
       )?;
         }
+        tx.commit()?;
         Ok(())
     }
 
@@ -370,7 +378,14 @@ impl SyncPointDao {
     // ---------- deletion (child-table order matches Java) ----------
 
     pub fn delete_one(&self, sync_point_id: &str) -> Result<()> {
-        let conn = self.db.rw()?;
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        self.delete_one_on(&tx, sync_point_id)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn delete_one_on(&self, conn: &rusqlite::Connection, sync_point_id: &str) -> Result<()> {
         for table in [
             "SYNC_POINT_READLIST_REMOVED_SYNCED",
             "SYNC_POINT_READLIST_BOOK",
@@ -396,9 +411,12 @@ impl SyncPointDao {
                 .collect::<std::result::Result<Vec<_>, _>>()?;
             ids
         };
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
         for id in ids {
-            self.delete_one(&id)?;
+            self.delete_one_on(&tx, &id)?;
         }
+        tx.commit()?;
         Ok(())
     }
 
@@ -431,14 +449,18 @@ impl SyncPointDao {
                 .collect::<std::result::Result<Vec<_>, _>>()?;
             ids
         };
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
         for id in ids {
-            self.delete_one(&id)?;
+            self.delete_one_on(&tx, &id)?;
         }
+        tx.commit()?;
         Ok(())
     }
 
     pub fn delete_all(&self) -> Result<()> {
-        let conn = self.db.rw()?;
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
         for table in [
             "SYNC_POINT_READLIST_REMOVED_SYNCED",
             "SYNC_POINT_READLIST_BOOK",
@@ -447,8 +469,9 @@ impl SyncPointDao {
             "SYNC_POINT_BOOK",
             "SYNC_POINT",
         ] {
-            conn.execute(&format!("DELETE FROM {table}"), [])?;
+            tx.execute(&format!("DELETE FROM {table}"), [])?;
         }
+        tx.commit()?;
         Ok(())
     }
 

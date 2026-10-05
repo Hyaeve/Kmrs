@@ -177,25 +177,28 @@ impl UserDao {
     }
 
     pub fn insert(&self, user: &KomgaUser) -> Result<String> {
-        let conn = self.db.rw()?;
+        let mut conn = self.db.rw()?;
         let id = if user.id.is_empty() {
             self.tsid.create_string()
         } else {
             user.id.clone()
         };
-        conn.execute(
+        let tx = conn.transaction()?;
+        tx.execute(
             &format!("INSERT INTO USER ({USER_COLUMNS}) VALUES (?,?,?,?,?,?,?,?)"),
             rusqlite::params_from_iter(user_params(&id, user)),
         )?;
-        self.insert_user_children(&conn, &id, user)?;
+        self.insert_user_children(&tx, &id, user)?;
+        tx.commit()?;
         Ok(id)
     }
 
     /// Corresponds to `KomgaUserDao.update`: LAST_MODIFIED_DATE is forced to the
     /// current time (UTC) by the DAO.
     pub fn update(&self, user: &KomgaUser) -> Result<()> {
-        let conn = self.db.rw()?;
-        conn.execute(
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        tx.execute(
             "UPDATE USER SET EMAIL = ?, PASSWORD = ?, SHARED_ALL_LIBRARIES = ?, \
        AGE_RESTRICTION = ?, AGE_RESTRICTION_ALLOW_ONLY = ?, LAST_MODIFIED_DATE = ? WHERE ID = ?",
             params![
@@ -210,13 +213,14 @@ impl UserDao {
                 user.id,
             ],
         )?;
-        conn.execute("DELETE FROM USER_ROLE WHERE USER_ID = ?", [&user.id])?;
-        conn.execute(
+        tx.execute("DELETE FROM USER_ROLE WHERE USER_ID = ?", [&user.id])?;
+        tx.execute(
             "DELETE FROM USER_LIBRARY_SHARING WHERE USER_ID = ?",
             [&user.id],
         )?;
-        conn.execute("DELETE FROM USER_SHARING WHERE USER_ID = ?", [&user.id])?;
-        self.insert_user_children(&conn, &user.id, user)?;
+        tx.execute("DELETE FROM USER_SHARING WHERE USER_ID = ?", [&user.id])?;
+        self.insert_user_children(&tx, &user.id, user)?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -271,7 +275,8 @@ impl UserDao {
     }
 
     pub fn delete_all(&self) -> Result<()> {
-        let conn = self.db.rw()?;
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
         for table in [
             "USER_API_KEY",
             "ANNOUNCEMENTS_READ",
@@ -280,8 +285,9 @@ impl UserDao {
             "USER_ROLE",
             "USER",
         ] {
-            conn.execute(&format!("DELETE FROM {table}"), [])?;
+            tx.execute(&format!("DELETE FROM {table}"), [])?;
         }
+        tx.commit()?;
         Ok(())
     }
 
@@ -335,13 +341,15 @@ impl UserDao {
         user_id: &str,
         announcement_ids: &BTreeSet<String>,
     ) -> Result<()> {
-        let conn = self.db.rw()?;
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
         for id in announcement_ids {
-            conn.execute(
+            tx.execute(
                 "INSERT OR IGNORE INTO ANNOUNCEMENTS_READ (USER_ID, ANNOUNCEMENT_ID) VALUES (?, ?)",
                 params![user_id, id],
             )?;
         }
+        tx.commit()?;
         Ok(())
     }
 

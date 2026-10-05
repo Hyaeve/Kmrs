@@ -689,7 +689,7 @@ fn render_database(
     }
     if db.pragmas.is_empty() {
         out.push_str(&format!(
-            "# [{section}.pragmas] # extra SQLite pragmas, TOML only\n# synchronous = \"NORMAL\"\n"
+            "# [{section}.pragmas] # extra SQLite pragmas, TOML only. synchronous defaults to NORMAL in WAL mode, FULL otherwise\n# synchronous = \"FULL\"\n"
         ));
     } else {
         out.push_str(&format!(

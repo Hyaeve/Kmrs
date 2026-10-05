@@ -508,14 +508,16 @@ fn remove_books_from_all_readlists(state: &AppState, book_ids: &[String]) -> kom
     if book_ids.is_empty() {
         return Ok(());
     }
-    let conn = state.db.rw()?;
+    let mut conn = state.db.rw()?;
+    let tx = conn.transaction()?;
     for chunk in book_ids.chunks(500) {
         let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-        conn.execute(
+        tx.execute(
             &format!("DELETE FROM READLIST_BOOK WHERE BOOK_ID IN ({placeholders})"),
             rusqlite::params_from_iter(chunk.iter()),
         )?;
     }
+    tx.commit()?;
     Ok(())
 }
 

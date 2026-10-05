@@ -32,8 +32,8 @@
 # concurrent writes wait instead of failing. The task read pool defaults to 2
 # connections — task work is serial per worker (TASK_POOL_SIZE defaults to 1);
 # an explicit pool-size applies to the task pool too.
-# [database.pragmas] # extra SQLite pragmas, TOML only
-# synchronous = "NORMAL"
+# [database.pragmas] # extra SQLite pragmas, TOML only. synchronous defaults to NORMAL in WAL mode, FULL otherwise
+# synchronous = "FULL"
 # cache_size = "-1820" # page cache per connection, negative = KiB. Default: a 16 MiB budget per database divided evenly between its (read + write) connections, clamped to 512..2048 KiB
 
 [tasks-db]

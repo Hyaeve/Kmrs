@@ -148,18 +148,21 @@ impl SeriesMetadataContributionDao {
 
     /// Delete contributions for the given books (chunked; empty input is a no-op).
     pub fn delete_by_book_ids(&self, book_ids: &[String]) -> Result<()> {
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
         for chunk in book_ids.chunks(CONTRIBUTION_BATCH_SIZE) {
             if chunk.is_empty() {
                 continue;
             }
             let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-            self.db.rw()?.execute(
+            tx.execute(
                 &format!(
                     "DELETE FROM SERIES_METADATA_CONTRIBUTION WHERE BOOK_ID IN ({placeholders})"
                 ),
                 rusqlite::params_from_iter(chunk.iter()),
             )?;
         }
+        tx.commit()?;
         Ok(())
     }
 }

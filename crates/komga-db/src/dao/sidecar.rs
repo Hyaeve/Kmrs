@@ -59,11 +59,15 @@ impl SidecarDao {
         if urls.is_empty() {
             return Ok(());
         }
-        let conn = self.db.rw()?;
-        let mut stmt = conn.prepare("DELETE FROM SIDECAR WHERE LIBRARY_ID = ? AND URL = ?")?;
-        for url in urls {
-            stmt.execute(params![library_id, url])?;
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        {
+            let mut stmt = tx.prepare("DELETE FROM SIDECAR WHERE LIBRARY_ID = ? AND URL = ?")?;
+            for url in urls {
+                stmt.execute(params![library_id, url])?;
+            }
         }
+        tx.commit()?;
         Ok(())
     }
 

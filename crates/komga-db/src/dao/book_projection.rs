@@ -74,14 +74,16 @@ impl BookProjectionDao {
     }
 
     pub fn delete_by_book_ids(&self, book_ids: &[String]) -> Result<()> {
-        let conn = self.db.rw()?;
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
         for chunk in book_ids.chunks(500) {
             let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
-            conn.execute(
+            tx.execute(
                 &format!("DELETE FROM BOOK_PROJECTION WHERE BOOK_ID IN ({placeholders})"),
                 rusqlite::params_from_iter(chunk.iter()),
             )?;
         }
+        tx.commit()?;
         Ok(())
     }
 }

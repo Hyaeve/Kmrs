@@ -119,13 +119,14 @@ impl CollectionDao {
 
     /// insert: SERIES_COUNT = series_ids.len(); member NUMBER = index (0-based).
     pub fn insert(&self, collection: &SeriesCollection) -> Result<String> {
-        let conn = self.db.rw()?;
+        let mut conn = self.db.rw()?;
         let id = if collection.id.is_empty() {
             self.tsid.create_string()
         } else {
             collection.id.clone()
         };
-        conn.execute(
+        let tx = conn.transaction()?;
+        tx.execute(
             "INSERT INTO COLLECTION (ID, NAME, ORDERED, SERIES_COUNT) VALUES (?,?,?,?)",
             params![
                 id,
@@ -134,15 +135,17 @@ impl CollectionDao {
                 collection.series_ids.len() as i64
             ],
         )?;
-        self.insert_members(&conn, &id, &collection.series_ids)?;
+        self.insert_members(&tx, &id, &collection.series_ids)?;
+        tx.commit()?;
         Ok(id)
     }
 
     /// update: name/flags/count + LAST_MODIFIED = app-side UTC now; members are
     /// fully deleted and re-inserted.
     pub fn update(&self, collection: &SeriesCollection) -> Result<()> {
-        let conn = self.db.rw()?;
-        conn.execute(
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        tx.execute(
       "UPDATE COLLECTION SET NAME = ?, ORDERED = ?, SERIES_COUNT = ?, LAST_MODIFIED_DATE = ? WHERE ID = ?",
       params![
         collection.name,
@@ -152,11 +155,12 @@ impl CollectionDao {
         collection.id,
       ],
     )?;
-        conn.execute(
+        tx.execute(
             "DELETE FROM COLLECTION_SERIES WHERE COLLECTION_ID = ?",
             [&collection.id],
         )?;
-        self.insert_members(&conn, &collection.id, &collection.series_ids)?;
+        self.insert_members(&tx, &collection.id, &collection.series_ids)?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -185,12 +189,14 @@ impl CollectionDao {
     }
 
     pub fn delete(&self, id: &str) -> Result<()> {
-        let conn = self.db.rw()?;
-        conn.execute(
+        let mut conn = self.db.rw()?;
+        let tx = conn.transaction()?;
+        tx.execute(
             "DELETE FROM COLLECTION_SERIES WHERE COLLECTION_ID = ?",
             [id],
         )?;
-        conn.execute("DELETE FROM COLLECTION WHERE ID = ?", [id])?;
+        tx.execute("DELETE FROM COLLECTION WHERE ID = ?", [id])?;
+        tx.commit()?;
         Ok(())
     }
 }
