@@ -129,21 +129,53 @@ impl BookDtoDao {
 
         let total = count(&conn, &conditions, user_id)?;
 
-        let (orders, order_params) = build_orders(page, &conditions.joins, ids.as_deref());
-        let (from, mut params) = select_from(user_id, &conditions.joins);
-        let mut sql = format!("{SELECT_CLAUSE} {from}");
-        if !conditions.sql.is_empty() {
-            sql.push_str(&format!(" WHERE {}", conditions.sql));
+        let (orders, order_params, order_joins) =
+            build_orders(page, &conditions.joins, ids.as_deref(), user_id);
+        if page.unpaged {
+            let (from, mut params) = select_from(user_id, &conditions.joins);
+            let mut sql = format!("{SELECT_CLAUSE} {from}");
+            if !conditions.sql.is_empty() {
+                sql.push_str(&format!(" WHERE {}", conditions.sql));
+            }
+            params.extend(conditions.params.iter().cloned());
+            if !orders.is_empty() {
+                sql.push_str(&format!(" ORDER BY {}", orders.join(", ")));
+            }
+            params.extend(order_params);
+            let items = fetch_and_map(&conn, &sql, params)?;
+            return Ok(DtoPage {
+                items,
+                total,
+                sorted: !orders.is_empty(),
+            });
         }
+
+        // Every join available to this query is 1:1 on a primary key, so the page can be
+        // computed on BOOK plus only the joins WHERE/ORDER BY reference; the remaining
+        // payload joins then hit just the page's rows instead of every match before the sort
+        let inner_joins = &conditions.joins | &order_joins;
+        let (inner_frags, inner_from_params) = join_fragments(user_id, &inner_joins, true);
+        let mut inner = format!("SELECT BOOK.ID FROM BOOK{inner_frags}");
+        if !conditions.sql.is_empty() {
+            inner.push_str(&format!(" WHERE {}", conditions.sql));
+        }
+        if !orders.is_empty() {
+            inner.push_str(&format!(" ORDER BY {}", orders.join(", ")));
+        }
+        inner.push_str(" LIMIT ? OFFSET ?");
+        let (payload_joins, from_params) = join_fragments(user_id, &conditions.joins, false);
+        let mut sql = format!(
+            "{SELECT_CLAUSE} FROM ({inner}) page JOIN BOOK ON (BOOK.ID = page.ID){payload_joins}"
+        );
+        let mut params = inner_from_params;
         params.extend(conditions.params.iter().cloned());
+        params.extend(order_params.iter().cloned());
+        params.push(Value::Integer(page.size as i64));
+        params.push(Value::Integer(page.offset() as i64));
+        params.extend(from_params);
         if !orders.is_empty() {
             sql.push_str(&format!(" ORDER BY {}", orders.join(", ")));
-        }
-        params.extend(order_params);
-        if !page.unpaged {
-            sql.push_str(" LIMIT ? OFFSET ?");
-            params.push(Value::Integer(page.size as i64));
-            params.push(Value::Integer(page.offset() as i64));
+            params.extend(order_params);
         }
         let items = fetch_and_map(&conn, &sql, params)?;
         Ok(DtoPage {
@@ -517,7 +549,7 @@ impl BookDtoDao {
 
         let mut orders = vec![];
         for o in &page.sort {
-            if let Some(expr) = sort_expr(&o.property) {
+            if let Some((expr, _)) = sort_expr(&o.property, user_id) {
                 orders.push(format!("{expr} {}", dir(o.descending)));
             }
         }
@@ -550,25 +582,45 @@ fn dir(descending: bool) -> &'static str {
     }
 }
 
-/// `sorts` from `BookDtoDao.kt`; unknown properties are dropped from the ORDER BY
-fn sort_expr(property: &str) -> Option<&'static str> {
+/// `sorts` from `BookDtoDao.kt`; unknown properties are dropped from the ORDER BY.
+/// The join the expression references rides along so the paged find_all can render
+/// it in the inner page query.
+fn sort_expr(property: &str, user_id: &str) -> Option<(&'static str, Option<RequiredJoin>)> {
     Some(match property {
-        "name" => "BOOK.NAME COLLATE COLLATION_UNICODE_3",
-        "series" => "SERIES_METADATA.TITLE_SORT COLLATE COLLATION_UNICODE_3",
-        "created" | "createdDate" => "BOOK.CREATED_DATE",
-        "lastModified" | "lastModifiedDate" => "BOOK.LAST_MODIFIED_DATE",
-        "fileSize" | "size" => "BOOK.FILE_SIZE",
-        "fileHash" => "BOOK.FILE_HASH",
-        "url" => "BOOK.URL COLLATE NOCASE",
-        "media.status" => "MEDIA.STATUS COLLATE NOCASE",
-        "media.comment" => "MEDIA.COMMENT COLLATE NOCASE",
-        "media.mediaType" => "MEDIA.MEDIA_TYPE COLLATE NOCASE",
-        "media.pagesCount" => "MEDIA.PAGE_COUNT",
-        "metadata.title" => "BOOK_METADATA.TITLE COLLATE COLLATION_UNICODE_3",
-        "metadata.numberSort" => "BOOK_METADATA.NUMBER_SORT",
-        "metadata.releaseDate" => "BOOK_METADATA.RELEASE_DATE",
-        "readProgress.lastModified" => "READ_PROGRESS.LAST_MODIFIED_DATE",
-        "readProgress.readDate" => "READ_PROGRESS.READ_DATE",
+        "name" => ("BOOK.NAME COLLATE COLLATION_UNICODE_3", None),
+        "series" => (
+            "SERIES_METADATA.TITLE_SORT COLLATE COLLATION_UNICODE_3",
+            Some(RequiredJoin::SeriesMetadata),
+        ),
+        "created" | "createdDate" => ("BOOK.CREATED_DATE", None),
+        "lastModified" | "lastModifiedDate" => ("BOOK.LAST_MODIFIED_DATE", None),
+        "fileSize" | "size" => ("BOOK.FILE_SIZE", None),
+        "fileHash" => ("BOOK.FILE_HASH", None),
+        "url" => ("BOOK.URL COLLATE NOCASE", None),
+        "media.status" => ("MEDIA.STATUS COLLATE NOCASE", Some(RequiredJoin::Media)),
+        "media.comment" => ("MEDIA.COMMENT COLLATE NOCASE", Some(RequiredJoin::Media)),
+        "media.mediaType" => ("MEDIA.MEDIA_TYPE COLLATE NOCASE", Some(RequiredJoin::Media)),
+        "media.pagesCount" => ("MEDIA.PAGE_COUNT", Some(RequiredJoin::Media)),
+        "metadata.title" => (
+            "BOOK_METADATA.TITLE COLLATE COLLATION_UNICODE_3",
+            Some(RequiredJoin::BookMetadata),
+        ),
+        "metadata.numberSort" => (
+            "BOOK_METADATA.NUMBER_SORT",
+            Some(RequiredJoin::BookMetadata),
+        ),
+        "metadata.releaseDate" => (
+            "BOOK_METADATA.RELEASE_DATE",
+            Some(RequiredJoin::BookMetadata),
+        ),
+        "readProgress.lastModified" => (
+            "READ_PROGRESS.LAST_MODIFIED_DATE",
+            Some(RequiredJoin::ReadProgress(user_id.to_string())),
+        ),
+        "readProgress.readDate" => (
+            "READ_PROGRESS.READ_DATE",
+            Some(RequiredJoin::ReadProgress(user_id.to_string())),
+        ),
         _ => return None,
     })
 }
@@ -577,9 +629,11 @@ fn build_orders(
     page: &PageRequest,
     joins: &BTreeSet<RequiredJoin>,
     lucene_ids: Option<&[String]>,
-) -> (Vec<String>, Vec<Value>) {
+    user_id: &str,
+) -> (Vec<String>, Vec<Value>, BTreeSet<RequiredJoin>) {
     let mut orders = vec![];
     let mut params = vec![];
+    let mut order_joins = BTreeSet::new();
     for o in &page.sort {
         if o.property == "relevance" {
             // only meaningful with lucene hits; otherwise dropped like the Kotlin mapNotNull
@@ -606,11 +660,14 @@ fn build_orders(
             }
             continue;
         }
-        if let Some(expr) = sort_expr(&o.property) {
+        if let Some((expr, join)) = sort_expr(&o.property, user_id) {
+            if let Some(join) = join {
+                order_joins.insert(join);
+            }
             orders.push(format!("{expr} {}", dir(o.descending)));
         }
     }
-    (orders, params)
+    (orders, params, order_joins)
 }
 
 /// The static joins of the base select, in render order. Each hits the joined table's
@@ -642,14 +699,26 @@ fn base_joins(user_id: &str) -> [(RequiredJoin, &'static str, Vec<Value>); 4] {
 }
 
 /// The shared FROM/JOIN skeleton (`selectBase`). With `referenced_only` (the count
-/// query) only the static joins the WHERE fragment references render. Bind parameters
-/// come in SQL text order: the read-progress user id first, then the read-list join ids.
+/// query) only the static joins the WHERE fragment references render.
 fn from_book(
     user_id: &str,
     joins: &BTreeSet<RequiredJoin>,
     referenced_only: bool,
 ) -> (String, Vec<Value>) {
-    let mut sql = String::from("FROM BOOK");
+    let (fragments, params) = join_fragments(user_id, joins, referenced_only);
+    (format!("FROM BOOK{fragments}"), params)
+}
+
+/// The JOIN fragments of the FROM skeleton, without the leading `FROM BOOK`; the
+/// paged find_all composes its inner page query and payload join-back from these.
+/// Bind parameters come in SQL text order: the read-progress user id first, then
+/// the read-list join ids.
+fn join_fragments(
+    user_id: &str,
+    joins: &BTreeSet<RequiredJoin>,
+    referenced_only: bool,
+) -> (String, Vec<Value>) {
+    let mut sql = String::new();
     let mut params = vec![];
     for (key, fragment, fragment_params) in base_joins(user_id) {
         if !referenced_only || join_referenced(&key, joins) {
@@ -1226,6 +1295,193 @@ mod tests {
             .find_all(&search(None), &ctx_user(), &page)
             .unwrap();
         assert_eq!(ids(&result), ["b5", "b6"]);
+    }
+
+    #[test]
+    fn find_all_paged_library_filter_created_sort() {
+        let db = base_db();
+        {
+            let conn = db.rw().unwrap();
+            for (id, day) in [
+                ("b1", 1),
+                ("b2", 2),
+                ("b3", 3),
+                ("b4", 4),
+                ("b5", 5),
+                ("b6", 6),
+            ] {
+                conn.execute(
+                    &format!(
+                        "UPDATE BOOK SET CREATED_DATE = '2021-01-{day:02} 00:00:00.0' WHERE ID = '{id}'"
+                    ),
+                    [],
+                )
+                .unwrap();
+            }
+        }
+        let search = search(Some(SearchConditionBook::LibraryId { operator: is("l1") }));
+        let sort = || {
+            vec![SortOrder {
+                property: "createdDate".to_string(),
+                descending: true,
+            }]
+        };
+
+        let mut page = paged(0, 2);
+        page.sort = sort();
+        let result = dao(&db).find_all(&search, &ctx_user(), &page).unwrap();
+        assert_eq!(result.total, 5);
+        assert_eq!(ids(&result), ["b5", "b4"]);
+
+        let mut page = paged(2, 2);
+        page.sort = sort();
+        let result = dao(&db).find_all(&search, &ctx_user(), &page).unwrap();
+        assert_eq!(result.total, 5);
+        assert_eq!(ids(&result), ["b1"]);
+    }
+
+    #[test]
+    fn find_all_paged_read_status_filter() {
+        let db = base_db();
+        let search = search(Some(SearchConditionBook::ReadStatus {
+            operator: Equality::Is {
+                value: ReadStatus::Read,
+            },
+        }));
+        let sort = || {
+            vec![SortOrder {
+                property: "name".to_string(),
+                descending: false,
+            }]
+        };
+
+        let mut page = paged(0, 1);
+        page.sort = sort();
+        let result = dao(&db).find_all(&search, &ctx_user(), &page).unwrap();
+        assert_eq!(result.total, 2);
+        assert_eq!(ids(&result), ["b1"]);
+
+        let mut page = paged(1, 1);
+        page.sort = sort();
+        let result = dao(&db).find_all(&search, &ctx_user(), &page).unwrap();
+        assert_eq!(result.total, 2);
+        assert_eq!(ids(&result), ["b4"]);
+    }
+
+    #[test]
+    fn find_all_paged_metadata_title_sort() {
+        let db = base_db();
+        let sort = || {
+            vec![SortOrder {
+                property: "metadata.title".to_string(),
+                descending: false,
+            }]
+        };
+
+        let mut page = paged(0, 2);
+        page.sort = sort();
+        let result = dao(&db)
+            .find_all(&search(None), &ctx_user(), &page)
+            .unwrap();
+        assert_eq!(result.total, 6);
+        assert_eq!(ids(&result), ["b5", "b4"]);
+
+        let mut page = paged(1, 2);
+        page.sort = sort();
+        let result = dao(&db)
+            .find_all(&search(None), &ctx_user(), &page)
+            .unwrap();
+        assert_eq!(ids(&result), ["b1", "b6"]);
+    }
+
+    #[test]
+    fn find_all_paged_media_status_sort() {
+        let db = base_db();
+        let sort = || {
+            vec![SortOrder {
+                property: "media.status".to_string(),
+                descending: false,
+            }]
+        };
+
+        let mut page = paged(0, 1);
+        page.sort = sort();
+        let result = dao(&db)
+            .find_all(&search(None), &ctx_user(), &page)
+            .unwrap();
+        assert_eq!(result.total, 6);
+        assert_eq!(ids(&result), ["b2"]);
+
+        let mut page = paged(5, 1);
+        page.sort = sort();
+        let result = dao(&db)
+            .find_all(&search(None), &ctx_user(), &page)
+            .unwrap();
+        assert_eq!(ids(&result), ["b5"]);
+    }
+
+    #[test]
+    fn find_all_paged_read_progress_read_date_sort() {
+        let db = base_db();
+        {
+            let conn = db.rw().unwrap();
+            for (id, date) in [
+                ("b1", "2021-01-01 00:00:00.0"),
+                ("b2", "2021-03-01 00:00:00.0"),
+                ("b4", "2021-06-01 00:00:00.0"),
+            ] {
+                conn.execute(
+                    &format!(
+                        "UPDATE READ_PROGRESS SET READ_DATE = '{date}' WHERE BOOK_ID = '{id}'"
+                    ),
+                    [],
+                )
+                .unwrap();
+            }
+        }
+        let sort = || {
+            vec![SortOrder {
+                property: "readProgress.readDate".to_string(),
+                descending: true,
+            }]
+        };
+
+        // DESC puts the dated rows first (b4 > b2 > b1), the null-read-date rest last
+        for (page_no, expected) in [(0, "b4"), (1, "b2"), (2, "b1")] {
+            let mut page = paged(page_no, 1);
+            page.sort = sort();
+            let result = dao(&db)
+                .find_all(&search(None), &ctx_user(), &page)
+                .unwrap();
+            assert_eq!(result.total, 6);
+            assert_eq!(ids(&result), [expected]);
+        }
+    }
+
+    #[test]
+    fn find_all_paged_readlist_number_sort() {
+        let db = base_db();
+        let search = search(Some(SearchConditionBook::ReadListId {
+            operator: is("rl1"),
+        }));
+        let sort = || {
+            vec![SortOrder {
+                property: "readList.number".to_string(),
+                descending: false,
+            }]
+        };
+
+        let mut page = paged(0, 2);
+        page.sort = sort();
+        let result = dao(&db).find_all(&search, &ctx_user(), &page).unwrap();
+        assert_eq!(result.total, 3);
+        assert_eq!(ids(&result), ["b1", "b3"]);
+
+        let mut page = paged(1, 2);
+        page.sort = sort();
+        let result = dao(&db).find_all(&search, &ctx_user(), &page).unwrap();
+        assert_eq!(result.total, 3);
+        assert_eq!(ids(&result), ["b5"]);
     }
 
     #[test]
