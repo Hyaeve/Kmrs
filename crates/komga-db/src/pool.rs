@@ -26,7 +26,10 @@
 
 use crate::udf;
 use r2d2_sqlite::SqliteConnectionManager;
+use regex::Regex;
+use std::cell::Cell;
 use std::path::PathBuf;
+use std::sync::LazyLock;
 use std::time::Duration;
 
 pub type Pool = r2d2::Pool<SqliteConnectionManager>;
@@ -45,23 +48,80 @@ pub const DEFAULT_AUX_READERS: u32 = 2;
 /// Statements at or above this duration are logged by [`profile_slow_query`].
 const SLOW_QUERY: Duration = Duration::from_millis(500);
 
+const DEFAULT_BUSY_TIMEOUT: Duration = Duration::from_secs(30);
+
+thread_local! {
+    /// SQLite reports lock contention only by invoking the connection's busy
+    /// handler, so the handler's sleeps are the one place lock waits can be
+    /// timed. The callback is a bare fn pointer and runs on the thread that is
+    /// executing the statement, so the wait accumulates here and the profile
+    /// hook reads it out when the statement ends.
+    static BUSY_WAIT: Cell<Duration> = const { Cell::new(Duration::ZERO) };
+    /// Timeout of the connection this thread borrowed last; `Database::rw`/`ro`
+    /// are the choke point every query passes through, the bare fn callback
+    /// cannot carry it.
+    static BUSY_TIMEOUT: Cell<Duration> = const { Cell::new(DEFAULT_BUSY_TIMEOUT) };
+}
+
+/// Same sleep schedule as SQLite's own busy-timeout handler
+/// (`sqliteDefaultBusyCallback`): 1,2,5,10,15,20,25,25,25,50,50 ms, then 100 ms
+/// rounds until the accumulated sleep reaches the timeout.
+fn busy_handler(count: i32) -> bool {
+    const DELAYS: [u64; 12] = [1, 2, 5, 10, 15, 20, 25, 25, 25, 50, 50, 100];
+    const TOTALS: [u64; 12] = [0, 1, 3, 8, 18, 33, 53, 78, 103, 128, 178, 228];
+    let count = count.max(0) as usize;
+    let (mut delay, prior) = if count < DELAYS.len() {
+        (DELAYS[count], TOTALS[count])
+    } else {
+        (100, 228 + 100 * (count - 11) as u64)
+    };
+    let timeout = BUSY_TIMEOUT.with(|t| t.get()).as_millis() as u64;
+    if prior + delay > timeout {
+        delay = timeout.saturating_sub(prior);
+        if delay == 0 {
+            // giving up means the statement fails; a statement that never ran
+            // (e.g. prepare-time schema lock) gets no profile hook to reset this
+            BUSY_WAIT.with(|w| w.set(Duration::ZERO));
+            return false;
+        }
+    }
+    std::thread::sleep(Duration::from_millis(delay));
+    BUSY_WAIT.with(|w| w.set(w.get() + Duration::from_millis(delay)));
+    true
+}
+
 /// rusqlite profile hook, registered on every pooled connection. The clock
 /// spans first step to statement completion, so lock waits and slow row-by-row
 /// reads count too — a writer starved by another pool's transaction shows up.
 fn profile_slow_query(sql: &str, duration: Duration) {
-    if let Some(line) = slow_query_line(sql, duration) {
+    let busy = BUSY_WAIT.with(|w| w.replace(Duration::ZERO));
+    if let Some(line) = slow_query_line(sql, duration, busy) {
         tracing::warn!(target: "komga_db::slow_query", "{line}");
     }
 }
 
-fn slow_query_line(sql: &str, duration: Duration) -> Option<String> {
+/// IN lists can hold hundreds of placeholders (one per id); the run is
+/// collapsed to `? xN` — the count is diagnostic, the run itself is not.
+static PLACEHOLDER_RUN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\?(?:\s*,\s*\?)+").unwrap());
+
+fn slow_query_line(sql: &str, duration: Duration, busy: Duration) -> Option<String> {
     if duration < SLOW_QUERY {
         return None;
     }
     let one_line: String = sql.split_whitespace().collect::<Vec<_>>().join(" ");
-    let truncated: String = one_line.chars().take(200).collect();
+    // logged whole after collapsing placeholder runs: the WHERE clause sits at
+    // the end of the statement, and that is what a slow query is about
+    let normalized = PLACEHOLDER_RUN.replace_all(&one_line, |caps: &regex::Captures| {
+        format!("? x{}", caps[0].matches('?').count())
+    });
+    let busy = if busy.is_zero() {
+        String::new()
+    } else {
+        format!(", busy {} ms", busy.as_millis())
+    };
     Some(format!(
-        "slow query ({} ms): {truncated}",
+        "slow query ({} ms{busy}): {normalized}",
         duration.as_millis()
     ))
 }
@@ -179,14 +239,15 @@ impl DatabaseConfig {
 pub struct Database {
     rw: Pool,
     ro: Pool,
+    busy_timeout: Duration,
 }
 
 impl Database {
     pub fn open(config: &DatabaseConfig) -> Result<Self, r2d2::Error> {
-        // SQLite's default busy_timeout is 0 (fail immediately). The API write
+        // SQLite's default busy handler gives up immediately. The API write
         // pool and the task write pool are separate writers on the same file, so
         // concurrent writes are expected and must wait rather than error out.
-        let busy_timeout = config.busy_timeout.unwrap_or(Duration::from_secs(30));
+        let busy_timeout = config.busy_timeout.unwrap_or(DEFAULT_BUSY_TIMEOUT);
         let pool_size = config.read_pool_size();
         let cache_kib = conn_cache_kib(config, pool_size);
         let make_manager = || {
@@ -202,10 +263,12 @@ impl Database {
                     ""
                 };
                 conn.execute_batch(&format!(
-                    "PRAGMA journal_mode={}; PRAGMA foreign_keys=ON; PRAGMA busy_timeout={};{synchronous}",
+                    "PRAGMA journal_mode={}; PRAGMA foreign_keys=ON;{synchronous}",
                     config.journal_mode.as_str(),
-                    busy_timeout.as_millis()
                 ))?;
+                // registered before user pragmas so an explicit `busy_timeout`
+                // pragma can still take over the handler
+                conn.busy_handler(Some(busy_handler))?;
                 for (key, value) in &config.pragmas {
                     conn.execute_batch(&format!("PRAGMA {key}={value};"))?;
                 }
@@ -226,7 +289,11 @@ impl Database {
         } else {
             rw.clone()
         };
-        Ok(Self { rw, ro })
+        Ok(Self {
+            rw,
+            ro,
+            busy_timeout,
+        })
     }
 
     /// In-memory database (for tests), shared single connection.
@@ -243,16 +310,19 @@ impl Database {
         Ok(Self {
             rw: pool.clone(),
             ro: pool,
+            busy_timeout: DEFAULT_BUSY_TIMEOUT,
         })
     }
 
     /// Write connection (always a single connection under WAL).
     pub fn rw(&self) -> crate::Result<PooledConn> {
+        BUSY_TIMEOUT.with(|t| t.set(self.busy_timeout));
         Ok(self.rw.get()?)
     }
 
     /// Read connection.
     pub fn ro(&self) -> crate::Result<PooledConn> {
+        BUSY_TIMEOUT.with(|t| t.set(self.busy_timeout));
         Ok(self.ro.get()?)
     }
 }
@@ -384,7 +454,7 @@ mod tests {
     fn slow_query_line_threshold_and_format() {
         // below the threshold: silence
         assert_eq!(
-            slow_query_line("SELECT 1", Duration::from_millis(499)),
+            slow_query_line("SELECT 1", Duration::from_millis(499), Duration::ZERO),
             None
         );
 
@@ -392,6 +462,7 @@ mod tests {
         let line = slow_query_line(
             "SELECT  BOOK.ID\nFROM BOOK  JOIN MEDIA ON BOOK.ID = MEDIA.BOOK_ID",
             Duration::from_millis(1500),
+            Duration::ZERO,
         )
         .unwrap();
         assert_eq!(
@@ -399,11 +470,156 @@ mod tests {
             "slow query (1500 ms): SELECT BOOK.ID FROM BOOK JOIN MEDIA ON BOOK.ID = MEDIA.BOOK_ID"
         );
 
-        // long SQL is truncated for the log line
-        let long = format!("SELECT {} FROM T", "X".repeat(400));
-        let line = slow_query_line(&long, Duration::from_secs(2)).unwrap();
-        assert!(line.len() <= 200 + "slow query (2000 ms): ".len());
-        assert!(line.starts_with("slow query (2000 ms): SELECT XXX"));
+        // busy wait is broken out only when nonzero
+        let line = slow_query_line(
+            "SELECT 1",
+            Duration::from_millis(900),
+            Duration::from_millis(300),
+        )
+        .unwrap();
+        assert_eq!(line, "slow query (900 ms, busy 300 ms): SELECT 1");
+
+        // placeholder runs are collapsed with their count; the rest of the
+        // statement stays whole, however long
+        let in_list = (0..250).map(|_| "?").collect::<Vec<_>>().join(", ");
+        let sql = format!(
+            "SELECT {} FROM T WHERE T.ID IN ({in_list})",
+            "X".repeat(400)
+        );
+        let line = slow_query_line(&sql, Duration::from_secs(2), Duration::ZERO).unwrap();
+        assert_eq!(
+            line,
+            format!(
+                "slow query (2000 ms): SELECT {} FROM T WHERE T.ID IN (? x250)",
+                "X".repeat(400)
+            )
+        );
+    }
+
+    #[test]
+    fn busy_handler_backoff_and_timeout() {
+        BUSY_TIMEOUT.with(|t| t.set(Duration::from_millis(50)));
+        BUSY_WAIT.with(|w| w.set(Duration::ZERO));
+
+        // sqlite's schedule: counts 0..=2 sleep 1+2+5 ms
+        assert!(busy_handler(0));
+        assert!(busy_handler(1));
+        assert!(busy_handler(2));
+        assert_eq!(BUSY_WAIT.with(|w| w.get()), Duration::from_millis(8));
+
+        // retries go on until the accumulated sleep reaches the timeout
+        let mut waited = Duration::ZERO;
+        let gave_up = (3..1000).any(|n| {
+            let retry = busy_handler(n);
+            if retry {
+                waited = BUSY_WAIT.with(|w| w.get());
+            }
+            !retry
+        });
+        assert!(gave_up);
+        assert_eq!(waited, Duration::from_millis(50));
+        // a statement that failed gives no profile hook, so the give-up must
+        // leave nothing behind for the next statement on this thread
+        assert_eq!(BUSY_WAIT.with(|w| w.get()), Duration::ZERO);
+
+        BUSY_TIMEOUT.with(|t| t.set(DEFAULT_BUSY_TIMEOUT));
+    }
+
+    #[test]
+    fn busy_handler_gives_up_at_timeout() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = file_config(dir.path(), 1);
+        // readers block behind an exclusive writer outside WAL
+        config.journal_mode = JournalMode::Delete;
+        config.busy_timeout = Some(Duration::from_millis(100));
+        let db = Database::open(&config).unwrap();
+        let conn = db.rw().unwrap();
+        conn.execute_batch("CREATE TABLE t(x); INSERT INTO t VALUES (1);")
+            .unwrap();
+        drop(conn);
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let file = config.file.clone();
+        let blocker = std::thread::spawn(move || {
+            let conn = rusqlite::Connection::open(&file).unwrap();
+            conn.execute_batch("BEGIN EXCLUSIVE").unwrap();
+            tx.send(()).unwrap();
+            std::thread::sleep(Duration::from_millis(1000));
+            conn.execute_batch("COMMIT").unwrap();
+        });
+        rx.recv().unwrap();
+
+        let err = db
+            .ro()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM t", [], |r| r.get::<_, i64>(0))
+            .unwrap_err();
+        assert_eq!(
+            err.sqlite_error_code(),
+            Some(rusqlite::ErrorCode::DatabaseBusy),
+            "query must fail once the 100 ms budget is spent: {err}"
+        );
+        blocker.join().unwrap();
+    }
+
+    #[test]
+    fn slow_query_reports_busy_wait() {
+        use std::sync::{Arc, Mutex};
+        struct Buf(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for Buf {
+            fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(data);
+                Ok(data.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let buf = Arc::new(Mutex::new(Vec::new()));
+        let writer = {
+            let buf = buf.clone();
+            move || Buf(buf.clone())
+        };
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(writer)
+            .with_ansi(false)
+            .finish();
+
+        tracing::subscriber::with_default(subscriber, || {
+            let dir = tempfile::tempdir().unwrap();
+            let mut config = file_config(dir.path(), 1);
+            config.journal_mode = JournalMode::Delete;
+            let db = Database::open(&config).unwrap();
+            let conn = db.rw().unwrap();
+            conn.execute_batch("CREATE TABLE t(x); INSERT INTO t VALUES (1);")
+                .unwrap();
+            drop(conn);
+
+            let (tx, rx) = std::sync::mpsc::channel();
+            let file = config.file.clone();
+            let blocker = std::thread::spawn(move || {
+                let conn = rusqlite::Connection::open(&file).unwrap();
+                conn.execute_batch("BEGIN EXCLUSIVE").unwrap();
+                tx.send(()).unwrap();
+                // long enough to push the blocked read past the slow-query threshold
+                std::thread::sleep(Duration::from_millis(700));
+                conn.execute_batch("COMMIT").unwrap();
+            });
+            rx.recv().unwrap();
+
+            let conn = db.ro().unwrap();
+            let n: i64 = conn
+                .query_row("SELECT COUNT(*) FROM t", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(n, 1);
+            blocker.join().unwrap();
+        });
+
+        let logs = String::from_utf8(buf.lock().unwrap().clone()).unwrap();
+        assert!(
+            logs.contains("slow query") && logs.contains("busy"),
+            "blocked query was not logged with its busy wait: {logs}"
+        );
     }
 
     #[test]
