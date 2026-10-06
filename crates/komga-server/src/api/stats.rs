@@ -18,6 +18,7 @@ use axum::{routing, Json, Router};
 use komga_core::model::user::KomgaUser;
 use komga_core::time_codec;
 use komga_db::dao::reading_event::{ReadingEvent, ReadingEventDao};
+use komga_db::dao::sidecar::SidecarDao;
 use komga_db::dao::tasks::TasksDao;
 use komga_db::dto_dao::library_stats::LibraryStatsDtoDao;
 use komga_db::dto_dao::reading_stats::{ReadingStatsDtoDao, ReadingTotals};
@@ -82,6 +83,10 @@ async fn libraries_stats(
     let authorized = user.get_authorized_library_ids(None);
     let dao = LibraryStatsDtoDao::new(state.db.clone());
     let rows = dao.per_library(authorized.as_ref(), &series_visibility, &book_visibility)?;
+    let sidecars = match user.is_admin() {
+        true => Some(SidecarDao::new(state.db.clone()).count_grouped_by_library_id()?),
+        false => None,
+    };
     let mut total = LibraryStatsTotalDto::default();
     let libraries = rows
         .into_iter()
@@ -89,6 +94,12 @@ async fn libraries_stats(
             total.series += row.series;
             total.books += row.books;
             total.file_size += row.filesize;
+            let sidecar_count = sidecars
+                .as_ref()
+                .map(|counts| counts.get(&row.library_id).copied().unwrap_or(0));
+            if let Some(count) = sidecar_count {
+                *total.sidecars.get_or_insert(0) += count;
+            }
             LibraryStatsDto {
                 library_id: row.library_id,
                 name: row.library_name,
@@ -97,6 +108,7 @@ async fn libraries_stats(
                 file_size: row.filesize,
                 readlists: row.readlists,
                 collections: row.collections,
+                sidecars: sidecar_count,
             }
         })
         .collect();
@@ -1016,7 +1028,7 @@ mod tests {
         assert_eq!(libraries[1]["fileSize"], 0);
         assert_eq!(
             body["total"],
-            serde_json::json!({"series": 1, "books": 1, "fileSize": 100, "readlists": 0, "collections": 0})
+            serde_json::json!({"series": 1, "books": 1, "fileSize": 100, "readlists": 0, "collections": 0, "sidecars": 0})
         );
     }
 
@@ -1083,7 +1095,7 @@ mod tests {
         // r1/c1 count in both libraries, so the total is the distinct count, not the row sum
         assert_eq!(
             body["total"],
-            serde_json::json!({"series": 3, "books": 3, "fileSize": 600, "readlists": 2, "collections": 2})
+            serde_json::json!({"series": 3, "books": 3, "fileSize": 600, "readlists": 2, "collections": 2, "sidecars": 0})
         );
     }
 
@@ -1163,6 +1175,43 @@ mod tests {
             body["total"],
             serde_json::json!({"series": 1, "books": 1, "fileSize": 100, "readlists": 1, "collections": 1})
         );
+    }
+
+    #[tokio::test]
+    async fn libraries_stats_admin_gets_sidecar_counts() {
+        let app = admin_app();
+        seed_series(&app.state.db, "s1", "l1", None);
+        seed_book_sized(&app.state.db, "b1", "s1", "l1", 100);
+        seed_sidecar(&app.state.db, "file:/data/s/b.json", "l1");
+        seed_sidecar(&app.state.db, "file:/data/s/cover.jpg", "l1");
+        seed_library(&app.state.db, "l2");
+
+        let (status, body) = app.get_json("/api/v1/stats/libraries", "k").await;
+        assert_eq!(status, StatusCode::OK);
+        let libraries = body["libraries"].as_array().unwrap();
+        assert_eq!(libraries[0]["libraryId"], "l1");
+        assert_eq!(libraries[0]["sidecars"], 2);
+        // a library without sidecars reports zero like the other counts
+        assert_eq!(libraries[1]["libraryId"], "l2");
+        assert_eq!(libraries[1]["sidecars"], 0);
+        // a sidecar belongs to exactly one library, so the total is the row sum
+        assert_eq!(body["total"]["sidecars"], 2);
+    }
+
+    #[tokio::test]
+    async fn libraries_stats_omit_sidecars_for_non_admin() {
+        let (app, _) = user_app();
+        seed_series(&app.state.db, "s1", "l1", None);
+        seed_book_sized(&app.state.db, "b1", "s1", "l1", 100);
+        seed_sidecar(&app.state.db, "file:/data/s/b.json", "l1");
+
+        let (status, body) = app.get_json("/api/v1/stats/libraries", "k").await;
+        assert_eq!(status, StatusCode::OK);
+        let libraries = body["libraries"].as_array().unwrap();
+        // the user shares the library, so the field is role-gated, not visibility-gated
+        assert_eq!(libraries.len(), 1);
+        assert!(libraries[0].get("sidecars").is_none());
+        assert!(body["total"].get("sidecars").is_none());
     }
 
     #[tokio::test]

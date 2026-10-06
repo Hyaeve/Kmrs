@@ -75,6 +75,10 @@ pub struct LibraryStatsDto {
     /// libraries counts in each of them.
     pub readlists: i64,
     pub collections: i64,
+    /// Sidecars carry no visibility of their own, so the count is admin-only; other
+    /// callers get the field omitted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sidecars: Option<i64>,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -86,6 +90,9 @@ pub struct LibraryStatsTotalDto {
     /// Distinct lists over all visible libraries — not the sum of the per-library counts.
     pub readlists: i64,
     pub collections: i64,
+    /// One sidecar belongs to exactly one library, so this equals the per-library sum.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sidecars: Option<i64>,
 }
 
 /// `GET /api/v1/stats/server`: admin-only server state snapshot.
