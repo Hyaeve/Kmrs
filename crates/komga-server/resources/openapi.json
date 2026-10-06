@@ -7723,7 +7723,7 @@
         ]
       },
       "post": {
-        "description": "kmrs extension: create a smart list owned by the current user",
+        "description": "kmrs extension: create a smart list owned by the current user; visibility and sharing are admin capabilities, a regular user's lists are always PRIVATE",
         "operationId": "createSmartList",
         "requestBody": {
           "content": {
@@ -7765,7 +7765,7 @@
     },
     "/api/v1/smart-lists/share-targets": {
       "get": {
-        "description": "kmrs extension: minimal user directory (id, email) for choosing share targets; komga's /api/v2/users is admin-only",
+        "description": "kmrs extension: minimal user directory (id, email) for choosing share targets; admin only, like komga's /api/v2/users",
         "operationId": "getSmartListShareTargets",
         "responses": {
           "200": {
@@ -7828,7 +7828,7 @@
         ]
       },
       "patch": {
-        "description": "kmrs extension: update a smart list owned by the current user (admin: any)",
+        "description": "kmrs extension: update a smart list owned by the current user (admin: any); visibility and sharing are admin capabilities",
         "operationId": "updateSmartListById",
         "parameters": [
           {
@@ -14447,6 +14447,7 @@
             "minLength": 1
           },
           "sharedWithUserIds": {
+            "description": "admin only; required and non-empty when visibility is SHARED",
             "type": "array",
             "items": {
               "type": "string"
@@ -14463,6 +14464,7 @@
             ]
           },
           "visibility": {
+            "description": "admin only; absent means PRIVATE",
             "type": "string",
             "enum": [
               "PRIVATE",
@@ -14545,6 +14547,7 @@
             "type": "string"
           },
           "sharedWithUserIds": {
+            "description": "admin only; replaces the scope when present",
             "type": "array",
             "items": {
               "type": "string"
@@ -14561,6 +14564,7 @@
             ]
           },
           "visibility": {
+            "description": "admin only",
             "type": "string",
             "enum": [
               "PRIVATE",

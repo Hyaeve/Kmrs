@@ -16,7 +16,7 @@ use axum::{routing, Json, Router};
 use komga_core::dto::book::BookDto;
 use komga_core::dto::series::SeriesDto;
 use komga_core::dto::thumbnail::ThumbnailSmartListDto;
-use komga_core::model::smart_list::{SmartList, SmartListTarget};
+use komga_core::model::smart_list::{SmartList, SmartListTarget, SmartListVisibility};
 use komga_core::model::thumbnail::ThumbnailSmartList;
 use komga_core::model::user::KomgaUser;
 use komga_core::search::{BookSearch, SearchContext, SeriesSearch};
@@ -132,11 +132,9 @@ fn find_visible_smart_list(
         return Ok(smart_list);
     }
     let visible = match smart_list.visibility {
-        komga_core::model::smart_list::SmartListVisibility::Public => true,
-        komga_core::model::smart_list::SmartListVisibility::Shared => {
-            dao.is_shared_with(id, &user.id)?
-        }
-        komga_core::model::smart_list::SmartListVisibility::Private => false,
+        SmartListVisibility::Public => true,
+        SmartListVisibility::Shared => dao.is_shared_with(id, &user.id)?,
+        SmartListVisibility::Private => false,
     };
     if !visible {
         return Err(ApiError::not_found(""));
@@ -144,16 +142,14 @@ fn find_visible_smart_list(
     Ok(smart_list)
 }
 
-/// minimal user directory for picking share targets; komga's /api/v2/users is
-/// admin-only, and choosing who to share with needs more than an id. Deliberate
-/// departure: every authenticated user can list id + email of all users, so on a
-/// multi-user server emails become visible to each other — the cost of a sharing
-/// feature in a system whose only human identifier is the email
+/// minimal user directory for picking share targets. Only admins publish or share
+/// lists, so only admins may list it — komga keeps /api/v2/users admin-only, and
+/// exposing every user's email to all authenticated users is not acceptable
 async fn get_share_targets(
     State(state): State<AppState>,
     auth: RequireAuth,
 ) -> Result<Json<Vec<ShareTargetDto>>, ApiError> {
-    let _ = auth.0.user;
+    auth.0.require_admin()?;
     let users = UserDao::new(state.db.clone()).find_all()?;
     Ok(Json(
         users
@@ -211,8 +207,14 @@ async fn create_smart_list(
     if !violations.is_empty() {
         return Err(ApiError::Violations(violations));
     }
+    // visibility and sharing are admin capabilities: a regular user's lists stay private
+    if !user.is_admin() && (body.visibility.is_some() || body.shared_with_user_ids.is_some()) {
+        return Err(ApiError::forbidden(
+            "only admins may set visibility or share smart lists",
+        ));
+    }
     let search_json = canonical_search_json(body.target, &body.search)?;
-    let shared_with = body.shared_with_user_ids.clone();
+    let shared_with = body.shared_with_user_ids.unwrap_or_default();
     validate_share_targets(&state, &shared_with)?;
     let smart_list = crate::service::smart_list::add_smart_list(
         &state,
@@ -222,7 +224,7 @@ async fn create_smart_list(
             summary: body.summary,
             owner_user_id: user.id.clone(),
             target: body.target,
-            visibility: body.visibility,
+            visibility: body.visibility.unwrap_or_default(),
             search_json,
             created_date: now_utc(),
             last_modified_date: now_utc(),
@@ -272,6 +274,13 @@ async fn update_smart_list_by_id(
     }
     let existing = find_visible_smart_list(&state, &auth.0.user, &id)?;
     require_owner_or_admin(&auth.0.user, &existing)?;
+    // visibility and sharing are admin capabilities: non-admin lists stay private
+    if !auth.0.user.is_admin() && (body.visibility.is_some() || body.shared_with_user_ids.is_some())
+    {
+        return Err(ApiError::forbidden(
+            "only admins may set visibility or share smart lists",
+        ));
+    }
     // target and search change together or not at all: switching only the target
     // re-validates the stored document against the new target, which fails across
     // BOOK/SERIES (condition shapes differ), so a target switch must send search too
@@ -303,7 +312,7 @@ async fn update_smart_list_by_id(
     };
     // a SHARED list with an empty scope is invisible to everyone but owner and admin;
     // create rejects it, so PATCH must not be able to produce it either
-    if updated.visibility == komga_core::model::smart_list::SmartListVisibility::Shared {
+    if updated.visibility == SmartListVisibility::Shared {
         let scope_empty = match &shares {
             Some(ids) => ids.is_empty(),
             None => crate::service::smart_list::dao(&state)
@@ -1345,49 +1354,108 @@ mod tests {
     #[tokio::test]
     async fn visibility_scopes_who_sees_a_list() {
         let (state, u1) = setup();
-        // u1 creates three lists, one per visibility
-        let mut created = Vec::new();
-        for (name, visibility, shared_with) in [
-            ("priv", serde_json::json!("PRIVATE"), serde_json::json!([])),
-            ("pub", serde_json::json!("PUBLIC"), serde_json::json!([])),
+        let u2_id = user_id(&state, "u2@example.org");
+
+        // a regular user's lists are always private
+        let (status, body) = call(
+            &state,
+            post_json(
+                "/api/v1/smart-lists",
+                "u1key",
+                serde_json::json!({
+                    "name": "priv",
+                    "target": "BOOK",
+                    "search": {},
+                }),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        let private_id = serde_json::from_slice::<serde_json::Value>(&body).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        // publishing and sharing are admin capabilities: u1 cannot set visibility
+        // or share targets, on create or later — even an explicit PRIVATE, so the
+        // rule is uniform with PATCH (absent fields only)
+        for (name, extra) in [
+            ("pub", serde_json::json!({"visibility": "PUBLIC"})),
             (
                 "shrd",
-                serde_json::json!("SHARED"),
-                serde_json::json!([user_id(&state, "u2@example.org")]),
+                serde_json::json!({"visibility": "SHARED", "sharedWithUserIds": [u2_id.clone()]}),
             ),
+            (
+                "sneaky",
+                serde_json::json!({"sharedWithUserIds": [u2_id.clone()]}),
+            ),
+            ("explicit", serde_json::json!({"visibility": "PRIVATE"})),
         ] {
-            let (status, body) = call(
-                &state,
-                post_json(
-                    "/api/v1/smart-lists",
-                    "u1key",
-                    serde_json::json!({
-                        "name": name,
-                        "target": "BOOK",
-                        "visibility": visibility,
-                        "sharedWithUserIds": shared_with,
-                        "search": {},
-                    }),
-                ),
-            )
-            .await;
-            assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
-            created.push(
-                serde_json::from_slice::<serde_json::Value>(&body).unwrap()["id"]
-                    .as_str()
+            let mut body = serde_json::json!({"name": name, "target": "BOOK", "search": {}});
+            body.as_object_mut().unwrap().extend(
+                extra
+                    .as_object()
                     .unwrap()
-                    .to_string(),
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone())),
+            );
+            let (status, body) =
+                call(&state, post_json("/api/v1/smart-lists", "u1key", body)).await;
+            assert_eq!(status, StatusCode::FORBIDDEN);
+            assert!(
+                String::from_utf8_lossy(&body).contains("only admins"),
+                "{}",
+                String::from_utf8_lossy(&body)
             );
         }
-        let (private_id, public_id, shared_id) =
-            (created[0].clone(), created[1].clone(), created[2].clone());
+
+        // the admin publishes one list and shares another with u2
+        let (status, body) = call(
+            &state,
+            post_json(
+                "/api/v1/smart-lists",
+                "adminkey",
+                serde_json::json!({
+                    "name": "pub",
+                    "target": "BOOK",
+                    "visibility": "PUBLIC",
+                    "search": {},
+                }),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        let public_id = serde_json::from_slice::<serde_json::Value>(&body).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let (status, body) = call(
+            &state,
+            post_json(
+                "/api/v1/smart-lists",
+                "adminkey",
+                serde_json::json!({
+                    "name": "shrd",
+                    "target": "BOOK",
+                    "visibility": "SHARED",
+                    "sharedWithUserIds": [u2_id],
+                    "search": {},
+                }),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        let shared_id = serde_json::from_slice::<serde_json::Value>(&body).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
 
         // SHARED without targets is rejected
         let (status, body) = call(
             &state,
             post_json(
                 "/api/v1/smart-lists",
-                "u1key",
+                "adminkey",
                 serde_json::json!({
                     "name": "broken-share",
                     "target": "BOOK",
@@ -1405,7 +1473,7 @@ mod tests {
             &state,
             post_json(
                 "/api/v1/smart-lists",
-                "u1key",
+                "adminkey",
                 serde_json::json!({
                     "name": "ghost-share",
                     "target": "BOOK",
@@ -1418,6 +1486,27 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert!(String::from_utf8_lossy(&body).contains("no-such-user"));
+
+        // u1 cannot widen the scope of their own list either
+        let (status, body) = call(
+            &state,
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/smart-lists/{private_id}"))
+                .header("X-API-Key", "u1key")
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&serde_json::json!({
+                        "visibility": "SHARED",
+                        "sharedWithUserIds": [u2_id],
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(String::from_utf8_lossy(&body).contains("only admins"));
 
         // u2 sees the public and the shared-with-them lists only
         let (status, body) = call(&state, shared::get("/api/v1/smart-lists", "u2key")).await;
@@ -1456,10 +1545,10 @@ mod tests {
         assert_eq!(status, StatusCode::NOT_FOUND);
 
         // visibility grants read only: a sharee cannot modify or delete the list
-        let patch = |key: &str, body: serde_json::Value| {
+        let patch = |key: &str, id: &str, body: serde_json::Value| {
             Request::builder()
                 .method("PATCH")
-                .uri(format!("/api/v1/smart-lists/{shared_id}"))
+                .uri(format!("/api/v1/smart-lists/{id}"))
                 .header("X-API-Key", key)
                 .header("Content-Type", "application/json")
                 .body(Body::from(serde_json::to_string(&body).unwrap()))
@@ -1467,7 +1556,11 @@ mod tests {
         };
         let (status, _) = call(
             &state,
-            patch("u2key", serde_json::json!({"summary": "hijack"})),
+            patch(
+                "u2key",
+                &shared_id,
+                serde_json::json!({"summary": "hijack"}),
+            ),
         )
         .await;
         assert_eq!(status, StatusCode::FORBIDDEN);
@@ -1485,7 +1578,7 @@ mod tests {
         // the owner's list is untouched
         let (status, body) = call(
             &state,
-            shared::get(&format!("/api/v1/smart-lists/{shared_id}"), "u1key"),
+            shared::get(&format!("/api/v1/smart-lists/{shared_id}"), "adminkey"),
         )
         .await;
         assert_eq!(status, StatusCode::OK);
@@ -1510,23 +1603,23 @@ mod tests {
         // admin may write other users' lists
         let (status, _) = call(
             &state,
-            patch("adminkey", serde_json::json!({"summary": "admin edit"})),
+            patch(
+                "adminkey",
+                &private_id,
+                serde_json::json!({"summary": "admin edit"}),
+            ),
         )
         .await;
         assert_eq!(status, StatusCode::NO_CONTENT);
 
-        // switching PRIVATE → SHARED without a scope is rejected, like create
+        // switching a list to SHARED without a scope is rejected, like create
         let (status, body) = call(
             &state,
-            Request::builder()
-                .method("PATCH")
-                .uri(format!("/api/v1/smart-lists/{private_id}"))
-                .header("X-API-Key", "u1key")
-                .header("Content-Type", "application/json")
-                .body(Body::from(
-                    serde_json::to_string(&serde_json::json!({"visibility": "SHARED"})).unwrap(),
-                ))
-                .unwrap(),
+            patch(
+                "adminkey",
+                &private_id,
+                serde_json::json!({"visibility": "SHARED"}),
+            ),
         )
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
@@ -1547,13 +1640,19 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(
             serde_json::from_slice::<serde_json::Value>(&body).unwrap()["totalElements"],
-            3
+            1
         );
 
-        // any authenticated user can list share targets (the user directory)
-        let (status, body) = call(
+        // the user directory is admin-only, like komga's /api/v2/users
+        let (status, _) = call(
             &state,
             shared::get("/api/v1/smart-lists/share-targets", "u2key"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        let (status, body) = call(
+            &state,
+            shared::get("/api/v1/smart-lists/share-targets", "adminkey"),
         )
         .await;
         assert_eq!(status, StatusCode::OK);

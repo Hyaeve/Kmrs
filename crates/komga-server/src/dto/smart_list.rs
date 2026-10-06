@@ -13,10 +13,10 @@ pub struct SmartListCreationDto {
     #[serde(default)]
     pub summary: String,
     pub target: SmartListTarget,
-    #[serde(default)]
-    pub visibility: SmartListVisibility,
-    #[serde(default)]
-    pub shared_with_user_ids: Vec<String>,
+    /// admin-only on the API; `None` means PRIVATE
+    pub visibility: Option<SmartListVisibility>,
+    /// admin-only on the API
+    pub shared_with_user_ids: Option<Vec<String>>,
     /// `BookSearch` (target BOOK) or `SeriesSearch` (target SERIES)
     pub search: serde_json::Value,
 }
@@ -30,7 +30,12 @@ impl SmartListCreationDto {
                 message: "must not be blank".into(),
             });
         }
-        if self.visibility == SmartListVisibility::Shared && self.shared_with_user_ids.is_empty() {
+        if self.visibility == Some(SmartListVisibility::Shared)
+            && self
+                .shared_with_user_ids
+                .as_ref()
+                .is_none_or(|ids| ids.is_empty())
+        {
             violations.push(Violation {
                 field_name: "sharedWithUserIds".into(),
                 message: "must not be empty when visibility is SHARED".into(),
@@ -123,16 +128,19 @@ mod tests {
             name: "  ".into(),
             summary: String::new(),
             target: SmartListTarget::Book,
-            visibility: SmartListVisibility::Private,
-            shared_with_user_ids: vec![],
+            visibility: None,
+            shared_with_user_ids: None,
             search: serde_json::json!({}),
         };
         assert_eq!(dto.violations().len(), 1);
         dto.name = "ok".into();
         assert!(dto.violations().is_empty());
-        dto.visibility = SmartListVisibility::Shared;
+        dto.visibility = Some(SmartListVisibility::Shared);
         assert_eq!(dto.violations().len(), 1);
-        dto.shared_with_user_ids = vec!["u2".into()];
+        // an absent scope counts as empty too
+        dto.shared_with_user_ids = Some(vec![]);
+        assert_eq!(dto.violations().len(), 1);
+        dto.shared_with_user_ids = Some(vec!["u2".into()]);
         assert!(dto.violations().is_empty());
     }
 
