@@ -3,9 +3,10 @@
 //!   poolSize ?: min(CPU cores, maxPoolSize).
 //! - Without WAL (or for an in-memory database): RO and RW share the same pool.
 //! - Per connection: `PRAGMA foreign_keys=ON`, busy_timeout (default 30s), journal_mode,
-//!   synchronous=NORMAL under WAL, and extra pragmas (an explicit entry there wins
-//!   over these defaults); main-database connections also register UDFs/collations
-//!   (see the `udf` module), tasks-database connections do not.
+//!   synchronous=NORMAL and journal_size_limit=64 MiB under WAL, and extra pragmas
+//!   (an explicit entry there wins over these defaults); main-database connections
+//!   also register UDFs/collations (see the `udf` module), tasks-database
+//!   connections do not.
 //! - Background task execution (library scan / analysis / hashing / conversion /
 //!   maintenance) runs against a dedicated `Database` over the same file, opened
 //!   with [`Database::open`]; under WAL its reads and writes never contend with
@@ -49,6 +50,10 @@ pub const DEFAULT_AUX_READERS: u32 = 2;
 const SLOW_QUERY: Duration = Duration::from_millis(500);
 
 const DEFAULT_BUSY_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// WAL file cap in bytes: autocheckpoint rewinds the write position but the
+/// file keeps its high-water mark unless a limit is set.
+const DEFAULT_JOURNAL_SIZE_LIMIT: u64 = 64 * 1024 * 1024;
 
 thread_local! {
     /// SQLite reports lock contention only by invoking the connection's busy
@@ -255,15 +260,17 @@ impl Database {
             SqliteConnectionManager::file(&config.file).with_init(move |conn| {
                 // WAL is corruption-safe at NORMAL per SQLite's docs, and skipping the
                 // per-commit fsync is what keeps write bursts (komf full-library match,
-                // scans) from saturating the disk. A `synchronous` entry in `pragmas`
-                // overrides this below.
-                let synchronous = if config.journal_mode == JournalMode::Wal {
-                    " PRAGMA synchronous=NORMAL;"
+                // scans) from saturating the disk. `synchronous` and
+                // `journal_size_limit` entries in `pragmas` override these below.
+                let wal_defaults = if config.journal_mode == JournalMode::Wal {
+                    format!(
+                        " PRAGMA synchronous=NORMAL; PRAGMA journal_size_limit={DEFAULT_JOURNAL_SIZE_LIMIT};"
+                    )
                 } else {
-                    ""
+                    String::new()
                 };
                 conn.execute_batch(&format!(
-                    "PRAGMA journal_mode={}; PRAGMA foreign_keys=ON;{synchronous}",
+                    "PRAGMA journal_mode={}; PRAGMA foreign_keys=ON;{wal_defaults}",
                     config.journal_mode.as_str(),
                 ))?;
                 // registered before user pragmas so an explicit `busy_timeout`
@@ -448,6 +455,39 @@ mod tests {
         config.journal_mode = JournalMode::Delete;
         let db = Database::open(&config).unwrap();
         assert_eq!(synchronous(&db), 2);
+    }
+
+    fn journal_size_limit(db: &Database) -> i64 {
+        db.ro()
+            .unwrap()
+            .query_row("PRAGMA journal_size_limit", [], |row| row.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn wal_defaults_to_journal_size_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Database::open(&file_config(dir.path(), 1)).unwrap();
+        assert_eq!(journal_size_limit(&db), 64 * 1024 * 1024);
+    }
+
+    #[test]
+    fn user_journal_size_limit_wins() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = file_config(dir.path(), 1);
+        config.pragmas = vec![("journal_size_limit".into(), "1024".into())];
+        let db = Database::open(&config).unwrap();
+        assert_eq!(journal_size_limit(&db), 1024);
+    }
+
+    #[test]
+    fn non_wal_keeps_journal_size_limit_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = file_config(dir.path(), 1);
+        config.journal_mode = JournalMode::Delete;
+        let db = Database::open(&config).unwrap();
+        // SQLite's own default: no limit
+        assert_eq!(journal_size_limit(&db), -1);
     }
 
     #[test]

@@ -689,7 +689,7 @@ fn render_database(
     }
     if db.pragmas.is_empty() {
         out.push_str(&format!(
-            "# [{section}.pragmas] # extra SQLite pragmas, TOML only. synchronous defaults to NORMAL in WAL mode, FULL otherwise\n# synchronous = \"FULL\"\n"
+            "# [{section}.pragmas] # extra SQLite pragmas, TOML only. synchronous defaults to NORMAL in WAL mode, FULL otherwise\n# synchronous = \"FULL\"\n# journal_size_limit = \"67108864\" # WAL file size cap in bytes; default 64 MiB in WAL mode, unlimited otherwise\n"
         ));
     } else {
         out.push_str(&format!(
