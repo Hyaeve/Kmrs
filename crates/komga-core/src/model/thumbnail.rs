@@ -97,3 +97,20 @@ pub struct ThumbnailReadList {
     pub created_date: OffsetDateTime,
     pub last_modified_date: OffsetDateTime,
 }
+
+/// kmrs-only: smart list covers live in the kmrs database, same shape as the read-list covers.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ThumbnailSmartList {
+    pub id: String,
+    pub smart_list_id: String,
+    pub thumbnail: Vec<u8>,
+    /// content fingerprint for GENERATED covers, empty for uploads
+    pub fingerprint: String,
+    pub selected: bool,
+    pub type_: ThumbnailType,
+    pub media_type: String,
+    pub file_size: i64,
+    pub dimension: Dimension,
+    pub created_date: OffsetDateTime,
+    pub last_modified_date: OffsetDateTime,
+}

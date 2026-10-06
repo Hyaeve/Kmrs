@@ -16,8 +16,8 @@ pub struct AppState {
     pub task_db: Database,
     pub tasks_db: Database,
     /// kmrs-private state (`kmrs.sqlite`): per-book series metadata contributions,
-    /// komf integration, thumbnail storage migration state, reading events;
-    /// never touches the main database.
+    /// komf integration, thumbnail storage migration state, reading events,
+    /// smart lists; never touches the main database.
     pub kmrs_db: Database,
     pub sessions: SessionStore,
     pub settings: Arc<SettingsProvider>,

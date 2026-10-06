@@ -7655,6 +7655,624 @@
         ]
       }
     },
+    "/api/v1/smart-lists": {
+      "get": {
+        "description": "kmrs extension: lists visible to the current user (own, public, shared); admins see all lists and may narrow with the owner parameter",
+        "operationId": "getSmartLists",
+        "parameters": [
+          {
+            "description": "admin only: narrow to lists of one owner",
+            "in": "query",
+            "name": "owner",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "unpaged",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Zero-based page index (0..N)",
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The size of the page to be returned",
+            "in": "query",
+            "name": "size",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Sorting criteria in the format: property(,asc|desc). Default sort order is ascending. Multiple sort criteria are supported.",
+            "in": "query",
+            "name": "sort",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageSmartListDto"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "summary": "List smart lists",
+        "tags": [
+          "Smart lists (kmrs extension)"
+        ]
+      },
+      "post": {
+        "description": "kmrs extension: create a smart list owned by the current user",
+        "operationId": "createSmartList",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SmartListCreationDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmartListDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          }
+        },
+        "summary": "Create smart list",
+        "tags": [
+          "Smart lists (kmrs extension)"
+        ]
+      }
+    },
+    "/api/v1/smart-lists/share-targets": {
+      "get": {
+        "description": "kmrs extension: minimal user directory (id, email) for choosing share targets; komga's /api/v2/users is admin-only",
+        "operationId": "getSmartListShareTargets",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "email": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "summary": "List share target users",
+        "tags": [
+          "Smart lists (kmrs extension)"
+        ]
+      }
+    },
+    "/api/v1/smart-lists/{id}": {
+      "get": {
+        "description": "kmrs extension: the list if owned by the current user, or any list for an admin",
+        "operationId": "getSmartListById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SmartListDto"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "summary": "Get smart list by id",
+        "tags": [
+          "Smart lists (kmrs extension)"
+        ]
+      },
+      "patch": {
+        "description": "kmrs extension: update a smart list owned by the current user (admin: any)",
+        "operationId": "updateSmartListById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SmartListUpdateDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          }
+        },
+        "summary": "Update smart list",
+        "tags": [
+          "Smart lists (kmrs extension)"
+        ]
+      },
+      "delete": {
+        "description": "kmrs extension: delete a smart list owned by the current user (admin: any)",
+        "operationId": "deleteSmartListById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "summary": "Delete smart list",
+        "tags": [
+          "Smart lists (kmrs extension)"
+        ]
+      }
+    },
+    "/api/v1/smart-lists/{id}/thumbnail": {
+      "get": {
+        "description": "kmrs extension: generated mosaic cover of the books matched by a BOOK smart list; rebuilt when the matched set changes",
+        "operationId": "getSmartListThumbnail",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "summary": "Get smart list thumbnail",
+        "tags": [
+          "Smart lists (kmrs extension)"
+        ]
+      }
+    },
+    "/api/v1/smart-lists/{id}/thumbnails": {
+      "get": {
+        "description": "kmrs extension: generated mosaic plus uploaded covers of a smart list",
+        "operationId": "getSmartListThumbnails",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ThumbnailSmartListDto"
+                  }
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "summary": "Get smart list thumbnails",
+        "tags": [
+          "Smart lists (kmrs extension)"
+        ]
+      },
+      "post": {
+        "description": "kmrs extension: upload a cover for a smart list owned by the current user (multipart parts: file, selected)",
+        "operationId": "uploadSmartListThumbnail",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "selected": {
+                    "type": "boolean",
+                    "default": true
+                  }
+                },
+                "required": [
+                  "file"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThumbnailSmartListDto"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "summary": "Upload smart list thumbnail",
+        "tags": [
+          "Smart lists (kmrs extension)"
+        ]
+      }
+    },
+    "/api/v1/smart-lists/{id}/thumbnails/{thumbnailId}": {
+      "get": {
+        "description": "kmrs extension: cover bytes",
+        "operationId": "getSmartListThumbnailById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "thumbnailId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "summary": "Get smart list thumbnail by id",
+        "tags": [
+          "Smart lists (kmrs extension)"
+        ]
+      },
+      "delete": {
+        "description": "kmrs extension: delete a cover of a smart list owned by the current user",
+        "operationId": "deleteSmartListThumbnail",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "thumbnailId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted"
+          }
+        },
+        "summary": "Delete smart list thumbnail",
+        "tags": [
+          "Smart lists (kmrs extension)"
+        ]
+      }
+    },
+    "/api/v1/smart-lists/{id}/thumbnails/{thumbnailId}/selected": {
+      "put": {
+        "description": "kmrs extension: select the cover of a smart list owned by the current user",
+        "operationId": "markSmartListThumbnailSelected",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "thumbnailId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted"
+          }
+        },
+        "summary": "Mark smart list thumbnail as selected",
+        "tags": [
+          "Smart lists (kmrs extension)"
+        ]
+      }
+    },
+    "/api/v1/smart-lists/{id}/books": {
+      "post": {
+        "description": "kmrs extension: live evaluation of a BOOK smart list for the requesting user (read status, content restrictions and library authorization applied). The optional body carries page-side filters that are ANDed with the stored filter; a fullTextSearch in the body replaces the stored one.",
+        "operationId": "getBooksBySmartListId",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "unpaged",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Zero-based page index (0..N)",
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The size of the page to be returned",
+            "in": "query",
+            "name": "size",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Sorting criteria in the format: property(,asc|desc). Default sort order is ascending. Multiple sort criteria are supported.",
+            "in": "query",
+            "name": "sort",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BookSearch"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageBookDto"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "summary": "Get books of a smart list",
+        "tags": [
+          "Smart lists (kmrs extension)"
+        ]
+      }
+    },
+    "/api/v1/smart-lists/{id}/series": {
+      "post": {
+        "description": "kmrs extension: live evaluation of a SERIES smart list for the requesting user (read status, content restrictions and library authorization applied). The optional body carries page-side filters that are ANDed with the stored filter; a fullTextSearch in the body replaces the stored one.",
+        "operationId": "getSeriesBySmartListId",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeriesSearch"
+              }
+            }
+          },
+          "required": false
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "unpaged",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Zero-based page index (0..N)",
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The size of the page to be returned",
+            "in": "query",
+            "name": "size",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Sorting criteria in the format: property(,asc|desc). Default sort order is ascending. Multiple sort criteria are supported.",
+            "in": "query",
+            "name": "sort",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageSeriesDto"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "summary": "Get series of a smart list",
+        "tags": [
+          "Smart lists (kmrs extension)"
+        ]
+      }
+    },
     "/api/v1/syncpoints/me": {
       "delete": {
         "description": "If an API Key ID is passed, deletes only the sync points associated with that API Key. Deleting sync points will allow a Kobo to sync from scratch upon the next sync.",
@@ -11819,6 +12437,52 @@
           }
         }
       },
+      "PageSmartListDto": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SmartListDto"
+            }
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "first": {
+            "type": "boolean"
+          },
+          "last": {
+            "type": "boolean"
+          },
+          "number": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "numberOfElements": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageable": {
+            "$ref": "#/components/schemas/PageableObject"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "sort": {
+            "$ref": "#/components/schemas/SortObject"
+          },
+          "totalElements": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalPages": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "PageString": {
         "type": "object",
         "properties": {
@@ -13775,6 +14439,138 @@
           "libraryIds"
         ]
       },
+      "SmartListCreationDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sharedWithUserIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "summary": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string",
+            "enum": [
+              "BOOK",
+              "SERIES"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "PRIVATE",
+              "PUBLIC",
+              "SHARED"
+            ],
+            "default": "PRIVATE"
+          },
+          "search": {
+            "description": "BookSearch when target is BOOK, SeriesSearch when target is SERIES",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BookSearch"
+              },
+              {
+                "$ref": "#/components/schemas/SeriesSearch"
+              }
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "search",
+          "target"
+        ]
+      },
+      "SmartListDto": {
+        "type": "object",
+        "properties": {
+          "createdDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string"
+          },
+          "lastModifiedDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "name": {
+            "type": "string"
+          },
+          "ownerId": {
+            "type": "string"
+          },
+          "sharedWithUserIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "search": {
+            "description": "BookSearch when target is BOOK, SeriesSearch when target is SERIES"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string",
+            "enum": [
+              "BOOK",
+              "SERIES"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "PRIVATE",
+              "PUBLIC",
+              "SHARED"
+            ]
+          }
+        }
+      },
+      "SmartListUpdateDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "sharedWithUserIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "summary": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string",
+            "enum": [
+              "BOOK",
+              "SERIES"
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "PRIVATE",
+              "PUBLIC",
+              "SHARED"
+            ]
+          },
+          "search": {}
+        }
+      },
       "SortObject": {
         "type": "object",
         "properties": {
@@ -13977,6 +14773,48 @@
           "mediaType",
           "readListId",
           "selected",
+          "type",
+          "width"
+        ]
+      },
+      "ThumbnailSmartListDto": {
+        "type": "object",
+        "properties": {
+          "fileSize": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "height": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "id": {
+            "type": "string"
+          },
+          "mediaType": {
+            "type": "string"
+          },
+          "selected": {
+            "type": "boolean"
+          },
+          "smartListId": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "width": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "required": [
+          "fileSize",
+          "height",
+          "id",
+          "mediaType",
+          "selected",
+          "smartListId",
           "type",
           "width"
         ]

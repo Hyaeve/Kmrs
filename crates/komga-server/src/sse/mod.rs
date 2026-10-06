@@ -302,6 +302,26 @@ async fn map_event(state: &AppState, user: &KomgaUser, event: DomainEvent) -> Op
             }
         ),
 
+        DomainEvent::SmartListAdded(l) => {
+            out!("SmartListAdded", dto::SmartListSseDto { smart_list_id: l.id }, user l.owner_user_id)
+        }
+        DomainEvent::SmartListUpdated(l) => {
+            out!("SmartListChanged", dto::SmartListSseDto { smart_list_id: l.id }, user l.owner_user_id)
+        }
+        DomainEvent::SmartListDeleted(l) => {
+            out!("SmartListDeleted", dto::SmartListSseDto { smart_list_id: l.id }, user l.owner_user_id)
+        }
+        DomainEvent::SmartListThumbnailChanged {
+            smart_list_id,
+            user_id,
+        } => {
+            out!(
+                "SmartListThumbnailChanged",
+                dto::SmartListThumbnailSseDto { smart_list_id },
+                user user_id
+            )
+        }
+
         DomainEvent::ReadProgressChanged(p) => {
             out!("ReadProgressChanged", dto::ReadProgressSseDto { book_id: p.book_id, user_id: p.user_id.clone() }, user p.user_id)
         }

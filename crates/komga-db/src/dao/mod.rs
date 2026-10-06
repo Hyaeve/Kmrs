@@ -25,6 +25,8 @@ pub mod series;
 pub mod series_metadata_contribution;
 pub mod settings;
 pub mod sidecar;
+pub mod smart_list;
+pub mod smart_list_thumbnail;
 pub mod sync_point;
 pub mod tasks;
 pub mod thumbnail;

@@ -7,6 +7,7 @@ use komga_core::model::library::Library;
 use komga_core::model::read_progress::ReadProgress;
 use komga_core::model::readlist::ReadList;
 use komga_core::model::series::Series;
+use komga_core::model::smart_list::SmartList;
 use komga_core::model::thumbnail::{
     ThumbnailBook, ThumbnailReadList, ThumbnailSeries, ThumbnailSeriesCollection,
 };
@@ -66,6 +67,14 @@ pub enum DomainEvent {
         expire_session: bool,
     },
     UserDeleted(KomgaUser),
+
+    SmartListAdded(SmartList),
+    SmartListUpdated(SmartList),
+    SmartListDeleted(SmartList),
+    SmartListThumbnailChanged {
+        smart_list_id: String,
+        user_id: String,
+    },
 }
 
 /// Process-wide event bus. Lagging receivers skip ahead (broadcast semantics).

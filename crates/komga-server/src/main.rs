@@ -187,6 +187,7 @@ pub fn build_router(state: AppState) -> axum::Router {
         .merge(api::books::router())
         .merge(api::collections::router())
         .merge(api::readlists::router())
+        .merge(api::smartlists::router())
         .merge(api::tasks::router())
         .merge(api::komf::router())
         .merge(api::opds_v1::router())

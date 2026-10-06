@@ -19,6 +19,7 @@ pub mod reading_stats;
 pub mod readlist;
 pub mod scheduler;
 pub mod series;
+pub mod smart_list;
 pub mod sync_point;
 pub mod tasks;
 pub mod transient_book;

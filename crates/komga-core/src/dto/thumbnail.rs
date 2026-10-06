@@ -3,6 +3,7 @@
 
 use crate::model::thumbnail::{
     ThumbnailBook, ThumbnailReadList, ThumbnailSeries, ThumbnailSeriesCollection,
+    ThumbnailSmartList,
 };
 use serde::{Deserialize, Serialize};
 
@@ -112,6 +113,36 @@ impl From<&ThumbnailReadList> for ThumbnailReadListDto {
         Self {
             id: t.id.clone(),
             read_list_id: t.read_list_id.clone(),
+            type_: t.type_.as_str().to_string(),
+            selected: t.selected,
+            media_type: t.media_type.clone(),
+            file_size: t.file_size,
+            width: t.dimension.width,
+            height: t.dimension.height,
+        }
+    }
+}
+
+/// kmrs-only, not part of the Komga API surface.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThumbnailSmartListDto {
+    pub id: String,
+    pub smart_list_id: String,
+    #[serde(rename = "type")]
+    pub type_: String,
+    pub selected: bool,
+    pub media_type: String,
+    pub file_size: i64,
+    pub width: i32,
+    pub height: i32,
+}
+
+impl From<&ThumbnailSmartList> for ThumbnailSmartListDto {
+    fn from(t: &ThumbnailSmartList) -> Self {
+        Self {
+            id: t.id.clone(),
+            smart_list_id: t.smart_list_id.clone(),
             type_: t.type_.as_str().to_string(),
             selected: t.selected,
             media_type: t.media_type.clone(),

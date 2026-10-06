@@ -166,6 +166,12 @@ fn event_name(event: &DomainEvent) -> Option<&'static str> {
         DomainEvent::UserUpdated { .. } => "SessionExpired",
         // UserDeleted is never published (no publisher in codebase, Java parity only).
         DomainEvent::UserDeleted(_) => return None,
+        // kmrs-only events stay SSE-local: webhooks speak komga's event vocabulary,
+        // and external consumers would not know these names.
+        DomainEvent::SmartListAdded(_)
+        | DomainEvent::SmartListUpdated(_)
+        | DomainEvent::SmartListDeleted(_)
+        | DomainEvent::SmartListThumbnailChanged { .. } => return None,
     };
     Some(name)
 }
@@ -619,6 +625,11 @@ async fn event_payload(
         ),
         // UserDeleted is never published (no publisher in codebase, Java parity only).
         DomainEvent::UserDeleted(_) => return None,
+        // kmrs-only events stay SSE-local (same reason as `event_name` above).
+        DomainEvent::SmartListAdded(_)
+        | DomainEvent::SmartListUpdated(_)
+        | DomainEvent::SmartListDeleted(_)
+        | DomainEvent::SmartListThumbnailChanged { .. } => return None,
     };
     let (name, data) = value;
     data.ok().map(|data| (name, data))

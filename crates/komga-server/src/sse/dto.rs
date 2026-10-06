@@ -50,6 +50,18 @@ pub struct CollectionSseDto {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SmartListSseDto {
+    pub smart_list_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SmartListThumbnailSseDto {
+    pub smart_list_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ReadProgressSseDto {
     pub book_id: String,
     pub user_id: String,

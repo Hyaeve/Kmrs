@@ -554,7 +554,7 @@ async fn delete_user_uploaded_readlist_thumbnail(
 }
 
 /// `file` (image bytes) and `selected` (default true) from the multipart body
-async fn parse_thumbnail_upload(
+pub(crate) async fn parse_thumbnail_upload(
     multipart: &mut axum::extract::Multipart,
 ) -> Result<(Vec<u8>, bool), ApiError> {
     let mut bytes = None;
