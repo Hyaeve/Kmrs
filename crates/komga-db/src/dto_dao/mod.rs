@@ -8,6 +8,7 @@
 pub mod book;
 pub mod collection;
 pub mod kobo;
+pub mod library_stats;
 pub mod read_progress;
 pub mod reading_stats;
 pub mod readlist;

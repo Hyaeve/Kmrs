@@ -55,6 +55,82 @@ pub struct NamedValueDto {
     pub value: i64,
 }
 
+/// `GET /api/v1/stats/libraries`: per-library content counts under the caller's visibility.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibrariesStatsDto {
+    pub libraries: Vec<LibraryStatsDto>,
+    pub total: LibraryStatsTotalDto,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryStatsDto {
+    pub library_id: String,
+    pub name: String,
+    pub series: i64,
+    pub books: i64,
+    pub file_size: i64,
+}
+
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryStatsTotalDto {
+    pub series: i64,
+    pub books: i64,
+    pub file_size: i64,
+}
+
+/// `GET /api/v1/stats/server`: admin-only server state snapshot.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerStatsDto {
+    pub tasks: ServerTaskStatsDto,
+    pub process: ServerProcessStatsDto,
+    pub totals: ServerTotalsDto,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerTaskStatsDto {
+    pub queue_size: i64,
+    pub types: Vec<TaskTypeStatsDto>,
+}
+
+/// Execution metrics and queue depth merged by task type: a type shows up when it has
+/// queued tasks, recorded executions, or both.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskTypeStatsDto {
+    #[serde(rename = "type")]
+    pub task_type: String,
+    pub queued: i64,
+    pub executions: u64,
+    pub total_time_ms: i64,
+    pub max_time_ms: i64,
+    pub failures: u64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerProcessStatsDto {
+    #[serde(with = "dto_datetime")]
+    pub start_time: time::OffsetDateTime,
+    pub uptime_seconds: u64,
+    /// Percent of total CPU capacity (100 = every core busy).
+    pub cpu_usage: f64,
+    pub memory_bytes: i64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerTotalsDto {
+    pub libraries: i64,
+    pub collections: i64,
+    pub readlists: i64,
+    pub sidecars: i64,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReadingTimeSeriesPointDto {

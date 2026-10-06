@@ -1,12 +1,16 @@
-//! kmrs-private reading statistics (per user, visible books only), split by page block:
-//! totals (`/summary`), the time dimension (`/activity`) and content composition
-//! (`/tops`). Not part of the Komga API surface, so it stays out of the OpenAPI spec.
+//! kmrs-private statistics, not part of the Komga API surface (kept out of the OpenAPI
+//! spec): per-library content counts (`/libraries`) scoped to the caller's visibility,
+//! the admin-only server snapshot (`/server`), and per-user reading statistics
+//! (`/reading/*`, visible books only).
 
 use crate::auth::RequireAuth;
 use crate::dto::stats::{
-    NamedValueDto, ReadingActivityDto, ReadingSummaryDto, ReadingTimeSeriesPointDto, ReadingTopsDto,
+    LibrariesStatsDto, LibraryStatsDto, LibraryStatsTotalDto, NamedValueDto, ReadingActivityDto,
+    ReadingSummaryDto, ReadingTimeSeriesPointDto, ReadingTopsDto, ServerProcessStatsDto,
+    ServerStatsDto, ServerTaskStatsDto, ServerTotalsDto, TaskTypeStatsDto,
 };
 use crate::error::ApiError;
+use crate::service::metrics::TaskTypeMetrics;
 use crate::service::reading_stats;
 use crate::state::AppState;
 use axum::extract::{Query, State};
@@ -14,6 +18,8 @@ use axum::{routing, Json, Router};
 use komga_core::model::user::KomgaUser;
 use komga_core::time_codec;
 use komga_db::dao::reading_event::{ReadingEvent, ReadingEventDao};
+use komga_db::dao::tasks::TasksDao;
+use komga_db::dto_dao::library_stats::LibraryStatsDtoDao;
 use komga_db::dto_dao::reading_stats::{ReadingStatsDtoDao, ReadingTotals};
 use komga_db::search_sql::{content_restrictions_condition, library_ids_condition, SqlWhere};
 use serde::Deserialize;
@@ -22,6 +28,8 @@ use time::{Date, OffsetDateTime};
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route("/api/v1/stats/libraries", routing::get(libraries_stats))
+        .route("/api/v1/stats/server", routing::get(server_stats))
         .route(
             "/api/v1/stats/reading/summary",
             routing::get(reading_summary),
@@ -60,6 +68,97 @@ fn visibility(user: &KomgaUser, library_id: Option<&str>) -> (SqlWhere, SqlWhere
     let series = content_restrictions_condition(&user.restrictions)
         .and(library_ids_condition("SERIES", authorized.as_ref()));
     (book, series)
+}
+
+/// Per-library content counts (series/books/filesize) plus their total, all under the
+/// caller's visibility: sharing and content restrictions apply exactly like search, so
+/// the numbers match what the user can actually browse.
+async fn libraries_stats(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+) -> Result<Json<LibrariesStatsDto>, ApiError> {
+    let user = &auth.0.user;
+    let (book_visibility, series_visibility) = visibility(user, None);
+    let authorized = user.get_authorized_library_ids(None);
+    let rows = LibraryStatsDtoDao::new(state.db.clone()).per_library(
+        authorized.as_ref(),
+        &series_visibility,
+        &book_visibility,
+    )?;
+    let mut total = LibraryStatsTotalDto::default();
+    let libraries = rows
+        .into_iter()
+        .map(|row| {
+            total.series += row.series;
+            total.books += row.books;
+            total.file_size += row.filesize;
+            LibraryStatsDto {
+                library_id: row.library_id,
+                name: row.library_name,
+                series: row.series,
+                books: row.books,
+                file_size: row.filesize,
+            }
+        })
+        .collect();
+    Ok(Json(LibrariesStatsDto { libraries, total }))
+}
+
+/// The admin server snapshot: task queue depth merged with per-type execution metrics,
+/// process stats, and global content totals. ADMIN only, like the actuator metrics.
+async fn server_stats(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+) -> Result<Json<ServerStatsDto>, ApiError> {
+    auth.0.require_admin()?;
+
+    let queue = TasksDao::new(state.tasks_db.clone());
+    let queue_size = queue.count()?;
+    let mut by_type: BTreeMap<String, (i64, TaskTypeMetrics)> = queue
+        .count_by_simple_type()?
+        .into_iter()
+        .map(|(task_type, queued)| (task_type, (queued, TaskTypeMetrics::default())))
+        .collect();
+    for (task_type, executed) in crate::service::metrics::task_metrics() {
+        by_type.entry(task_type.to_string()).or_default().1 = executed;
+    }
+    let types = by_type
+        .into_iter()
+        .map(|(task_type, (queued, executed))| TaskTypeStatsDto {
+            task_type,
+            queued,
+            executions: executed.executions,
+            total_time_ms: executed.total.as_millis() as i64,
+            max_time_ms: executed.max.as_millis() as i64,
+            failures: executed.failures,
+        })
+        .collect();
+
+    let process = ServerProcessStatsDto {
+        start_time: OffsetDateTime::from_unix_timestamp_nanos(
+            (crate::service::metrics::process_start().1 * 1_000_000.0) as i128,
+        )
+        .unwrap(),
+        uptime_seconds: crate::service::metrics::process_start()
+            .0
+            .elapsed()
+            .as_secs(),
+        cpu_usage: crate::service::metrics::cpu_usage_percent(),
+        memory_bytes: crate::service::metrics::rss_bytes(),
+    };
+
+    let totals = ServerTotalsDto {
+        libraries: crate::service::metrics::count_of(&state, "LIBRARY"),
+        collections: crate::service::metrics::count_of(&state, "COLLECTION"),
+        readlists: crate::service::metrics::count_of(&state, "READLIST"),
+        sidecars: crate::service::metrics::count_of(&state, "SIDECAR"),
+    };
+
+    Ok(Json(ServerStatsDto {
+        tasks: ServerTaskStatsDto { queue_size, types },
+        process,
+        totals,
+    }))
 }
 
 /// The user's full READING_EVENT history filtered to visible series. Visibility is
@@ -787,6 +886,8 @@ mod tests {
             ))
             .with_state(app.state.clone());
         for uri in [
+            "/api/v1/stats/libraries",
+            "/api/v1/stats/server",
             "/api/v1/stats/reading/summary",
             "/api/v1/stats/reading/activity",
             "/api/v1/stats/reading/tops",
@@ -801,6 +902,185 @@ mod tests {
             .unwrap();
             assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "uri {uri}");
         }
+    }
+
+    fn seed_book_sized(
+        db: &Database,
+        book_id: &str,
+        series_id: &str,
+        library_id: &str,
+        file_size: i64,
+    ) {
+        exec(
+            db,
+            "INSERT INTO BOOK (ID, NAME, URL, FILE_LAST_MODIFIED, SERIES_ID, LIBRARY_ID, FILE_SIZE) \
+             VALUES (?, 'b', 'file:/data/s/b.cbz', '2024-01-01 00:00:00.0', ?, ?, ?)",
+            rusqlite::params![book_id, series_id, library_id, file_size],
+        );
+    }
+
+    fn seed_sidecar(db: &Database, url: &str, library_id: &str) {
+        exec(
+            db,
+            "INSERT INTO SIDECAR (URL, PARENT_URL, LAST_MODIFIED_TIME, LIBRARY_ID) \
+             VALUES (?, 'file:/data/s/b.cbz', '2024-01-01', ?)",
+            rusqlite::params![url, library_id],
+        );
+    }
+
+    fn admin_app() -> TestApp {
+        let app = TestApp::new(router());
+        let admin = insert_user(&app.state.db, "admin@x.c", true, true, &[]);
+        insert_api_key(&app.state.db, &admin, "k");
+        app
+    }
+
+    #[tokio::test]
+    async fn libraries_stats_scope_to_sharing_and_restrictions() {
+        let app = TestApp::new(router());
+        // the shared library must exist before the user row references it
+        seed_library(&app.state.db, "l1");
+        crate::api::collections::tests::insert_user(
+            &app.state.db,
+            "kid@x.c",
+            &[],
+            &["l1"],
+            ContentRestrictions::new(
+                Some(AgeRestriction {
+                    age: 18,
+                    restriction: AllowExclude::Exclude,
+                }),
+                Default::default(),
+                Default::default(),
+            ),
+            "k",
+        );
+        seed_series(&app.state.db, "s1", "l1", None);
+        seed_book_sized(&app.state.db, "b1", "s1", "l1", 100);
+        seed_series(&app.state.db, "s3", "l1", Some(21));
+        seed_book_sized(&app.state.db, "b3", "s3", "l1", 300);
+        seed_series(&app.state.db, "s2", "l2", None);
+        seed_book_sized(&app.state.db, "b2", "s2", "l2", 200);
+
+        let (status, body) = app.get_json("/api/v1/stats/libraries", "k").await;
+        assert_eq!(status, StatusCode::OK);
+        let libraries = body["libraries"].as_array().unwrap();
+        assert_eq!(libraries.len(), 1);
+        assert_eq!(libraries[0]["libraryId"], "l1");
+        assert_eq!(libraries[0]["name"], "l1");
+        // s3 (21+) and its book are invisible, so they leave no trace in the counts
+        assert_eq!(libraries[0]["series"], 1);
+        assert_eq!(libraries[0]["books"], 1);
+        assert_eq!(libraries[0]["fileSize"], 100);
+        assert_eq!(
+            body["total"],
+            serde_json::json!({"series": 1, "books": 1, "fileSize": 100})
+        );
+    }
+
+    #[tokio::test]
+    async fn libraries_stats_empty_for_user_without_libraries() {
+        let app = TestApp::new(router());
+        seed_series(&app.state.db, "s1", "l1", None);
+        seed_book_sized(&app.state.db, "b1", "s1", "l1", 100);
+        let user = insert_user(&app.state.db, "none@x.c", false, false, &[]);
+        insert_api_key(&app.state.db, &user, "k");
+
+        let (status, body) = app.get_json("/api/v1/stats/libraries", "k").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["libraries"], serde_json::json!([]));
+        assert_eq!(
+            body["total"],
+            serde_json::json!({"series": 0, "books": 0, "fileSize": 0})
+        );
+    }
+
+    #[tokio::test]
+    async fn libraries_stats_admin_gets_every_library_zero_filled() {
+        let app = admin_app();
+        seed_series(&app.state.db, "s1", "l1", None);
+        seed_book_sized(&app.state.db, "b1", "s1", "l1", 100);
+        seed_library(&app.state.db, "l2");
+
+        let (status, body) = app.get_json("/api/v1/stats/libraries", "k").await;
+        assert_eq!(status, StatusCode::OK);
+        let libraries = body["libraries"].as_array().unwrap();
+        assert_eq!(libraries.len(), 2);
+        // the empty library reports zeros instead of vanishing like the actuator MultiGauge
+        assert_eq!(libraries[1]["libraryId"], "l2");
+        assert_eq!(libraries[1]["series"], 0);
+        assert_eq!(libraries[1]["books"], 0);
+        assert_eq!(libraries[1]["fileSize"], 0);
+        assert_eq!(
+            body["total"],
+            serde_json::json!({"series": 1, "books": 1, "fileSize": 100})
+        );
+    }
+
+    #[tokio::test]
+    async fn server_stats_requires_admin() {
+        let (app, _) = user_app();
+        let (status, _) = app.get("/api/v1/stats/server", "k").await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn server_stats_merges_queue_and_execution_by_type() {
+        let app = admin_app();
+        seed_series(&app.state.db, "s1", "l1", None);
+        seed_book_sized(&app.state.db, "b1", "s1", "l1", 100);
+        seed_sidecar(&app.state.db, "file:/data/s/b.json", "l1");
+        seed_library(&app.state.db, "l2");
+        exec(
+            &app.state.tasks_db,
+            "INSERT INTO TASK (ID, PRIORITY, CLASS, SIMPLE_TYPE, PAYLOAD) VALUES \
+             ('t1', 5, 'c', 'StatsExecTask', '{}'), \
+             ('t2', 5, 'c', 'StatsExecTask', '{}'), \
+             ('t3', 5, 'c', 'StatsQueueTask', '{}')",
+            [],
+        );
+        // a made-up type keeps the assertions deterministic: other tests in this binary
+        // record real task types into the same process-global registry
+        crate::service::metrics::record_task_execution(
+            "StatsExecTask",
+            std::time::Duration::from_millis(120),
+            true,
+        );
+        crate::service::metrics::record_task_execution(
+            "StatsExecTask",
+            std::time::Duration::ZERO,
+            false,
+        );
+
+        let (status, body) = app.get_json("/api/v1/stats/server", "k").await;
+        assert_eq!(status, StatusCode::OK);
+
+        assert_eq!(body["tasks"]["queueSize"], 3);
+        let types = body["tasks"]["types"].as_array().unwrap();
+        let find = |name: &str| types.iter().find(|t| t["type"] == name).cloned().unwrap();
+        let executed = find("StatsExecTask");
+        assert_eq!(executed["queued"], 2);
+        assert_eq!(executed["executions"], 1);
+        assert_eq!(executed["totalTimeMs"], 120);
+        assert_eq!(executed["maxTimeMs"], 120);
+        assert_eq!(executed["failures"], 1);
+        let queued_only = find("StatsQueueTask");
+        assert_eq!(queued_only["queued"], 1);
+        assert_eq!(queued_only["executions"], 0);
+        assert_eq!(queued_only["failures"], 0);
+
+        assert!(body["process"]["startTime"]
+            .as_str()
+            .unwrap()
+            .ends_with('Z'));
+        assert!(body["process"]["uptimeSeconds"].as_u64().is_some());
+        assert!(body["process"]["cpuUsage"].as_f64().unwrap() >= 0.0);
+        assert!(body["process"]["memoryBytes"].as_i64().unwrap() > 0);
+
+        assert_eq!(body["totals"]["libraries"], 2);
+        assert_eq!(body["totals"]["collections"], 0);
+        assert_eq!(body["totals"]["readlists"], 0);
+        assert_eq!(body["totals"]["sidecars"], 1);
     }
 
     fn progress(user_id: &str, book_id: &str, page: i32) -> ReadProgress {

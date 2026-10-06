@@ -49,7 +49,7 @@ async fn main() -> anyhow::Result<()> {
     let cli = config::Cli::parse();
     // Start time must be recorded now, not lazily on the first metrics request,
     // or process.uptime starts counting from that request.
-    api::actuator::process_start();
+    service::metrics::process_start();
     let _log_guard = logging::init(&config::config_dir(&cli).join("logs"));
 
     #[cfg(all(feature = "profiling", unix))]
