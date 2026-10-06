@@ -71,6 +71,10 @@ pub struct LibraryStatsDto {
     pub series: i64,
     pub books: i64,
     pub file_size: i64,
+    /// Lists holding at least one visible member of this library; a list spanning
+    /// libraries counts in each of them.
+    pub readlists: i64,
+    pub collections: i64,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -79,6 +83,9 @@ pub struct LibraryStatsTotalDto {
     pub series: i64,
     pub books: i64,
     pub file_size: i64,
+    /// Distinct lists over all visible libraries — not the sum of the per-library counts.
+    pub readlists: i64,
+    pub collections: i64,
 }
 
 /// `GET /api/v1/stats/server`: admin-only server state snapshot.

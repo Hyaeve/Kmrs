@@ -1,8 +1,8 @@
 //! Aggregation queries for the kmrs-private library-stats endpoint: per-library content
-//! counts (series, books, cumulated filesize) under the caller's visibility. Visibility
-//! reuses the search-layer SQL fragments (`content_restrictions_condition` /
-//! `library_ids_condition`), so the counts match exactly what a search would return.
-//! kmrs-private, no Java equivalent.
+//! counts (series, books, cumulated filesize) and list memberships (read lists,
+//! collections) under the caller's visibility. Visibility reuses the search-layer SQL
+//! fragments (`content_restrictions_condition` / `library_ids_condition`), so the counts
+//! match exactly what a search would return. kmrs-private, no Java equivalent.
 
 use crate::error::Result;
 use crate::pool::Database;
@@ -22,6 +22,20 @@ pub struct LibraryStatsRow {
     pub series: i64,
     pub books: i64,
     pub filesize: i64,
+    /// Lists holding at least one visible member of this library (the `belongs_to`
+    /// semantics of `ReadListDao`/`SeriesCollectionDao`): a list spanning libraries
+    /// counts in each of them.
+    pub readlists: i64,
+    pub collections: i64,
+}
+
+/// Distinct lists holding at least one visible member across all visible libraries.
+/// The total row needs these queries of its own: per-library counts sum a spanning list
+/// once per touched library.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MembershipTotals {
+    pub readlists: i64,
+    pub collections: i64,
 }
 
 /// SERIES_METADATA joins on its primary key (1:1), so when the visibility fragment does
@@ -39,6 +53,50 @@ fn where_clause(visibility: &SqlWhere) -> String {
         String::new()
     } else {
         format!(" WHERE {}", visibility.sql)
+    }
+}
+
+fn readlist_from(book: &SqlWhere) -> String {
+    format!(
+        " FROM READLIST_BOOK INNER JOIN BOOK ON (READLIST_BOOK.BOOK_ID = BOOK.ID){}{}",
+        series_metadata_join(book, "BOOK.SERIES_ID"),
+        where_clause(book),
+    )
+}
+
+fn collection_from(series: &SqlWhere) -> String {
+    format!(
+        " FROM COLLECTION_SERIES INNER JOIN SERIES ON (COLLECTION_SERIES.SERIES_ID = SERIES.ID){}{}",
+        series_metadata_join(series, "SERIES.ID"),
+        where_clause(series),
+    )
+}
+
+/// (library_id, count) rows of a GROUP BY query.
+fn count_rows(
+    conn: &rusqlite::Connection,
+    sql: &str,
+    params: Vec<Value>,
+) -> Result<Vec<(String, i64)>> {
+    let mut stmt = conn.prepare(sql)?;
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(params), |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+fn fill(
+    rows: &mut [LibraryStatsRow],
+    index: &HashMap<String, usize>,
+    counts: Vec<(String, i64)>,
+    set: impl Fn(&mut LibraryStatsRow, i64),
+) {
+    for (library_id, count) in counts {
+        if let Some(&i) = index.get(&library_id) {
+            set(&mut rows[i], count);
+        }
     }
 }
 
@@ -90,6 +148,8 @@ impl LibraryStatsDtoDao {
                 series: 0,
                 books: 0,
                 filesize: 0,
+                readlists: 0,
+                collections: 0,
             })
             .collect();
         let index: HashMap<String, usize> = rows
@@ -103,19 +163,8 @@ impl LibraryStatsDtoDao {
             series_metadata_join(series, "SERIES.ID"),
             where_clause(series),
         );
-        let mut stmt = conn.prepare(&series_sql)?;
-        let series_counts = stmt
-            .query_map(
-                rusqlite::params_from_iter(series.params.iter().cloned()),
-                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
-            )?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-        drop(stmt);
-        for (library_id, count) in series_counts {
-            if let Some(&i) = index.get(&library_id) {
-                rows[i].series = count;
-            }
-        }
+        let counts = count_rows(&conn, &series_sql, series.params.clone())?;
+        fill(&mut rows, &index, counts, |row, count| row.series = count);
 
         let book_sql = format!(
             "SELECT BOOK.LIBRARY_ID, COUNT(*), COALESCE(SUM(BOOK.FILE_SIZE), 0) FROM BOOK{}{} \
@@ -144,6 +193,63 @@ impl LibraryStatsDtoDao {
             }
         }
 
+        // membership counts follow the members' visibility: a list whose only members
+        // in this library are invisible to the caller does not count
+        let readlist_sql = format!(
+            "SELECT BOOK.LIBRARY_ID, COUNT(DISTINCT READLIST_BOOK.READLIST_ID){} \
+             GROUP BY BOOK.LIBRARY_ID",
+            readlist_from(book),
+        );
+        let counts = count_rows(&conn, &readlist_sql, book.params.clone())?;
+        fill(&mut rows, &index, counts, |row, count| {
+            row.readlists = count;
+        });
+
+        let collection_sql = format!(
+            "SELECT SERIES.LIBRARY_ID, COUNT(DISTINCT COLLECTION_SERIES.COLLECTION_ID){} \
+             GROUP BY SERIES.LIBRARY_ID",
+            collection_from(series),
+        );
+        let counts = count_rows(&conn, &collection_sql, series.params.clone())?;
+        fill(&mut rows, &index, counts, |row, count| {
+            row.collections = count;
+        });
+
         Ok(rows)
+    }
+
+    /// Distinct list counts over all visible libraries: the total row's read lists and
+    /// collections. `series`/`book` are the same visibility fragments as `per_library`.
+    pub fn membership_totals(
+        &self,
+        series: &SqlWhere,
+        book: &SqlWhere,
+    ) -> Result<MembershipTotals> {
+        let conn = self.db.ro()?;
+
+        let readlist_sql = format!(
+            "SELECT COUNT(DISTINCT READLIST_BOOK.READLIST_ID){}",
+            readlist_from(book)
+        );
+        let readlists: i64 = conn.query_row(
+            &readlist_sql,
+            rusqlite::params_from_iter(book.params.iter().cloned()),
+            |r| r.get(0),
+        )?;
+
+        let collection_sql = format!(
+            "SELECT COUNT(DISTINCT COLLECTION_SERIES.COLLECTION_ID){}",
+            collection_from(series)
+        );
+        let collections: i64 = conn.query_row(
+            &collection_sql,
+            rusqlite::params_from_iter(series.params.iter().cloned()),
+            |r| r.get(0),
+        )?;
+
+        Ok(MembershipTotals {
+            readlists,
+            collections,
+        })
     }
 }
