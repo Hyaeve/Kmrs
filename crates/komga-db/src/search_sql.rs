@@ -484,9 +484,6 @@ fn series_condition_internal(
         }
         SearchConditionSeries::Author { author } => {
             let (Equality::Is { value } | Equality::IsNot { value }) = author;
-            if value.name.is_none() && value.role.is_none() {
-                return SqlWhere::no_condition();
-            }
             let mut sql = "SELECT SERIES_ID FROM BOOK_METADATA_AGGREGATION_AUTHOR WHERE 1 = 1".to_string();
             let mut params = vec![];
             if let Some(name) = &value.name {
@@ -775,9 +772,6 @@ fn book_condition_internal(
         }
         SearchConditionBook::Author { author } => {
             let (Equality::Is { value } | Equality::IsNot { value }) = author;
-            if value.name.is_none() && value.role.is_none() {
-                return SqlWhere::no_condition();
-            }
             let mut sql = "SELECT BOOK_ID FROM BOOK_METADATA_AUTHOR WHERE 1 = 1".to_string();
             let mut params = vec![];
             if let Some(name) = &value.name {
@@ -1110,12 +1104,24 @@ mod tests {
     }
 
     #[test]
-    fn author_without_name_and_role_is_no_condition() {
+    fn author_without_name_and_role_matches_any_author() {
         let w = book_condition(
             Some(&parse_book(r#"{"author":{"operator":"is","value":{}}}"#)),
             &ctx(None),
         );
-        assert!(w.is_empty());
+        assert_eq!(
+            w.sql,
+            "BOOK.ID IN (SELECT BOOK_ID FROM BOOK_METADATA_AUTHOR WHERE 1 = 1)"
+        );
+
+        let w = book_condition(
+            Some(&parse_book(r#"{"author":{"operator":"isNot","value":{}}}"#)),
+            &ctx(None),
+        );
+        assert_eq!(
+            w.sql,
+            "BOOK.ID NOT IN (SELECT BOOK_ID FROM BOOK_METADATA_AUTHOR WHERE 1 = 1)"
+        );
 
         let w = book_condition(
             Some(&parse_book(

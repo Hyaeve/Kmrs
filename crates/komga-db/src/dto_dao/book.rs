@@ -1670,6 +1670,26 @@ mod tests {
             )
             .unwrap();
         assert!(page.items.is_empty());
+        // empty AuthorMatch matches books having any author
+        let page = d
+            .find_all(&search(Some(by(None, None))), &ctx_user(), &unpaged())
+            .unwrap();
+        assert_eq!(id_set(&page), set(&["b1"]));
+        let page = d
+            .find_all(
+                &search(Some(SearchConditionBook::Author {
+                    author: Equality::IsNot {
+                        value: AuthorMatch {
+                            name: None,
+                            role: None,
+                        },
+                    },
+                })),
+                &ctx_user(),
+                &unpaged(),
+            )
+            .unwrap();
+        assert_eq!(id_set(&page), set(&["b2", "b3", "b4", "b5", "b6"]));
     }
 
     #[test]

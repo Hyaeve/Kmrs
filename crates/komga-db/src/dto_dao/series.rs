@@ -1093,6 +1093,28 @@ mod tests {
     }
 
     #[test]
+    fn filter_by_author() {
+        let db = fixtures();
+        let dao = SeriesDtoDao::new(db);
+        let by_author = |op: &str, value: &str| {
+            let condition: SearchConditionSeries = serde_json::from_str(&format!(
+                r#"{{"author":{{"operator":"{op}","value":{value}}}}}"#
+            ))
+            .unwrap();
+            dao.find_all(&search(Some(condition)), None, &ctx("u1"), &unpaged())
+                .unwrap()
+                .items
+                .into_iter()
+                .map(|s| s.id)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(by_author("is", r#"{"name":"Kentaro Miura"}"#), ["s1"]);
+        // empty match searches for any author
+        assert_eq!(by_author("is", "{}"), ["s1"]);
+        assert_eq!(by_author("isNot", "{}"), ["s2", "s3"]);
+    }
+
+    #[test]
     fn filter_publisher_is_case_insensitive() {
         let db = fixtures();
         let dao = SeriesDtoDao::new(db);
