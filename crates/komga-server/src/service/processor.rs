@@ -49,10 +49,12 @@ fn disown_at_startup(state: &AppState) {
 static WORKER_ID: AtomicU32 = AtomicU32::new(0);
 
 /// Processes tasks until none are runnable, with at most `task_pool_size` concurrent workers.
+/// The pool size is re-read on every worker completion so a settings change applies to the
+/// in-flight drain, not just the next one.
 async fn drain_queue(state: &AppState) {
-    let pool_size = state.settings.get().task_pool_size.max(1) as usize;
     let mut set = tokio::task::JoinSet::new();
     loop {
+        let pool_size = state.settings.get().task_pool_size.max(1) as usize;
         while set.len() < pool_size && has_available(state).await {
             let st = state.clone();
             let id = WORKER_ID.fetch_add(1, Ordering::Relaxed) + 1;
