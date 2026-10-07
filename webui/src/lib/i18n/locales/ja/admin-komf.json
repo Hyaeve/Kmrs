@@ -227,6 +227,8 @@
   "extras": {
     "tagsScoreThreshold": "タグスコアのしきい値",
     "tagsSizeLimit": "タグ数の上限",
+    "titleLanguagePriority": "タイトル/スタッフ名の言語優先順位",
+    "titleLanguagePriorityHelper": "タイトルとスタッフ名の優先言語リスト。1 行に 1 つずつ入力（例: native, romaji, english）。空欄の場合はアカウントのデフォルトを使用します。",
     "coverLanguages": "カバーの言語",
     "mangaDexLinksHelper": "MangaDex から引き継ぐ外部リンク。",
     "mode": "モード",
@@ -262,6 +264,8 @@
       "title": "オフラインアーカイブ",
       "enabledHelper": "API の代わりにローカルのアーカイブデータベースと照合します。",
       "directory": "アーカイブディレクトリ",
+      "staffChineseNames": "作者/出版社の中国語名",
+      "staffChineseNamesHelper": "オフラインアーカイブの作者と出版社に中国語名を優先します。",
       "downloadUrl": "ダウンロード URL",
       "downloadUrlHelper": "空欄の場合はデフォルトの e-hentai-db リリースを使用します。",
       "dbFile": "データベースファイル",

@@ -229,6 +229,8 @@
   "extras": {
     "tagsScoreThreshold": "Umbral de puntuación de etiquetas",
     "tagsSizeLimit": "Límite de tamaño de etiquetas",
+    "titleLanguagePriority": "Prioridad de idioma de título/staff",
+    "titleLanguagePriorityHelper": "Lista de prioridad para títulos y nombres del staff, uno por línea (p. ej. native, romaji, english). Vacío = valor predeterminado de la cuenta.",
     "coverLanguages": "Idiomas de portada",
     "mangaDexLinksHelper": "Enlaces externos traídos de MangaDex.",
     "mode": "Modo",
@@ -264,6 +266,8 @@
       "title": "Archivo offline",
       "enabledHelper": "Comparar con una base de datos de archivo local en lugar de la API.",
       "directory": "Directorio del archivo",
+      "staffChineseNames": "Nombres chinos de autores/editoriales",
+      "staffChineseNamesHelper": "Prefiere los nombres chinos del archivo para autores y editoriales.",
       "downloadUrl": "URL de descarga",
       "downloadUrlHelper": "Vacío usa la versión predeterminada de e-hentai-db.",
       "dbFile": "Archivo de base de datos",

@@ -228,6 +228,8 @@
   "extras": {
     "tagsScoreThreshold": "Tags score threshold",
     "tagsSizeLimit": "Tags size limit",
+    "titleLanguagePriority": "Title/staff language priority",
+    "titleLanguagePriorityHelper": "Priority list for titles and staff names, one per line (e.g. native, romaji, english). Empty uses the account default.",
     "coverLanguages": "Cover languages",
     "mangaDexLinksHelper": "External links carried over from MangaDex.",
     "mode": "Mode",
@@ -263,6 +265,8 @@
       "title": "Offline archive",
       "enabledHelper": "Match against a local archive database instead of the API.",
       "directory": "Archive directory",
+      "staffChineseNames": "Chinese author/publisher names",
+      "staffChineseNamesHelper": "Prefer the archived Chinese names for authors and publishers.",
       "downloadUrl": "Download URL",
       "downloadUrlHelper": "Empty uses the default e-hentai-db release.",
       "dbFile": "Database file",

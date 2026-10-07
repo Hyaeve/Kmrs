@@ -227,6 +227,8 @@
   "extras": {
     "tagsScoreThreshold": "태그 평점 임계값",
     "tagsSizeLimit": "태그 크기 제한",
+    "titleLanguagePriority": "제목/스태프 언어 우선순위",
+    "titleLanguagePriorityHelper": "제목과 스태프 이름의 우선순위 목록입니다. 한 줄에 하나씩 입력하세요(예: native, romaji, english). 비워 두면 계정 기본값을 사용합니다.",
     "coverLanguages": "표지 언어",
     "mangaDexLinksHelper": "MangaDex에서 가져온 외부 링크입니다.",
     "mode": "모드",
@@ -262,6 +264,8 @@
       "title": "오프라인 아카이브",
       "enabledHelper": "API 대신 로컬 아카이브 데이터베이스와 매칭합니다.",
       "directory": "아카이브 디렉터리",
+      "staffChineseNames": "저자/출판사 중국어 이름",
+      "staffChineseNamesHelper": "오프라인 아카이브의 저자와 출판사에 중국어 이름을 우선 사용합니다.",
       "downloadUrl": "다운로드 URL",
       "downloadUrlHelper": "비워 두면 기본 e-hentai-db 릴리스를 사용합니다.",
       "dbFile": "데이터베이스 파일",

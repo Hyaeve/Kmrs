@@ -1045,6 +1045,7 @@ export interface KomfBangumiArchiveConfig {
   dir?: string | null
   updateIntervalHours?: number
   idleReleaseSecs?: number | null
+  staffChineseNames?: boolean
 }
 
 export interface KomfEHentaiArchiveConfig {
@@ -1075,6 +1076,7 @@ export interface KomfProviderConfig {
   /** aniList */
   tagsScoreThreshold?: number
   tagsSizeLimit?: number
+  titleLanguagePriority?: string[]
   /** mangaDex / mangaBaka */
   coverLanguages?: string[]
   links?: KomfMangaDexLink[]

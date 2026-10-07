@@ -27,14 +27,23 @@ function ArchiveFields({ provider, value, onChange }: ProviderExtrasProps) {
         />
       </FormRow>
       {provider === 'bangumi' && (
-        <FormRow label={t('extras.archive.directory')}>
-          <FieldInput
-            aria-label={t('extras.archive.directory')}
-            className="w-56"
-            value={value.archiveDir}
-            onChange={(e) => set({ archiveDir: e.target.value })}
-          />
-        </FormRow>
+        <>
+          <FormRow label={t('extras.archive.directory')}>
+            <FieldInput
+              aria-label={t('extras.archive.directory')}
+              className="w-56"
+              value={value.archiveDir}
+              onChange={(e) => set({ archiveDir: e.target.value })}
+            />
+          </FormRow>
+          <FormRow label={t('extras.archive.staffChineseNames')} helper={t('extras.archive.staffChineseNamesHelper')}>
+            <Switch
+              checked={value.archiveStaffChineseNames}
+              onCheckedChange={(v) => set({ archiveStaffChineseNames: v })}
+              label={t('extras.archive.staffChineseNames')}
+            />
+          </FormRow>
+        </>
       )}
       {provider === 'eHentai' && (
         <>
@@ -131,6 +140,17 @@ export function ProviderExtras({ provider, value, onChange }: ProviderExtrasProp
               onChange={(e) => set({ tagsSizeLimit: e.target.value })}
             />
           </FormRow>
+          <div className="py-3">
+            <p className="text-sm text-ink-2">{t('extras.titleLanguagePriority')}</p>
+            <p className="mt-0.5 text-xs text-ink-3">{t('extras.titleLanguagePriorityHelper')}</p>
+            <div className="mt-2">
+              <StringListInput
+                aria-label={t('extras.titleLanguagePriority')}
+                value={value.titleLanguagePriority}
+                onChange={(v) => set({ titleLanguagePriority: v })}
+              />
+            </div>
+          </div>
         </>
       )
     case 'mangaDex':

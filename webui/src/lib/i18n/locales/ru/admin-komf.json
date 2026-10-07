@@ -230,6 +230,8 @@
   "extras": {
     "tagsScoreThreshold": "Порог оценки тегов",
     "tagsSizeLimit": "Лимит размера тегов",
+    "titleLanguagePriority": "Приоритет языка названий/авторов",
+    "titleLanguagePriorityHelper": "Список приоритетов для названий и имён авторов, по одному на строку (напр. native, romaji, english). Пусто — по умолчанию из аккаунта.",
     "coverLanguages": "Языки обложек",
     "mangaDexLinksHelper": "Внешние ссылки, перенесённые из MangaDex.",
     "mode": "Режим",
@@ -265,6 +267,8 @@
       "title": "Офлайн-архив",
       "enabledHelper": "Сопоставлять по локальной базе данных архива вместо API.",
       "directory": "Каталог архива",
+      "staffChineseNames": "Китайские имена авторов/издателей",
+      "staffChineseNamesHelper": "Использовать китайские имена из архива для авторов и издателей.",
       "downloadUrl": "URL скачивания",
       "downloadUrlHelper": "Пустое значение использует релиз e-hentai-db по умолчанию.",
       "dbFile": "Файл базы данных",

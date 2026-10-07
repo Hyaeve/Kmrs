@@ -227,6 +227,8 @@
   "extras": {
     "tagsScoreThreshold": "标签评分阈值",
     "tagsSizeLimit": "标签数量上限",
+    "titleLanguagePriority": "标题/staff 语言优先级",
+    "titleLanguagePriorityHelper": "标题与 staff 名的优先级列表，每行一个（如 native, romaji, english）。留空使用账户默认。",
     "coverLanguages": "封面语言",
     "mangaDexLinksHelper": "从 MangaDex 带过来的外部链接。",
     "mode": "模式",
@@ -262,6 +264,8 @@
       "title": "离线数据库",
       "enabledHelper": "匹配本地数据库，而不是调用 API。",
       "directory": "数据库目录",
+      "staffChineseNames": "作者/出版社中文名",
+      "staffChineseNamesHelper": "离线数据库中的作者与出版社优先使用中文名。",
       "downloadUrl": "下载地址",
       "downloadUrlHelper": "留空使用默认的 e-hentai-db 发布。",
       "dbFile": "数据库文件",

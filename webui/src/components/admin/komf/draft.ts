@@ -294,6 +294,7 @@ export interface ProviderDraft {
   /** aniList */
   tagsScoreThreshold: string
   tagsSizeLimit: string
+  titleLanguagePriority: string[]
   /** mangaDex / mangaBaka */
   coverLanguages: string[]
   links: KomfMangaDexLink[]
@@ -311,6 +312,7 @@ export interface ProviderDraft {
   archiveDbFile: string
   archiveUpdateIntervalHours: string
   archiveIdleReleaseSecs: string
+  archiveStaffChineseNames: boolean
   archiveSearchCategoryFilter: string[]
   archiveSearchUploaderFilter: string[]
   /** eHentai */
@@ -343,6 +345,7 @@ export function providerDraftFromConfig(key: KomfProviderKey, p: KomfProviderCon
     bookMetadata: bookMetadataDraftFromConfig(p?.bookMetadata),
     tagsScoreThreshold: (p?.tagsScoreThreshold ?? 60).toString(),
     tagsSizeLimit: (p?.tagsSizeLimit ?? 15).toString(),
+    titleLanguagePriority: p?.titleLanguagePriority ? [...p.titleLanguagePriority] : [],
     coverLanguages: p?.coverLanguages ? [...p.coverLanguages] : ['en', 'ja'],
     links: p?.links ? [...p.links] : [...MANGADEX_LINK_OPTIONS],
     mode: p?.mode ?? 'API',
@@ -355,6 +358,8 @@ export function providerDraftFromConfig(key: KomfProviderKey, p: KomfProviderCon
     archiveDbFile: ehArchive && 'dbFile' in ehArchive ? (ehArchive.dbFile ?? '') : '',
     archiveUpdateIntervalHours: (archive?.updateIntervalHours ?? 168).toString(),
     archiveIdleReleaseSecs: (archive?.idleReleaseSecs ?? 60).toString(),
+    archiveStaffChineseNames:
+      archive && 'staffChineseNames' in archive ? (archive.staffChineseNames ?? false) : false,
     archiveSearchCategoryFilter:
       ehArchive && 'searchCategoryFilter' in ehArchive ? [...(ehArchive.searchCategoryFilter ?? [])] : [],
     archiveSearchUploaderFilter:
@@ -870,6 +875,9 @@ function providerChanges(key: KomfProviderKey, src: KomfProviderConfig, d: Provi
     if (tst !== (src.tagsScoreThreshold ?? 60).toString() && nonNegativeInt(tst)) out.tagsScoreThreshold = Number(tst)
     const tsl = d.tagsSizeLimit.trim()
     if (tsl !== (src.tagsSizeLimit ?? 15).toString() && nonNegativeInt(tsl)) out.tagsSizeLimit = Number(tsl)
+    // ordered priority list: membership-only comparison would silently drop reorders
+    if (!sameStringArray(cleanList(d.titleLanguagePriority), src.titleLanguagePriority ?? []))
+      out.titleLanguagePriority = cleanList(d.titleLanguagePriority)
   }
 
   if (key === 'mangaDex' || key === 'mangaBaka') {
@@ -928,6 +936,8 @@ function providerChanges(key: KomfProviderKey, src: KomfProviderConfig, d: Provi
     if (key === 'bangumi') {
       const dir = d.archiveDir.trim()
       if (dir !== srcArchive.archiveDir) archive.dir = dir === '' ? null : dir
+      if (d.archiveStaffChineseNames !== srcArchive.archiveStaffChineseNames)
+        archive.staffChineseNames = d.archiveStaffChineseNames
     } else {
       const url = d.archiveUrl.trim()
       if (url !== srcArchive.archiveUrl) archive.url = url === '' ? null : url
@@ -968,6 +978,7 @@ function providerDraftToConfig(key: KomfProviderKey, d: ProviderDraft): KomfProv
   if (key === 'aniList') {
     config.tagsScoreThreshold = Number(d.tagsScoreThreshold)
     config.tagsSizeLimit = Number(d.tagsSizeLimit)
+    config.titleLanguagePriority = cleanList(d.titleLanguagePriority)
   }
   if (key === 'mangaDex' || key === 'mangaBaka') config.coverLanguages = cleanList(d.coverLanguages)
   if (key === 'mangaDex') config.links = d.links
@@ -981,6 +992,7 @@ function providerDraftToConfig(key: KomfProviderKey, d: ProviderDraft): KomfProv
       dir: d.archiveDir.trim() === '' ? null : d.archiveDir.trim(),
       updateIntervalHours: Number(d.archiveUpdateIntervalHours),
       idleReleaseSecs: Number(d.archiveIdleReleaseSecs),
+      staffChineseNames: d.archiveStaffChineseNames,
     }
   }
   if (key === 'eHentai') {
