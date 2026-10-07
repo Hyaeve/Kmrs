@@ -1,0 +1,146 @@
+{
+  "read": "Read",
+  "peek": "Peek",
+  "peekTooltip": "Read without saving progress",
+  "continue": "Continue",
+  "continueWithPage": "Continue · page {{page}}",
+  "markAsRead": "Mark as read",
+  "markAsUnread": "Mark as unread",
+  "moreActions": "More actions",
+  "addToReadList": "Add to read list",
+  "addToCollection": "Add to collection",
+  "addSeries": "Add series",
+  "addBooks": "Add books",
+  "removeFromCollection": "Remove from {{name}}",
+  "removeFromReadList": "Remove from {{name}}",
+  "rename": "Rename",
+  "nameLabel": "Name",
+  "summaryLabel": "Summary",
+  "previous": "Previous",
+  "next": "Next",
+  "inCollections": "In collections",
+  "inReadLists": "In read lists",
+  "booksHeading": "Books",
+  "bookCount_one": "{{count}} book",
+  "bookCount_other": "{{count}} books",
+  "seriesCount": "{{count}} series",
+  "selectedCount": "{{count}} selected",
+  "menu": {
+    "editMetadata": "Edit metadata",
+    "editBookMetadata": "Edit book metadata",
+    "managePosters": "Manage posters",
+    "analyze": "Analyze",
+    "refreshMetadata": "Refresh metadata",
+    "identifyKomf": "Identify with komf",
+    "matchKomf": "Match with komf",
+    "resetKomf": "Reset metadata with komf",
+    "deleteFile": "Delete file",
+    "previousBook": "Previous book",
+    "nextBook": "Next book",
+    "editDetails": "Edit details"
+  },
+  "toast": {
+    "analysisQueued": "Analysis queued",
+    "queueAnalysisFailed": "Could not queue the analysis",
+    "refreshQueued": "Metadata refresh queued",
+    "queueRefreshFailed": "Could not queue the refresh",
+    "identifyQueued": "Identify queued",
+    "metadataReset": "Metadata reset",
+    "resetMetadataFailed": "Could not reset the metadata",
+    "queueMatchFailed": "Could not queue the match",
+    "deleteFileFailed": "Could not delete the file",
+    "deleteFilesFailed": "Could not delete the files",
+    "removedFromCollection": "Removed from {{name}}",
+    "removedFromReadList": "Removed from {{name}}",
+    "collectionDeleted": "Collection deleted",
+    "readListDeleted": "Read list deleted",
+    "removeFromCollectionFailed": "Could not remove from the collection",
+    "removeFromReadListFailed": "Could not remove from the read list"
+  },
+  "notFound": {
+    "book": "Book not found",
+    "series": "Series not found",
+    "collection": "Collection not found",
+    "readList": "Read list not found"
+  },
+  "field": {
+    "pages": "Pages",
+    "size": "Size",
+    "format": "Format",
+    "profile": "Profile",
+    "releaseDate": "Release date",
+    "file": "File",
+    "added": "Added"
+  },
+  "progress": {
+    "completed": "Completed",
+    "pageOf": "Page {{page}} of {{total}}"
+  },
+  "stats": {
+    "books_one": "<num>{{count}}</num> book",
+    "books_other": "<num>{{count}}</num> books",
+    "read": "<num>{{count}}</num> read",
+    "unread": "<num>{{count}}</num> unread"
+  },
+  "empty": {
+    "loadBooksFailed": "Could not load books",
+    "loadSeriesFailed": "Could not load series",
+    "noBooks": "No books",
+    "noBooksFiltered": "No books match the filters.",
+    "seriesEmpty": "This series has no books.",
+    "noSeries": "No series",
+    "noSeriesFiltered": "No series match the filters.",
+    "collectionEmpty": "This collection is empty.",
+    "readListEmpty": "This read list is empty.",
+    "noBook": "No book",
+    "oneshotNoBook": "This oneshot has no book yet."
+  },
+  "confirmDelete": {
+    "body": "Delete <name>{{name}}</name>? This cannot be undone."
+  },
+  "error": {
+    "title": "Something went wrong",
+    "unknown": "Unknown error",
+    "notFoundBody": "It may have been deleted, or you do not have access to it."
+  },
+  "addToReadListDialog": {
+    "empty": "No read lists yet"
+  },
+  "collection": {
+    "renameTitle": "Rename collection",
+    "deleteTitle": "Delete collection",
+    "editMembersEmpty": "A collection needs at least one series. Delete it instead of emptying it.",
+    "selectedSeriesCount_one": "{{count}} selected",
+    "selectedSeriesCount_other": "{{count}} selected"
+  },
+  "readList": {
+    "editTitle": "Edit read list",
+    "deleteTitle": "Delete read list"
+  },
+  "deleteDialog": {
+    "bookFileTitle": "Delete book file",
+    "bookFileName": "the file of {{name}}",
+    "seriesFilesTitle": "Delete series files",
+    "seriesFilesName": "all files of {{name}}"
+  },
+  "picker": {
+    "searchPlaceholder": "Search books…",
+    "searchSeriesPlaceholder": "Search series…",
+    "noBooksFound": "No books found",
+    "noSeriesFound": "No series found",
+    "tryDifferentSearch": "Try a different search.",
+    "addedBadge": "Added",
+    "pickOne": "Pick one book",
+    "pickOneSeries": "Pick one series",
+    "noneSelected": "None selected"
+  },
+  "editBooks": {
+    "selectAll": "Select all",
+    "clearSelection": "Clear selection",
+    "removeSelected": "Remove selected",
+    "manualOrdering": "Manual ordering",
+    "emptyNotAllowed": "A read list needs at least one book. Delete it instead of emptying it.",
+    "selectRow": "Select row",
+    "dragToReorder": "Drag to reorder"
+  }
+}

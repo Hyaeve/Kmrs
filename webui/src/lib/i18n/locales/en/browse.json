@@ -1,0 +1,108 @@
+{
+  "libraryFallback": "Library",
+  "errorFallback": "Something went wrong.",
+  "emptyFilterHint": "Try adjusting your filters.",
+  "tryDifferentSearch": "Try a different search.",
+  "tabs": {
+    "series": "Series",
+    "books": "Books",
+    "collections": "Collections",
+    "readlists": "Read lists"
+  },
+  "namePlaceholder": "Name",
+  "bookCount_one": "{{count}} book",
+  "bookCount_other": "{{count}} books",
+  "seriesCount_one": "{{count}} series",
+  "seriesCount_other": "{{count}} series",
+  "books": {
+    "all": "All books",
+    "loadError": "Couldn't load books",
+    "empty": "No books found"
+  },
+  "series": {
+    "all": "All series",
+    "loadError": "Couldn't load series",
+    "empty": "No series found"
+  },
+  "collections": {
+    "title": "Collections",
+    "loadError": "Couldn't load collections",
+    "empty": "No collections yet",
+    "count_one": "collection",
+    "count_other": "collections"
+  },
+  "readlists": {
+    "title": "Read lists",
+    "loadError": "Couldn't load read lists",
+    "empty": "No read lists yet",
+    "count_one": "read list",
+    "count_other": "read lists"
+  },
+  "alphabet": {
+    "ariaLabel": "Browse by first letter"
+  },
+  "addToCollection": {
+    "title_one": "Add {{count}} series to collection",
+    "title_other": "Add {{count}} series to collection",
+    "filterPlaceholder": "Filter collections…",
+    "noMatch": "No matching collections",
+    "newLabel": "New collection",
+    "added": "Added to \"{{name}}\"",
+    "created": "Created \"{{name}}\"",
+    "addFailed": "Could not add to collection",
+    "createFailed": "Could not create collection"
+  },
+  "addToReadList": {
+    "title_one": "Add {{count}} book to read list",
+    "title_other": "Add {{count}} books to read list",
+    "filterPlaceholder": "Filter read lists…",
+    "noMatch": "No matching read lists",
+    "newLabel": "New read list",
+    "added": "Added to \"{{name}}\"",
+    "created": "Created \"{{name}}\"",
+    "addFailed": "Could not add to read list",
+    "createFailed": "Could not create read list"
+  },
+  "deleteConfirm": {
+    "body_book_one": "Delete the files of <num>{{count}}</num> book? Files are removed from disk. This cannot be undone.",
+    "body_book_other": "Delete the files of <num>{{count}}</num> books? Files are removed from disk. This cannot be undone.",
+    "body_series_one": "Delete the files of <num>{{count}}</num> series? Files are removed from disk. This cannot be undone.",
+    "body_series_other": "Delete the files of <num>{{count}}</num> series? Files are removed from disk. This cannot be undone."
+  },
+  "selection": {
+    "working": "Working {{done}} of {{total}}…",
+    "selected_one": "<num>{{count}}</num> selected",
+    "selected_other": "<num>{{count}}</num> selected",
+    "selectAll": "Select all",
+    "clear": "Clear",
+    "moreActions": "More actions",
+    "markRead": "Mark read",
+    "markUnread": "Mark unread",
+    "addToReadList": "Add to read list",
+    "addToCollection": "Add to collection",
+    "editMetadata": "Edit metadata",
+    "matchKomf": "Match with komf",
+    "deleteFiles": "Delete files",
+    "markBooksAs_read_one": "Marked {{count}} book as read",
+    "markBooksAs_read_other": "Marked {{count}} books as read",
+    "markBooksAs_unread_one": "Marked {{count}} book as unread",
+    "markBooksAs_unread_other": "Marked {{count}} books as unread",
+    "markSeriesAs_read_one": "Marked {{count}} series as read",
+    "markSeriesAs_read_other": "Marked {{count}} series as read",
+    "markSeriesAs_unread_one": "Marked {{count}} series as unread",
+    "markSeriesAs_unread_other": "Marked {{count}} series as unread",
+    "markBooksFailed_one": "{{failed}} of {{total}} book failed",
+    "markBooksFailed_other": "{{failed}} of {{total}} books failed",
+    "markSeriesFailed_one": "{{failed}} of {{total}} series failed",
+    "markSeriesFailed_other": "{{failed}} of {{total}} series failed",
+    "matchKomfQueued_one": "Queued komf match for {{count}} series",
+    "matchKomfQueued_other": "Queued komf matches for {{count}} series",
+    "matchKomfFailed_one": "{{failed}} of {{total}} series failed",
+    "matchKomfFailed_other": "{{failed}} of {{total}} series failed",
+    "deleteBooksFiles_one": "Deleted files for {{count}} book",
+    "deleteBooksFiles_other": "Deleted files for {{count}} books",
+    "deleteSeriesFiles_one": "Deleted files for {{count}} series",
+    "deleteSeriesFiles_other": "Deleted files for {{count}} series",
+    "deleteFilesFailed": "{{failed}} of {{total}} failed"
+  }
+}

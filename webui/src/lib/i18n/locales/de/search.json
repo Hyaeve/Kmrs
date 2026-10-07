@@ -1,0 +1,27 @@
+{
+  "title": "Suche",
+  "titleWithQuery": "Suche: {{q}}",
+  "scope": {
+    "all": "Alle Bibliotheken",
+    "pinned": "Angepinnte Bibliotheken",
+    "library": "Bibliothek",
+    "ariaLabel": "Suchbereich: {{label}}"
+  },
+  "tabs": {
+    "all": "Alle",
+    "series": "Serien",
+    "books": "Bücher",
+    "collections": "Sammlungen",
+    "readlists": "Leselisten"
+  },
+  "placeholderTop": "Serien, Bücher, Autoren suchen…",
+  "placeholderPage": "Serien, Bücher, Sammlungen, Leselisten suchen…",
+  "clear": "Suche löschen",
+  "emptyTitle": "Durchsuche deine Bibliothek",
+  "emptyBody": "Finde Serien, Bücher, Sammlungen und Leselisten. Feldabfragen wie title:berserk AND tag:seinen funktionieren auch.",
+  "viewAll": "Alle anzeigen",
+  "noResultsTitle": "Keine Ergebnisse für „{{q}}“",
+  "noResultsBody": "Versuche andere Stichwörter oder suche in einer einzelnen Kategorie.",
+  "failedTitle": "Suche fehlgeschlagen",
+  "failedBody": "Etwas ist schiefgelaufen."
+}

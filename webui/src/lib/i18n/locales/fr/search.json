@@ -1,0 +1,27 @@
+{
+  "title": "Recherche",
+  "titleWithQuery": "Recherche : {{q}}",
+  "scope": {
+    "all": "Toutes les bibliothèques",
+    "pinned": "Bibliothèques épinglées",
+    "library": "Bibliothèque",
+    "ariaLabel": "Périmètre de recherche : {{label}}"
+  },
+  "tabs": {
+    "all": "Tout",
+    "series": "Séries",
+    "books": "Livres",
+    "collections": "Collections",
+    "readlists": "Listes de lecture"
+  },
+  "placeholderTop": "Rechercher des séries, livres, auteurs…",
+  "placeholderPage": "Rechercher des séries, livres, collections, listes de lecture…",
+  "clear": "Effacer la recherche",
+  "emptyTitle": "Rechercher dans votre bibliothèque",
+  "emptyBody": "Trouvez des séries, livres, collections et listes de lecture. Les requêtes par champ comme title:berserk AND tag:seinen fonctionnent aussi.",
+  "viewAll": "Tout voir",
+  "noResultsTitle": "Aucun résultat pour « {{q}} »",
+  "noResultsBody": "Essayez d'autres mots-clés, ou recherchez dans une seule catégorie.",
+  "failedTitle": "La recherche a échoué",
+  "failedBody": "Une erreur est survenue."
+}

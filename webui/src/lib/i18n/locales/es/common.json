@@ -1,0 +1,72 @@
+{
+  "action": {
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "delete": "Eliminar",
+    "edit": "Editar",
+    "close": "Cerrar",
+    "back": "Atrás",
+    "add": "Añadir",
+    "remove": "Quitar",
+    "create": "Crear",
+    "done": "Hecho",
+    "confirm": "Confirmar",
+    "search": "Buscar",
+    "retry": "Reintentar",
+    "dismiss": "Descartar",
+    "download": "Descargar",
+    "showMore": "Más",
+    "showLess": "Menos"
+  },
+  "state": {
+    "loading": "Cargando…",
+    "unavailable": "No disponible",
+    "unknown": "Desconocido"
+  },
+  "time": {
+    "justNow": "ahora mismo"
+  },
+  "readingDirection": {
+    "leftToRight": "De izquierda a derecha",
+    "rightToLeft": "De derecha a izquierda",
+    "vertical": "Vertical",
+    "webtoon": "Webtoon"
+  },
+  "seriesStatus": {
+    "ongoing": "En publicación",
+    "ended": "Finalizada",
+    "abandoned": "Abandonada",
+    "hiatus": "En pausa"
+  },
+  "cardStatus": {
+    "unavailable": "No disponible",
+    "error": "Error",
+    "unsupported": "No compatible",
+    "toBeAnalyzed": "Pendiente de análisis"
+  },
+  "mediaIssue": {
+    "unavailable": "No disponible",
+    "error": "El análisis del medio falló",
+    "unsupported": "Este tipo de medio no es compatible",
+    "outdated": "El archivo de este libro ha cambiado y debe reanalizarse",
+    "unknown": "Este libro aún no se ha analizado"
+  },
+  "notFound": {
+    "title": "Página no encontrada",
+    "body": "La página que buscas no existe o se ha movido.",
+    "back": "Volver al inicio"
+  },
+  "oneshot": "Oneshot",
+  "komf": {
+    "jobsSummary_one": "{{count}} coincidencia",
+    "jobsSummary_many": "{{count}} coincidencias",
+    "jobsSummary_other": "{{count}} coincidencias",
+    "moreFailed_one": "+{{count}} fallida",
+    "moreFailed_many": "+{{count}} fallidas",
+    "moreFailed_other": "+{{count}} fallidas",
+    "matching": "Emparejando…",
+    "matchCompleted": "emparejamiento completado",
+    "postProcessing": "Posprocesando…",
+    "seriesFallback": "Coincidencia de serie"
+  }
+}

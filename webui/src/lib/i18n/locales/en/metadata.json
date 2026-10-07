@@ -1,0 +1,155 @@
+{
+  "field": {
+    "title": "Title",
+    "sortTitle": "Sort title",
+    "number": "Number",
+    "sortNumber": "Sort number",
+    "releaseDate": "Release date",
+    "isbn": "ISBN",
+    "summary": "Summary",
+    "authors": "Authors",
+    "name": "Name",
+    "role": "Role",
+    "tags": "Tags",
+    "genres": "Genres",
+    "webLinks": "Web links",
+    "label": "Label",
+    "url": "URL",
+    "status": "Status",
+    "readingDirection": "Reading direction",
+    "publisher": "Publisher",
+    "language": "Language",
+    "ageRating": "Age rating",
+    "totalBookCount": "Total book count",
+    "alternateTitles": "Alternate titles",
+    "sharingLabels": "Sharing labels",
+    "notSet": "Not set"
+  },
+  "tabs": {
+    "general": "General",
+    "titles": "Titles",
+    "authors": "Authors",
+    "tags": "Tags",
+    "links": "Links",
+    "sharing": "Sharing",
+    "sharedFields": "Shared fields",
+    "perBook": "Per book"
+  },
+  "action": {
+    "saveChanges": "Save changes"
+  },
+  "saveFailed": "Could not save the metadata.",
+  "validation": {
+    "notBlank": "Must not be blank",
+    "url": "Must be a valid URL",
+    "number": "Must be a number",
+    "isbn": "Must be blank or a valid ISBN-13",
+    "wholeNumberMinZero": "Must be a whole number of 0 or more",
+    "wholeNumberPositive": "Must be a whole number greater than 0",
+    "bcp47": "Must be a valid BCP 47 language tag"
+  },
+  "lockToggle": {
+    "lock": "Lock {{label}}",
+    "unlock": "Unlock {{label}}"
+  },
+  "batch": {
+    "change": "Change {{label}}"
+  },
+  "pairs": {
+    "removeRow": "Remove row"
+  },
+  "placeholder": {
+    "authorName": "Kentaro Miura",
+    "authorRole": "writer",
+    "linkLabel": "Wiki",
+    "addTag": "Add tag…",
+    "addGenre": "Add genre…",
+    "addLabel": "Add label…"
+  },
+  "add": {
+    "author": "Add author",
+    "link": "Add link",
+    "title": "Add title"
+  },
+  "editBooks": {
+    "dialogTitle_single": "Edit book metadata",
+    "dialogTitle_batch_other": "Edit metadata of {{count}} books",
+    "loadError": "Could not load the book",
+    "loadManyError": "Could not load the books",
+    "sortNumberHelper": "You can use decimal numbers",
+    "isbnHelper": "ISBN-13, empty to clear",
+    "batchHint": "Switched-on fields are applied to all {{count}} books and locked by default.",
+    "perBookHint": "Only fields you touch are sent; editing locks the field. Per-book values override shared fields.",
+    "lockAll": "Lock all {{label}}",
+    "unlockAll": "Unlock all {{label}}",
+    "copySortToNumber": "Copy sort number into number",
+    "decrementAll": "Decrement all by 1",
+    "incrementAll": "Increment all by 1",
+    "hint": {
+      "summaryEmpty": "Empty clears the summary.",
+      "releaseDateEmpty": "Empty clears the date.",
+      "isbnEmpty": "ISBN-13, empty to clear.",
+      "authorsReplace": "Replaces all authors; an empty list clears them.",
+      "tagsReplace": "Replaces all tags; an empty list clears them.",
+      "linksReplace": "Replaces all links; an empty list clears them."
+    }
+  },
+  "editSeries": {
+    "dialogTitle_single": "Edit series metadata",
+    "dialogTitle_batch_other": "Edit metadata of {{count}} series",
+    "loadError": "Could not load the series",
+    "languageHelper": "BCP 47 tag, empty to clear",
+    "batchHint": "Switched-on fields are applied to all {{count}} series and locked by default.",
+    "hint": {
+      "directionNotSet": "“Not set” clears the direction.",
+      "languageEmpty": "BCP 47 tag, empty to clear.",
+      "ageRatingEmpty": "Empty clears the rating.",
+      "genresReplace": "Replaces all genres; an empty list clears them.",
+      "tagsReplace": "Replaces all tags; an empty list clears them.",
+      "sharingLabelsReplace": "Replaces all sharing labels; an empty list clears them."
+    }
+  },
+  "identify": {
+    "searchPlaceholder": "Search komf providers…",
+    "providerLinks": "Provider links",
+    "aggregateAll": "Aggregate all providers",
+    "aggregateHint_one": "Merge metadata from the provider link",
+    "aggregateHint_other": "Merge metadata from all {{count}} provider links",
+    "typeToSearch": "Type a title to search komf",
+    "searchFailed": "Could not search komf",
+    "noResults": "No results",
+    "noResultsHint": "Try a different title.",
+    "queueFailed": "Could not queue the identify",
+    "matchFailed": "Match failed"
+  },
+  "reset": {
+    "body": "Reset <name>{{name}}</name>? komf removes the metadata it wrote, including field locks and uploaded covers.",
+    "libraryBody": "Reset <name>{{name}}</name>? komf removes the metadata it wrote for every series in this library, including field locks and uploaded covers.",
+    "confirm": "Reset"
+  },
+  "poster": {
+    "kind": {
+      "series": "series",
+      "book": "book",
+      "collection": "collection",
+      "readlist": "read list",
+      "smartlist": "smart list"
+    },
+    "type": {
+      "generated": "Generated",
+      "sidecar": "Sidecar",
+      "uploaded": "Uploaded"
+    },
+    "alt": "{{type}} poster",
+    "upload": "Upload poster",
+    "loadFailed": "Could not load posters",
+    "empty": "No posters yet",
+    "emptyHint": "Upload an image to use it as the poster.",
+    "selected": "Selected poster",
+    "setSelected": "Set as the selected poster",
+    "selectedBadge": "Selected",
+    "delete": "Delete poster",
+    "refreshing": "Refreshing…",
+    "operationFailed": "The poster operation failed."
+  }
+}

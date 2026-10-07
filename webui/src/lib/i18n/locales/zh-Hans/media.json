@@ -1,0 +1,42 @@
+{
+  "card": {
+    "actionsFor": "{{title}} 的操作",
+    "continueReading": "继续阅读《{{title}}》",
+    "pageCount_other": "{{count}} 页"
+  },
+  "menu": {
+    "select": "选择",
+    "read": "阅读",
+    "peek": "无痕阅读",
+    "bookDetails": "书籍详情",
+    "markAsRead": "标记为已读",
+    "markAsUnread": "标记为未读",
+    "addToReadList": "添加到阅读列表",
+    "addToCollection": "添加到合集",
+    "download": "下载",
+    "editMetadata": "编辑元数据",
+    "deleteFile": "删除文件",
+    "deleteFiles": "删除文件",
+    "identifyWithKomf": "用 komf 识别"
+  },
+  "identifyQueued": "已加入识别队列",
+  "select": {
+    "select": "选择 {{title}}",
+    "deselect": "取消选择 {{title}}"
+  },
+  "series": {
+    "progressSummary_other": "{{pct}}% · {{count}} 本书",
+    "unreadSummary": "{{total}} 本中 {{unread}} 本未读",
+    "booksCount_other": "{{count}} 本书"
+  },
+  "collection": {
+    "seriesCount_other": "{{count}} 个系列"
+  },
+  "readList": {
+    "bookCount_other": "{{count}} 本书"
+  },
+  "row": {
+    "scrollLeft": "向左滚动",
+    "scrollRight": "向右滚动"
+  }
+}

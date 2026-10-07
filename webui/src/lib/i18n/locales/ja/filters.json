@@ -1,0 +1,113 @@
+{
+  "title": "フィルター",
+  "clearAll": "すべてクリア",
+  "close": "フィルターを閉じる",
+  "noun": {
+    "books_other": "<num>{{count, number}}</num> 冊",
+    "series_other": "<num>{{count, number}}</num> シリーズ",
+    "collections_other": "<num>{{count, number}}</num> コレクション",
+    "readlists_other": "<num>{{count, number}}</num> 読書リスト"
+  },
+  "chip": {
+    "remove": "フィルターを取り除く: {{label}}",
+    "author": "著者: {{name}}",
+    "search": "検索: {{q}}",
+    "value": "{{group}}: {{value}}",
+    "value_negated": "{{group}}: {{value}} 以外"
+  },
+  "mode": {
+    "any": "いずれか",
+    "all": "すべて"
+  },
+  "negate": {
+    "is": "である",
+    "isNot": "でない"
+  },
+  "section": {
+    "flags": "フラグ",
+    "metadata": "メタデータ"
+  },
+  "resetGroup": "リセット",
+  "group": {
+    "readStatus": "読書状況",
+    "seriesStatus": "連載状況",
+    "letter": "頭文字",
+    "complete": "完結",
+    "deleted": "削除済み",
+    "publishers": "出版社",
+    "genres": "ジャンル",
+    "tags": "タグ",
+    "sharingLabels": "共有ラベル",
+    "ageRatings": "対象年齢",
+    "languages": "言語",
+    "releaseYears": "発売年",
+    "authors": "著者",
+    "mediaProfiles": "メディアプロファイル",
+    "mediaStatuses": "メディアステータス",
+    "poster": "ポスター",
+    "libraries": "ライブラリ",
+    "readlists": "読書リスト",
+    "collections": "コレクション"
+  },
+  "option": {
+    "readStatus": {
+      "read": "既読",
+      "unread": "未読",
+      "inProgress": "読書中"
+    },
+    "yesNo": {
+      "yes": "はい",
+      "no": "いいえ"
+    },
+    "mediaProfile": {
+      "divina": "Divina",
+      "pdf": "PDF",
+      "epub": "EPUB"
+    },
+    "mediaStatus": {
+      "ready": "準備完了",
+      "outdated": "要再分析"
+    },
+    "poster": {
+      "selected": "ポスターあり",
+      "missing": "ポスターなし"
+    },
+    "ageRating": {
+      "unset": "なし"
+    }
+  },
+  "sort": {
+    "sortBy": "並べ替え",
+    "ascending": "昇順",
+    "descending": "降順",
+    "title": "タイトル",
+    "series": "シリーズ",
+    "number": "番号",
+    "dateAdded": "追加日",
+    "dateUpdated": "更新日",
+    "releaseDate": "発売日",
+    "lastRead": "最後に読んだ日",
+    "folderName": "フォルダー名",
+    "fileName": "ファイル名",
+    "fileSize": "ファイルサイズ",
+    "pages": "ページ数",
+    "booksCount": "冊数",
+    "random": "ランダム",
+    "listOrder": "リストの順序"
+  },
+  "options": {
+    "filterPlaceholder": "オプションを絞り込む…",
+    "loadError": "オプションを読み込めませんでした。",
+    "noMatch": "一致するオプションがありません。"
+  },
+  "authors": {
+    "searchPlaceholder": "著者を検索…",
+    "noMatch": "一致する著者がありません。"
+  },
+  "search": {
+    "books": "本を検索…",
+    "series": "シリーズを検索…",
+    "collections": "コレクションを検索…",
+    "readlists": "読書リストを検索…"
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "action": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "close": "Close",
+    "back": "Back",
+    "add": "Add",
+    "remove": "Remove",
+    "create": "Create",
+    "done": "Done",
+    "confirm": "Confirm",
+    "search": "Search",
+    "retry": "Retry",
+    "dismiss": "Dismiss",
+    "download": "Download",
+    "showMore": "More",
+    "showLess": "Less"
+  },
+  "state": {
+    "loading": "Loading…",
+    "unavailable": "Unavailable",
+    "unknown": "Unknown"
+  },
+  "time": {
+    "justNow": "just now"
+  },
+  "readingDirection": {
+    "leftToRight": "Left to right",
+    "rightToLeft": "Right to left",
+    "vertical": "Vertical",
+    "webtoon": "Webtoon"
+  },
+  "seriesStatus": {
+    "ongoing": "Ongoing",
+    "ended": "Ended",
+    "abandoned": "Abandoned",
+    "hiatus": "Hiatus"
+  },
+  "cardStatus": {
+    "unavailable": "Unavailable",
+    "error": "Error",
+    "unsupported": "Unsupported",
+    "toBeAnalyzed": "To be analyzed"
+  },
+  "mediaIssue": {
+    "unavailable": "Unavailable",
+    "error": "Media analysis failed",
+    "unsupported": "This media type is not supported",
+    "outdated": "The file for this book has changed and needs to be re-analyzed",
+    "unknown": "This book has not been analyzed yet"
+  },
+  "notFound": {
+    "title": "Page not found",
+    "body": "The page you are looking for does not exist or has moved.",
+    "back": "Back to dashboard"
+  },
+  "oneshot": "Oneshot",
+  "komf": {
+    "jobsSummary_one": "{{count}} match",
+    "jobsSummary_other": "{{count}} matches",
+    "moreFailed_one": "+{{count}} failed",
+    "moreFailed_other": "+{{count}} failed",
+    "matching": "Matching…",
+    "matchCompleted": "match completed",
+    "postProcessing": "Post-processing…",
+    "seriesFallback": "Series match"
+  }
+}

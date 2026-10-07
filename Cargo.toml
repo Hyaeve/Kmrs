@@ -21,7 +21,7 @@ tokio = { version = "1", features = ["full"] }
 # http
 axum = { version = "0.8", features = ["multipart"] }
 tower = "0.5"
-tower-http = { version = "0.7", features = ["cors", "fs", "trace"] }
+tower-http = { version = "0.7", features = ["cors", "trace"] }
 # db
 rusqlite = { version = "0.32", features = ["bundled", "collation", "functions", "trace"] }
 r2d2 = "0.8"
@@ -37,7 +37,6 @@ sha2 = "0.11"
 hex = "0.4"
 bcrypt = "0.19"
 flate2 = "1"
-tar = "0.4"
 crc32fast = "1"
 # time
 time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"] }

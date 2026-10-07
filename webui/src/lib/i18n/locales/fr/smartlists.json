@@ -1,0 +1,47 @@
+{
+  "title": "Listes intelligentes",
+  "create": "Nouvelle liste intelligente",
+  "createTitle": "Nouvelle liste intelligente",
+  "editTitle": "Modifier la liste intelligente",
+  "deleteTitle": "Supprimer la liste intelligente ?",
+  "nameLabel": "Nom",
+  "summaryLabel": "Résumé",
+  "targetLabel": "Cible",
+  "target": {
+    "book": "Livres",
+    "series": "Séries"
+  },
+  "filtersEmpty": "Aucun filtre — tout correspond",
+  "filtersActive_one": "{{count, number}} filtre actif",
+  "filtersActive_other": "{{count, number}} filtres actifs",
+  "filtersStepTitle": "Filtres",
+  "next": "Suivant",
+  "visibilityLabel": "Visibilité",
+  "visibility": {"private": "Privée", "public": "Publique", "shared": "Partagée"},
+  "sharedWithLabel": "Partagée avec",
+  "loadingUsers": "Chargement des utilisateurs…",
+  "noOtherUsers": "Aucun autre utilisateur",
+  "ownerFilterLabel": "Filtre par propriétaire",
+  "ownerFilter": {"all": "Toutes les listes", "mine": "Mes listes"},
+  "lossyWarning": "Les filtres de cette liste incluent des conditions que l'éditeur ne peut pas afficher. L'enregistrement les simplifiera.",
+  "loadError": "Impossible de charger les listes intelligentes",
+  "loadItemsError": "Impossible de charger les éléments",
+  "empty": "Pas encore de listes intelligentes",
+  "notFound": "Liste intelligente introuvable",
+  "read": "Lire",
+  "peek": "Aperçu",
+  "peekTooltip": "Lire sans enregistrer la progression",
+  "managePosters": "Gérer les affiches",
+  "moreActions": "Plus d'actions",
+  "count": {
+    "book_one": "{{count, number}} livre",
+    "book_other": "{{count, number}} livres",
+    "series_one": "{{count, number}} série",
+    "series_other": "{{count, number}} séries"
+  },
+  "emptyState": {
+    "books": "Aucun livre ne correspond à cette liste pour le moment",
+    "series": "Aucune série ne correspond à cette liste pour le moment",
+    "filtered": "Aucun élément ne correspond aux filtres actifs"
+  }
+}

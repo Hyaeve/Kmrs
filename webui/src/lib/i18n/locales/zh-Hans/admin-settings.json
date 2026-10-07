@@ -1,0 +1,198 @@
+{
+  "server": {
+    "title": "服务器",
+    "subtitle": "kmrs {{version}}",
+    "subtitleWithCommit": "kmrs {{version}} · 提交 {{commit}}"
+  },
+  "settings": {
+    "title": "设置",
+    "subtitle": "服务器全局选项，保存在数据库中",
+    "loadFailed": "无法加载设置。"
+  },
+  "ui": {
+    "title": "界面设置",
+    "subtitle": "应用于所有用户网页界面的全局调整",
+    "loadFailed": "无法加载界面设置",
+    "errorFallback": "出了点问题。",
+    "login": "登录",
+    "hidePassword": "隐藏邮箱/密码登录表单",
+    "hidePasswordHelper": "至少配置一个 OAuth2 提供方后才会生效。未配置时密码表单会始终显示，以免有人无法登录。",
+    "hidePasswordHelperWithCount_other": "至少配置一个 OAuth2 提供方后才会生效（已配置 {{count}} 个）。未配置时密码表单会始终显示，以免有人无法登录。",
+    "noProviderWarning": "尚未配置 OAuth2 提供方，登录页面仍会显示密码表单。",
+    "saveFailed": "无法保存设置。"
+  },
+  "stats": {
+    "version": "版本",
+    "uptime": "运行时间",
+    "cpu": "CPU",
+    "memory": "内存",
+    "diskFree": "磁盘可用",
+    "diskTotal": "共 {{total}}"
+  },
+  "sections": {
+    "content": "内容",
+    "security": "安全",
+    "thumbnails": "缩略图",
+    "tasks": "任务",
+    "server": "服务器",
+    "kobo": "Kobo",
+    "kepubify": "Kepubify"
+  },
+  "content": {
+    "libraries": "库",
+    "series": "系列",
+    "books": "书籍",
+    "collections": "合集",
+    "readLists": "阅读列表",
+    "sidecars": "随附文件",
+    "totalSize": "总大小"
+  },
+  "duration": {
+    "ms_other": "{{count}}毫秒",
+    "second_other": "{{count}}秒",
+    "minute_other": "{{count}}分钟",
+    "hour_other": "{{count}}小时",
+    "day_other": "{{count}}天"
+  },
+  "interval": "每 {{duration}}",
+  "taskType": {
+    "scanLibrary": "扫描库",
+    "findBooksToConvert": "查找待转换的书籍",
+    "findBooksWithMissingPageHash": "查找缺少页面哈希的书籍",
+    "findDuplicatePagesToDelete": "查找待删除的重复页面",
+    "emptyTrash": "清空回收站",
+    "analyzeBook": "分析书籍",
+    "generateBookThumbnail": "生成书籍缩略图",
+    "refreshBookMetadata": "刷新书籍元数据",
+    "hashBook": "计算书籍哈希",
+    "hashBookPages": "计算书籍页面哈希",
+    "hashBookKoreader": "计算书籍 KOReader 哈希",
+    "refreshSeriesMetadata": "刷新系列元数据",
+    "aggregateSeriesMetadata": "聚合系列元数据",
+    "refreshBookLocalArtwork": "刷新书籍本地封面",
+    "refreshSeriesLocalArtwork": "刷新系列本地封面",
+    "importBook": "导入书籍",
+    "convertBook": "转换书籍",
+    "repairExtension": "修复扩展名",
+    "removeHashedPages": "删除已哈希页面",
+    "rebuildIndex": "重建索引",
+    "upgradeIndex": "升级索引",
+    "deleteBook": "删除书籍",
+    "deleteSeries": "删除系列",
+    "findBookThumbnailsToRegenerate": "查找待重新生成缩略图的书籍"
+  },
+  "taskQueue": {
+    "title": "任务队列",
+    "active": "队列活跃",
+    "clear": "清空队列",
+    "status_other": "{{count}} 个排队任务 · 每 10 秒更新",
+    "waiting": "等待首次更新… · 每 10 秒更新",
+    "cleared_other": "已清除 {{count}} 个排队任务。",
+    "clearFailed": "无法清空队列。",
+    "clearTitle": "清空任务队列",
+    "clearBody": "尚未开始执行的排队任务将被移除，正在运行的任务不受影响。"
+  },
+  "taskExecution": {
+    "title": "任务执行",
+    "empty": "暂无任务执行记录。",
+    "type": "类型",
+    "runs": "运行次数",
+    "totalTime": "总耗时",
+    "longest": "最长耗时",
+    "failures_other": "已记录 {{count}} 次任务失败。"
+  },
+  "scheduled": {
+    "title": "定时任务",
+    "loadFailed": "无法加载定时任务。",
+    "empty": "暂无定时任务。"
+  },
+  "sessions": {
+    "title": "会话",
+    "loadFailed": "无法加载会话。",
+    "empty": "暂无活跃会话。",
+    "session": "会话",
+    "created": "创建时间",
+    "lastActive": "最近活跃",
+    "status": "状态",
+    "actions": "操作",
+    "expired": "已过期",
+    "active": "活跃",
+    "kick": "强制下线",
+    "kickHint": "将会话强制下线后，对应设备会退出登录，用户需要重新登录。",
+    "kickFailed": "无法将该会话强制下线。",
+    "showAll_other": "显示全部 {{count}} 个会话"
+  },
+  "danger": {
+    "title": "危险操作",
+    "logfile": "下载日志文件",
+    "logfileHelper": "将当前服务器日志下载为文件。",
+    "shutdown": "关闭服务器",
+    "shutdownHelper": "停止服务器进程，需手动重新启动才会恢复。",
+    "shutdownButton": "关闭",
+    "shutdownBody": "服务器进程将退出，所有已连接的用户在服务器重新启动前都无法访问。",
+    "shutdownFailed": "无法关闭服务器。",
+    "shuttingDown": "服务器正在关闭",
+    "shuttingDownBody": "关闭请求已接受。进程退出后此页面将停止响应，重新启动服务器后即可恢复。"
+  },
+  "form": {
+    "deleteEmptyCollections": "删除空合集",
+    "deleteEmptyReadLists": "删除空阅读列表",
+    "rememberMeDuration": "「记住我」有效期",
+    "rememberMeDurationHelper": "「记住我」登录保持有效的时长。",
+    "rememberMeDurationDays": "「记住我」有效期（天）",
+    "days": "天",
+    "rememberMeKey": "「记住我」密钥",
+    "rememberMeKeyHelper": "「记住我」登录使用的签名密钥。",
+    "thumbnailSize": "缩略图尺寸",
+    "thumbnailSizeHelper": "更大的缩略图更清晰，但会占用更多磁盘空间。",
+    "taskPoolSize": "任务池大小",
+    "taskPoolSizeHelper": "可同时运行的后台任务数量。",
+    "serverPort": "服务器端口",
+    "contextPath": "上下文路径",
+    "contextPathHelper": "服务器对外服务的基础路径，例如 /kmrs。",
+    "koboProxy": "Kobo 代理",
+    "koboPort": "Kobo 端口",
+    "kepubifyPath": "Kepubify 路径",
+    "kepubifyPathHelper": "kepubify 二进制文件的路径，用于 EPUB 到 KEPUB 的转换。",
+    "unsaved_other": "{{count}} 项未保存的更改",
+    "discard": "放弃",
+    "fixInvalid": "请先修正上方无效的字段再保存。",
+    "saveFailed": "无法保存设置。"
+  },
+  "thumbnail": {
+    "default": "默认",
+    "medium": "中",
+    "large": "大",
+    "xlarge": "特大"
+  },
+  "multiSource": {
+    "notSet": "未设置",
+    "overridden": "数据库覆盖",
+    "fromConfig": "来自配置",
+    "default": "默认",
+    "clearOverride": "清除覆盖",
+    "clearOverrideTooltip": "清除数据库中的覆盖值",
+    "effective": "生效值：{{value}}",
+    "none": "无"
+  },
+  "rotateKey": {
+    "button": "轮换「记住我」密钥",
+    "confirm": "轮换密钥",
+    "done": "密钥已轮换——所有「记住我」登录均已退出。",
+    "body": "所有选择了「记住我」的用户都将在所有设备上退出登录，需要重新登录。",
+    "failed": "无法轮换密钥。"
+  },
+  "regenerate": {
+    "title": "重新生成缩略图",
+    "body": "缩略图尺寸已更改。已有书籍会保留当前缩略图，直到重新生成——此操作会提交后台任务，可在任务队列面板查看。",
+    "biggerOnly": "仅偏小尺寸",
+    "all": "全部书籍",
+    "skip": "暂不",
+    "failed": "无法提交重新生成任务。"
+  },
+  "validation": {
+    "positiveDays": "天数必须是正整数。",
+    "positiveInt": "必须是正整数。",
+    "contextPath": "必须以 / 开头、以字母或数字结尾，例如 /kmrs。"
+  }
+}

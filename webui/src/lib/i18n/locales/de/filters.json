@@ -1,0 +1,117 @@
+{
+  "title": "Filter",
+  "clearAll": "Alle entfernen",
+  "close": "Filter schließen",
+  "noun": {
+    "books_one": "<num>{{count, number}}</num> Buch",
+    "books_other": "<num>{{count, number}}</num> Bücher",
+    "series_one": "<num>{{count, number}}</num> Serie",
+    "series_other": "<num>{{count, number}}</num> Serien",
+    "collections_one": "<num>{{count, number}}</num> Sammlung",
+    "collections_other": "<num>{{count, number}}</num> Sammlungen",
+    "readlists_one": "<num>{{count, number}}</num> Leseliste",
+    "readlists_other": "<num>{{count, number}}</num> Leselisten"
+  },
+  "chip": {
+    "remove": "Filter entfernen: {{label}}",
+    "author": "Autor: {{name}}",
+    "search": "Suche: {{q}}",
+    "value": "{{group}}: {{value}}",
+    "value_negated": "{{group}}: nicht {{value}}"
+  },
+  "mode": {
+    "any": "Beliebig",
+    "all": "Alle"
+  },
+  "negate": {
+    "is": "ist",
+    "isNot": "ist nicht"
+  },
+  "section": {
+    "flags": "Merkmale",
+    "metadata": "Metadaten"
+  },
+  "resetGroup": "Zurücksetzen",
+  "group": {
+    "readStatus": "Lesestatus",
+    "seriesStatus": "Serienstatus",
+    "letter": "Anfangsbuchstabe",
+    "complete": "Abgeschlossen",
+    "deleted": "Gelöscht",
+    "publishers": "Verlage",
+    "genres": "Genres",
+    "tags": "Tags",
+    "sharingLabels": "Freigabe-Labels",
+    "ageRatings": "Altersfreigabe",
+    "languages": "Sprachen",
+    "releaseYears": "Erscheinungsjahre",
+    "authors": "Autoren",
+    "mediaProfiles": "Medienprofil",
+    "mediaStatuses": "Medienstatus",
+    "poster": "Poster",
+    "libraries": "Bibliotheken",
+    "readlists": "Leselisten",
+    "collections": "Sammlungen"
+  },
+  "option": {
+    "readStatus": {
+      "read": "Gelesen",
+      "unread": "Ungelesen",
+      "inProgress": "Am Lesen"
+    },
+    "yesNo": {
+      "yes": "Ja",
+      "no": "Nein"
+    },
+    "mediaProfile": {
+      "divina": "Divina",
+      "pdf": "PDF",
+      "epub": "EPUB"
+    },
+    "mediaStatus": {
+      "ready": "Bereit",
+      "outdated": "Veraltet"
+    },
+    "poster": {
+      "selected": "Mit Poster",
+      "missing": "Ohne Poster"
+    },
+    "ageRating": {
+      "unset": "Keine"
+    }
+  },
+  "sort": {
+    "sortBy": "Sortieren nach",
+    "ascending": "Aufsteigend",
+    "descending": "Absteigend",
+    "title": "Titel",
+    "series": "Serie",
+    "number": "Nummer",
+    "dateAdded": "Hinzugefügt am",
+    "dateUpdated": "Aktualisiert am",
+    "releaseDate": "Erscheinungsdatum",
+    "lastRead": "Zuletzt gelesen",
+    "folderName": "Ordnername",
+    "fileName": "Dateiname",
+    "fileSize": "Dateigröße",
+    "pages": "Seiten",
+    "booksCount": "Buchanzahl",
+    "random": "Zufällig",
+    "listOrder": "Listenreihenfolge"
+  },
+  "options": {
+    "filterPlaceholder": "Optionen filtern…",
+    "loadError": "Optionen konnten nicht geladen werden.",
+    "noMatch": "Keine passenden Optionen."
+  },
+  "authors": {
+    "searchPlaceholder": "Autoren suchen…",
+    "noMatch": "Keine passenden Autoren."
+  },
+  "search": {
+    "books": "Bücher suchen…",
+    "series": "Serien suchen…",
+    "collections": "Sammlungen suchen…",
+    "readlists": "Leselisten suchen…"
+  }
+}

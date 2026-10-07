@@ -1,0 +1,44 @@
+{
+  "title": "智慧清單",
+  "create": "新增智慧清單",
+  "createTitle": "新增智慧清單",
+  "editTitle": "編輯智慧清單",
+  "deleteTitle": "刪除智慧清單？",
+  "nameLabel": "名稱",
+  "summaryLabel": "簡介",
+  "targetLabel": "目標",
+  "target": {
+    "book": "圖書",
+    "series": "系列"
+  },
+  "filtersEmpty": "無條件 — 符合全部內容",
+  "filtersActive_other": "已啟用 {{count, number}} 個篩選條件",
+  "filtersStepTitle": "篩選條件",
+  "next": "下一步",
+  "visibilityLabel": "可見範圍",
+  "visibility": {"private": "私密", "public": "公開", "shared": "共用"},
+  "sharedWithLabel": "共用給",
+  "loadingUsers": "正在載入使用者…",
+  "noOtherUsers": "沒有其他使用者",
+  "ownerFilterLabel": "擁有者篩選",
+  "ownerFilter": {"all": "全部清單", "mine": "我的清單"},
+  "lossyWarning": "此清單包含編輯器無法顯示的條件，儲存後這些條件將被簡化。",
+  "loadError": "無法載入智慧清單",
+  "loadItemsError": "無法載入內容",
+  "empty": "尚未有智慧清單",
+  "notFound": "找不到智慧清單",
+  "read": "閱讀",
+  "peek": "試閱",
+  "peekTooltip": "閱讀但不儲存進度",
+  "managePosters": "管理封面",
+  "moreActions": "更多操作",
+  "count": {
+    "book_other": "{{count, number}} 本圖書",
+    "series_other": "{{count, number}} 個系列"
+  },
+  "emptyState": {
+    "books": "目前沒有圖書符合此清單",
+    "series": "目前沒有系列符合此清單",
+    "filtered": "沒有內容符合目前的篩選條件"
+  }
+}

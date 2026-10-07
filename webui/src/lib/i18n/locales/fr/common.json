@@ -1,0 +1,72 @@
+{
+  "action": {
+    "save": "Enregistrer",
+    "cancel": "Annuler",
+    "delete": "Supprimer",
+    "edit": "Modifier",
+    "close": "Fermer",
+    "back": "Retour",
+    "add": "Ajouter",
+    "remove": "Retirer",
+    "create": "Créer",
+    "done": "Terminé",
+    "confirm": "Confirmer",
+    "search": "Rechercher",
+    "retry": "Réessayer",
+    "dismiss": "Ignorer",
+    "download": "Télécharger",
+    "showMore": "Plus",
+    "showLess": "Moins"
+  },
+  "state": {
+    "loading": "Chargement…",
+    "unavailable": "Indisponible",
+    "unknown": "Inconnu"
+  },
+  "time": {
+    "justNow": "à l'instant"
+  },
+  "readingDirection": {
+    "leftToRight": "Gauche à droite",
+    "rightToLeft": "Droite à gauche",
+    "vertical": "Vertical",
+    "webtoon": "Webtoon"
+  },
+  "seriesStatus": {
+    "ongoing": "En cours",
+    "ended": "Terminée",
+    "abandoned": "Abandonnée",
+    "hiatus": "En pause"
+  },
+  "cardStatus": {
+    "unavailable": "Indisponible",
+    "error": "Erreur",
+    "unsupported": "Non pris en charge",
+    "toBeAnalyzed": "À analyser"
+  },
+  "mediaIssue": {
+    "unavailable": "Indisponible",
+    "error": "L'analyse du média a échoué",
+    "unsupported": "Ce type de média n'est pas pris en charge",
+    "outdated": "Le fichier de ce livre a changé et doit être réanalysé",
+    "unknown": "Ce livre n'a pas encore été analysé"
+  },
+  "notFound": {
+    "title": "Page introuvable",
+    "body": "La page que vous cherchez n'existe pas ou a été déplacée.",
+    "back": "Retour au tableau de bord"
+  },
+  "oneshot": "One-shot",
+  "komf": {
+    "jobsSummary_one": "{{count}} correspondance",
+    "jobsSummary_many": "{{count}} correspondances",
+    "jobsSummary_other": "{{count}} correspondances",
+    "moreFailed_one": "+{{count}} échec",
+    "moreFailed_many": "+{{count}} échecs",
+    "moreFailed_other": "+{{count}} échecs",
+    "matching": "Association…",
+    "matchCompleted": "association terminée",
+    "postProcessing": "Post-traitement…",
+    "seriesFallback": "Correspondance de série"
+  }
+}

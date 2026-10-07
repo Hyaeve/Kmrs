@@ -1,0 +1,72 @@
+{
+  "action": {
+    "save": "Salva",
+    "cancel": "Annulla",
+    "delete": "Elimina",
+    "edit": "Modifica",
+    "close": "Chiudi",
+    "back": "Indietro",
+    "add": "Aggiungi",
+    "remove": "Rimuovi",
+    "create": "Crea",
+    "done": "Fatto",
+    "confirm": "Conferma",
+    "search": "Cerca",
+    "retry": "Riprova",
+    "dismiss": "Ignora",
+    "download": "Scarica",
+    "showMore": "Mostra altro",
+    "showLess": "Mostra meno"
+  },
+  "state": {
+    "loading": "Caricamento…",
+    "unavailable": "Non disponibile",
+    "unknown": "Sconosciuto"
+  },
+  "time": {
+    "justNow": "proprio ora"
+  },
+  "readingDirection": {
+    "leftToRight": "Da sinistra a destra",
+    "rightToLeft": "Da destra a sinistra",
+    "vertical": "Verticale",
+    "webtoon": "Webtoon"
+  },
+  "seriesStatus": {
+    "ongoing": "In corso",
+    "ended": "Conclusa",
+    "abandoned": "Abbandonata",
+    "hiatus": "In pausa"
+  },
+  "cardStatus": {
+    "unavailable": "Non disponibile",
+    "error": "Errore",
+    "unsupported": "Non supportato",
+    "toBeAnalyzed": "Da analizzare"
+  },
+  "mediaIssue": {
+    "unavailable": "Non disponibile",
+    "error": "Analisi del media non riuscita",
+    "unsupported": "Questo tipo di media non è supportato",
+    "outdated": "Il file di questo libro è cambiato e deve essere analizzato di nuovo",
+    "unknown": "Questo libro non è ancora stato analizzato"
+  },
+  "notFound": {
+    "title": "Pagina non trovata",
+    "body": "La pagina che cerchi non esiste o è stata spostata.",
+    "back": "Torna alla dashboard"
+  },
+  "oneshot": "Oneshot",
+  "komf": {
+    "jobsSummary_one": "{{count}} abbinamento",
+    "jobsSummary_many": "{{count}} abbinamenti",
+    "jobsSummary_other": "{{count}} abbinamenti",
+    "moreFailed_one": "+{{count}} non riuscito",
+    "moreFailed_many": "+{{count}} non riusciti",
+    "moreFailed_other": "+{{count}} non riusciti",
+    "matching": "Abbinamento…",
+    "matchCompleted": "abbinamento completato",
+    "postProcessing": "Post-elaborazione…",
+    "seriesFallback": "Abbinamento serie"
+  }
+}

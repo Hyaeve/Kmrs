@@ -1,0 +1,27 @@
+{
+  "title": "Buscar",
+  "titleWithQuery": "Buscar: {{q}}",
+  "scope": {
+    "all": "Todas las bibliotecas",
+    "pinned": "Bibliotecas fijadas",
+    "library": "Biblioteca",
+    "ariaLabel": "Ámbito de búsqueda: {{label}}"
+  },
+  "tabs": {
+    "all": "Todo",
+    "series": "Series",
+    "books": "Libros",
+    "collections": "Colecciones",
+    "readlists": "Listas de lectura"
+  },
+  "placeholderTop": "Buscar series, libros, autores…",
+  "placeholderPage": "Buscar series, libros, colecciones, listas de lectura…",
+  "clear": "Borrar búsqueda",
+  "emptyTitle": "Busca en tu biblioteca",
+  "emptyBody": "Encuentra series, libros, colecciones y listas de lectura. También funcionan las consultas por campos como title:berserk AND tag:seinen.",
+  "viewAll": "Ver todo",
+  "noResultsTitle": "Sin resultados para «{{q}}»",
+  "noResultsBody": "Prueba con otras palabras clave o busca en una sola categoría.",
+  "failedTitle": "La búsqueda falló",
+  "failedBody": "Algo salió mal."
+}

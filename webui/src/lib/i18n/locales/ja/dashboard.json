@@ -1,0 +1,39 @@
+{
+  "title": "ダッシュボード",
+  "scope": {
+    "all": "すべて"
+  },
+  "sections": {
+    "keepReading": "続きを読む",
+    "onDeck": "次に読む",
+    "recentlyReleasedBooks": "最近発売された本",
+    "recentlyAddedBooks": "最近追加された本",
+    "recentlyAddedSeries": "最近追加されたシリーズ",
+    "recentlyUpdatedSeries": "最近更新されたシリーズ",
+    "recentlyRead": "最近読んだ本"
+  },
+  "customizeSections": "セクションをカスタマイズ",
+  "allHidden": {
+    "title": "すべてのセクションが非表示です",
+    "body": "このビューではすべてのダッシュボードセクションが非表示になっています。"
+  },
+  "empty": {
+    "title": "まだ何もありません",
+    "body": "サーバーにコンテンツが追加されると、本やシリーズがここに表示されます。"
+  },
+  "pinnedEmpty": {
+    "title": "ピン留めされたライブラリがありません",
+    "body": "「すべて」ダッシュボードにはピン留めしたライブラリのコンテンツのみ表示されます。ライブラリをピン留めしてダッシュボードを作るか、リセットしてすべてのライブラリを再表示できます。",
+    "action": "ライブラリを選択"
+  },
+  "rowError": "このセクションを読み込めませんでした。",
+  "loadError": "読み込めませんでした",
+  "bookCount_other": "{{count}} 冊",
+  "seriesCount_other": "{{count}} シリーズ",
+  "sectionsDialog": {
+    "bodyAll": "「すべて」ダッシュボードビューにのみ適用されます。ドラッグで並べ替えるか、使わないセクションを非表示にできます。",
+    "bodyLibrary": "このライブラリビューにのみ適用されます。ドラッグで並べ替えるか、使わないセクションを非表示にできます。",
+    "reorder": "{{title}} を並べ替え",
+    "reset": "デフォルトに戻す"
+  }
+}

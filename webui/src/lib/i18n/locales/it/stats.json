@@ -1,0 +1,69 @@
+{
+  "title": "Statistiche di lettura",
+  "subtitle": "Le tue letture in tutte le librerie",
+  "failed": "Impossibile caricare le statistiche di lettura.",
+  "library": {
+    "all": "Tutte le librerie",
+    "ariaLabel": "Statistiche per {{label}}"
+  },
+  "summary": {
+    "booksRead": "Libri letti",
+    "ofTotal_one": "di {{total}} libro",
+    "ofTotal_many": "di {{total}} libri",
+    "ofTotal_other": "di {{total}} libri",
+    "inProgress": "In lettura",
+    "pagesRead": "Pagine lette",
+    "readingDays": "Giorni di lettura",
+    "currentStreak": "Streak attuale",
+    "longestStreak": "Streak più lunga",
+    "avgPages": "Pagine medie / libro",
+    "lastRead": "Ultima lettura",
+    "never": "Mai",
+    "days_one": "{{count}} giorno",
+    "days_many": "{{count}} giorni",
+    "days_other": "{{count}} giorni"
+  },
+  "heatmap": {
+    "title": "Attività di lettura",
+    "range3m": "Ultimi 3 mesi",
+    "range6m": "Ultimi 6 mesi",
+    "range1y": "Ultimi 12 mesi",
+    "empty": "Nessuna attività di lettura in questo periodo.",
+    "less": "Meno",
+    "more": "Più",
+    "pages_one": "{{count}} pagina",
+    "pages_many": "{{count}} pagine",
+    "pages_other": "{{count}} pagine",
+    "completed_one": "{{count}} libro completato",
+    "completed_many": "{{count}} libri completati",
+    "completed_other": "{{count}} libri completati",
+    "noActivity": "Nessuna lettura",
+    "dayLabel": "{{date}}: {{activity}}"
+  },
+  "status": {
+    "title": "Libri per stato",
+    "read": "Letti",
+    "inProgress": "In lettura",
+    "unread": "Da leggere",
+    "empty": "Ancora nessun libro."
+  },
+  "chart": {
+    "tooltip": "{{label}}: {{value}}"
+  },
+  "weekday": {
+    "title": "Per giorno della settimana"
+  },
+  "hourly": {
+    "title": "Per ora del giorno"
+  },
+  "tops": {
+    "title": "Più letti",
+    "authors": "Autori",
+    "genres": "Generi",
+    "tags": "Tag",
+    "series_one": "{{count}} serie",
+    "series_many": "{{count}} serie",
+    "series_other": "{{count}} serie",
+    "empty": "Finisci qualche libro per vedere i tuoi autori, generi e tag più letti."
+  }
+}

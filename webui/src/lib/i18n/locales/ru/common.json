@@ -1,0 +1,74 @@
+{
+  "action": {
+    "save": "Сохранить",
+    "cancel": "Отмена",
+    "delete": "Удалить",
+    "edit": "Изменить",
+    "close": "Закрыть",
+    "back": "Назад",
+    "add": "Добавить",
+    "remove": "Убрать",
+    "create": "Создать",
+    "done": "Готово",
+    "confirm": "Подтвердить",
+    "search": "Поиск",
+    "retry": "Повторить",
+    "dismiss": "Скрыть",
+    "download": "Скачать",
+    "showMore": "Ещё",
+    "showLess": "Свернуть"
+  },
+  "state": {
+    "loading": "Загрузка…",
+    "unavailable": "Недоступно",
+    "unknown": "Неизвестно"
+  },
+  "time": {
+    "justNow": "только что"
+  },
+  "readingDirection": {
+    "leftToRight": "Слева направо",
+    "rightToLeft": "Справа налево",
+    "vertical": "Вертикально",
+    "webtoon": "Вебтун"
+  },
+  "seriesStatus": {
+    "ongoing": "Выходит",
+    "ended": "Завершена",
+    "abandoned": "Заброшена",
+    "hiatus": "Перерыв"
+  },
+  "cardStatus": {
+    "unavailable": "Недоступно",
+    "error": "Ошибка",
+    "unsupported": "Не поддерживается",
+    "toBeAnalyzed": "Ожидает анализа"
+  },
+  "mediaIssue": {
+    "unavailable": "Недоступно",
+    "error": "Ошибка анализа медиа",
+    "unsupported": "Этот тип медиа не поддерживается",
+    "outdated": "Файл этой книги изменился и требует повторного анализа",
+    "unknown": "Эта книга ещё не анализировалась"
+  },
+  "notFound": {
+    "title": "Страница не найдена",
+    "body": "Страница, которую вы ищете, не существует или была перемещена.",
+    "back": "На главную"
+  },
+  "oneshot": "Ваншот",
+  "komf": {
+    "jobsSummary_one": "{{count}} совпадение",
+    "jobsSummary_few": "{{count}} совпадения",
+    "jobsSummary_many": "{{count}} совпадений",
+    "jobsSummary_other": "{{count}} совпадения",
+    "moreFailed_one": "+{{count}} ошибка",
+    "moreFailed_few": "+{{count}} ошибки",
+    "moreFailed_many": "+{{count}} ошибок",
+    "moreFailed_other": "+{{count}} ошибки",
+    "matching": "Сопоставление…",
+    "matchCompleted": "сопоставление завершено",
+    "postProcessing": "Постобработка…",
+    "seriesFallback": "Совпадение серии"
+  }
+}

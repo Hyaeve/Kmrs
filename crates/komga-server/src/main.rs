@@ -119,7 +119,6 @@ async fn main() -> anyhow::Result<()> {
         search_index: search_index.clone(),
         kepub: service::kepub::KepubConverter::new(service::kepub::default_tmp_dir()),
         kobo_proxy: service::kobo_proxy::KoboProxy::new(),
-        webui_dir: webui::WebuiDir::new(service::webui_updater::initial_dir(&config)),
         shutdown_tx,
         db,
         task_db,
@@ -152,9 +151,6 @@ async fn main() -> anyhow::Result<()> {
         }
         service::maintenance::MaintenanceScheduler::start_thumbnail_sweep(sweep_state);
     });
-    if config.webui_auto_update && config.webui_dir.is_some() {
-        service::webui_updater::WebuiUpdater::start(state.clone());
-    }
     service::komf::KomfProvisioner::start(state.clone());
     search_index::check_on_startup(&state, search_rebuild);
     search_index::consume_events(state.clone());

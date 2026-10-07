@@ -1,0 +1,113 @@
+{
+  "title": "필터",
+  "clearAll": "모두 지우기",
+  "close": "필터 닫기",
+  "noun": {
+    "books_other": "책 <num>{{count, number}}</num>권",
+    "series_other": "시리즈 <num>{{count, number}}</num>개",
+    "collections_other": "컬렉션 <num>{{count, number}}</num>개",
+    "readlists_other": "읽기 목록 <num>{{count, number}}</num>개"
+  },
+  "chip": {
+    "remove": "필터 제거: {{label}}",
+    "author": "작가: {{name}}",
+    "search": "검색: {{q}}",
+    "value": "{{group}}: {{value}}",
+    "value_negated": "{{group}}: {{value}} 아님"
+  },
+  "mode": {
+    "any": "하나라도",
+    "all": "모두"
+  },
+  "negate": {
+    "is": "맞음",
+    "isNot": "아님"
+  },
+  "section": {
+    "flags": "플래그",
+    "metadata": "메타데이터"
+  },
+  "resetGroup": "재설정",
+  "group": {
+    "readStatus": "읽기 상태",
+    "seriesStatus": "시리즈 상태",
+    "letter": "첫 글자",
+    "complete": "완결 여부",
+    "deleted": "삭제됨",
+    "publishers": "출판사",
+    "genres": "장르",
+    "tags": "태그",
+    "sharingLabels": "공유 라벨",
+    "ageRatings": "연령 등급",
+    "languages": "언어",
+    "releaseYears": "발매 연도",
+    "authors": "작가",
+    "mediaProfiles": "미디어 프로필",
+    "mediaStatuses": "미디어 상태",
+    "poster": "포스터",
+    "libraries": "라이브러리",
+    "readlists": "읽기 목록",
+    "collections": "컬렉션"
+  },
+  "option": {
+    "readStatus": {
+      "read": "읽음",
+      "unread": "읽지 않음",
+      "inProgress": "읽는 중"
+    },
+    "yesNo": {
+      "yes": "예",
+      "no": "아니요"
+    },
+    "mediaProfile": {
+      "divina": "Divina",
+      "pdf": "PDF",
+      "epub": "EPUB"
+    },
+    "mediaStatus": {
+      "ready": "준비됨",
+      "outdated": "오래됨"
+    },
+    "poster": {
+      "selected": "포스터 있음",
+      "missing": "포스터 없음"
+    },
+    "ageRating": {
+      "unset": "없음"
+    }
+  },
+  "sort": {
+    "sortBy": "정렬 기준",
+    "ascending": "오름차순",
+    "descending": "내림차순",
+    "title": "제목",
+    "series": "시리즈",
+    "number": "번호",
+    "dateAdded": "추가일",
+    "dateUpdated": "업데이트일",
+    "releaseDate": "발매일",
+    "lastRead": "마지막으로 읽은 날짜",
+    "folderName": "폴더 이름",
+    "fileName": "파일 이름",
+    "fileSize": "파일 크기",
+    "pages": "페이지",
+    "booksCount": "책 수",
+    "random": "무작위",
+    "listOrder": "목록 순서"
+  },
+  "options": {
+    "filterPlaceholder": "옵션 필터…",
+    "loadError": "옵션을 불러올 수 없습니다.",
+    "noMatch": "일치하는 옵션이 없습니다."
+  },
+  "authors": {
+    "searchPlaceholder": "작가 검색…",
+    "noMatch": "일치하는 작가가 없습니다."
+  },
+  "search": {
+    "books": "책 검색…",
+    "series": "시리즈 검색…",
+    "collections": "컬렉션 검색…",
+    "readlists": "읽기 목록 검색…"
+  }
+}

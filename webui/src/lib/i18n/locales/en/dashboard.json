@@ -1,0 +1,41 @@
+{
+  "title": "Dashboard",
+  "scope": {
+    "all": "All"
+  },
+  "sections": {
+    "keepReading": "Keep Reading",
+    "onDeck": "On Deck",
+    "recentlyReleasedBooks": "Recently Released Books",
+    "recentlyAddedBooks": "Recently Added Books",
+    "recentlyAddedSeries": "Recently Added Series",
+    "recentlyUpdatedSeries": "Recently Updated Series",
+    "recentlyRead": "Recently Read"
+  },
+  "customizeSections": "Customize sections",
+  "allHidden": {
+    "title": "All sections are hidden",
+    "body": "Every dashboard section is hidden for this view."
+  },
+  "empty": {
+    "title": "Nothing here yet",
+    "body": "Books and series will appear here once your server has content."
+  },
+  "pinnedEmpty": {
+    "title": "No pinned libraries",
+    "body": "The All dashboard only shows content from your pinned libraries. Pin some to build your dashboard, or reset to see every library again.",
+    "action": "Choose libraries"
+  },
+  "rowError": "Could not load this section.",
+  "loadError": "Couldn't load",
+  "bookCount_one": "{{count}} book",
+  "bookCount_other": "{{count}} books",
+  "seriesCount_one": "{{count}} series",
+  "seriesCount_other": "{{count}} series",
+  "sectionsDialog": {
+    "bodyAll": "Only applies to the All dashboard view. Drag to reorder, or hide sections you do not use.",
+    "bodyLibrary": "Only applies to this library view. Drag to reorder, or hide sections you do not use.",
+    "reorder": "Reorder {{title}}",
+    "reset": "Reset to default"
+  }
+}

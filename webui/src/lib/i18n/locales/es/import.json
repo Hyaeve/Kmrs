@@ -1,0 +1,98 @@
+{
+  "books": {
+    "title": "Importar libros",
+    "subtitle": "Importa archivos desde fuera de tus bibliotecas a una serie existente",
+    "folderLabel": "Carpeta en el servidor",
+    "browse": "Explorar",
+    "scan": "Escanear",
+    "queued_one": "Importación en cola para {{count}} libro",
+    "queued_many": "Importación en cola para {{count}} libros",
+    "queued_other": "Importación en cola para {{count}} libros",
+    "queuedBody": "Las importaciones se ejecutan como tareas en segundo plano. Sigue el progreso en la <link>página del servidor</link>.",
+    "importMore": "Importar más archivos",
+    "emptyTitle": "No hay archivos importables",
+    "emptyBody": "La carpeta no contiene archivos de libros.",
+    "copyMode": {
+      "move": "Mover",
+      "copy": "Copiar",
+      "hardlink": "Enlace duro"
+    },
+    "selectedCount_one": "{{checked}} de {{count}} archivo seleccionado",
+    "selectedCount_many": "{{checked}} de {{count}} archivos seleccionados",
+    "selectedCount_other": "{{checked}} de {{count}} archivos seleccionados",
+    "importSelected": "Importar seleccionados",
+    "missingSeries_one": "Selecciona una serie para cada archivo marcado (falta {{count}} fila).",
+    "missingSeries_many": "Selecciona una serie para cada archivo marcado (faltan {{count}} filas).",
+    "missingSeries_other": "Selecciona una serie para cada archivo marcado (faltan {{count}} filas).",
+    "selectAll": "Seleccionar todo",
+    "importFile": "Importar {{fileName}}",
+    "table": {
+      "sourceFile": "Archivo de origen",
+      "series": "Serie",
+      "number": "Número",
+      "destinationName": "Nombre de destino",
+      "analyze": "Analizar"
+    },
+    "status": {
+      "analyzed": "Analizado",
+      "notAnalyzed": "No analizado"
+    },
+    "selectedSeries": "Serie seleccionada",
+    "change": "Cambiar",
+    "selectSeries": "Seleccionar serie…",
+    "analyze": "Analizar",
+    "pickerTitle": "Selecciona una serie",
+    "pickerConfirm": "Usar esta serie"
+  },
+  "readlist": {
+    "title": "Importar lista de lectura",
+    "subtitle": "Crea una lista de lectura desde un archivo .cbl de ComicRack",
+    "chooseFile": "Elegir archivo",
+    "noFileChosen": "Ningún archivo elegido",
+    "match": "Cotejar con la biblioteca",
+    "nameLabel": "Nombre de la lista de lectura",
+    "nameConflict": "Ya existe una lista de lectura con este nombre",
+    "summary": {
+      "matched": "{{count}} cotejados",
+      "multiple": "{{count}} múltiples",
+      "noMatch": "{{count}} sin coincidencia"
+    },
+    "startOver": "Empezar de nuevo",
+    "create_one": "Crear lista de lectura ({{count}} libro)",
+    "create_many": "Crear lista de lectura ({{count}} libros)",
+    "create_other": "Crear lista de lectura ({{count}} libros)",
+    "skippedNote": "Las entradas sin un libro cotejado se omiten.",
+    "filter": {
+      "all": "Todas ({{count}})",
+      "matched": "Cotejados ({{count}})",
+      "multiple": "Múltiples ({{count}})",
+      "noMatch": "Sin coincidencia ({{count}})"
+    },
+    "emptyTitle": "Nada por aquí",
+    "emptyBody": "No hay entradas con este estado.",
+    "table": {
+      "requested": "Solicitado",
+      "matchedBook": "Libro cotejado",
+      "status": "Estado",
+      "action": "Acción"
+    },
+    "unknownSeries": "Serie desconocida",
+    "manual": "manual",
+    "chooseBook": "Elige un libro…",
+    "noLibraryMatch": "Sin coincidencia en la biblioteca",
+    "status": {
+      "matched": "Cotejado",
+      "ambiguous": "Múltiple",
+      "unmatched": "Sin coincidencia"
+    },
+    "change": "Cambiar",
+    "pickBook": "Elegir libro",
+    "pageInfo": "Página {{page}} de {{pages}}",
+    "previous": "Anterior",
+    "next": "Siguiente",
+    "pickerTitle": "Elige un libro para {{series}} #{{number}}",
+    "pickerEntry": "entrada",
+    "pickerTitleDefault": "Elige un libro",
+    "pickerConfirm": "Usar este libro"
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "title": "Benutzer",
+  "subtitle_one": "{{count}} Benutzer · Rollen, Bibliothekszugriff und Inhaltsbeschränkungen",
+  "subtitle_other": "{{count}} Benutzer · Rollen, Bibliothekszugriff und Inhaltsbeschränkungen",
+  "subtitleEmpty": "Rollen, Bibliothekszugriff und Inhaltsbeschränkungen",
+  "addUser": "Benutzer hinzufügen",
+  "loadFailed": "Benutzer konnten nicht geladen werden.",
+  "emptyTitle": "Noch keine Benutzer",
+  "emptyBody": "Füge einen Benutzer hinzu, um jemandem Zugang zu diesem Server zu geben.",
+  "you": "du",
+  "user": "Benutzer",
+  "rowActions": "Aktionen für {{email}}",
+  "selfEditHint": "Du kannst dein eigenes Konto hier nicht bearbeiten",
+  "selfDeleteHint": "Du kannst dein eigenes Konto nicht löschen",
+  "table": {
+    "restrictions": "Beschränkungen",
+    "actions": "Aktionen"
+  },
+  "restrictions": {
+    "ageAllow": "Alter ≤ {{age}}",
+    "ageExclude": "Alter > {{age}} ausgeschlossen",
+    "labelsAllowed_one": "{{count}} Label erlaubt",
+    "labelsAllowed_other": "{{count}} Labels erlaubt",
+    "labelsExcluded_one": "{{count}} Label ausgeschlossen",
+    "labelsExcluded_other": "{{count}} Labels ausgeschlossen"
+  },
+  "roles": {
+    "adminDesc": "Voller Zugriff, einschließlich Server-Einstellungen",
+    "fileDownloadDesc": "Buchdateien herunterladen",
+    "pageStreamingDesc": "Seiten für das Online-Lesen streamen",
+    "koboSyncDesc": "Mit Kobo-E-Readern synchronisieren",
+    "koreaderSyncDesc": "Lesefortschritt mit KOReader synchronisieren"
+  },
+  "form": {
+    "editTitle": "Benutzer bearbeiten",
+    "saveFailed": "Der Benutzer konnte nicht gespeichert werden.",
+    "sectionAccount": "Konto",
+    "password": "Passwort",
+    "sectionLibraryAccess": "Bibliothekszugriff",
+    "allLibrariesDesc": "Jede Bibliothek teilen, einschließlich später erstellter",
+    "sectionContentRestrictions": "Inhaltsbeschränkungen",
+    "ageRestriction": "Altersbeschränkung",
+    "age": "Alter",
+    "ageMode": {
+      "none": "Keine",
+      "allow": "Nur erlauben",
+      "exclude": "Ausschließen"
+    },
+    "ageInvalid": "Gib eine ganze Zahl von 0 oder mehr ein.",
+    "ageAllowHint": "Nur Inhalte mit einer Altersfreigabe von höchstens diesem Alter anzeigen.",
+    "ageExcludeHint": "Inhalte mit einer Altersfreigabe über diesem Alter ausblenden.",
+    "allowedLabels": "Erlaubte Labels",
+    "excludedLabels": "Ausgeschlossene Labels"
+  },
+  "changePassword": {
+    "body": "Ein neues Passwort für <email>{{email}}</email> festlegen. Alle Sitzungen werden abgemeldet."
+  },
+  "deleteDialog": {
+    "title": "Benutzer löschen",
+    "body": "<email>{{email}}</email> löschen? Lesefortschritt, API-Schlüssel und Sitzungen werden endgültig entfernt. Dies kann nicht rückgängig gemacht werden.",
+    "failed": "Der Benutzer konnte nicht gelöscht werden."
+  },
+  "labelList": {
+    "remove": "{{label}} entfernen"
+  },
+  "activity": {
+    "title": "Authentifizierungsaktivität",
+    "events_one": "{{count, number}} Ereignis",
+    "events_other": "{{count, number}} Ereignisse",
+    "loadFailed": "Die Authentifizierungsaktivität konnte nicht geladen werden.",
+    "empty": "Noch keine Aktivität."
+  }
+}

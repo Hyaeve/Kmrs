@@ -1,0 +1,89 @@
+{
+  "libraryFallback": "書庫",
+  "errorFallback": "發生錯誤。",
+  "emptyFilterHint": "試試調整篩選條件。",
+  "tryDifferentSearch": "試試其他搜尋內容。",
+  "tabs": {
+    "series": "系列",
+    "books": "書籍",
+    "collections": "收藏",
+    "readlists": "閱讀清單"
+  },
+  "namePlaceholder": "名稱",
+  "bookCount_other": "{{count}} 本書",
+  "seriesCount_other": "{{count}} 個系列",
+  "books": {
+    "all": "所有書籍",
+    "loadError": "無法載入書籍",
+    "empty": "找不到書籍"
+  },
+  "series": {
+    "all": "所有系列",
+    "loadError": "無法載入系列",
+    "empty": "找不到系列"
+  },
+  "collections": {
+    "title": "收藏",
+    "loadError": "無法載入收藏",
+    "empty": "還沒有收藏",
+    "count_other": "收藏"
+  },
+  "readlists": {
+    "title": "閱讀清單",
+    "loadError": "無法載入閱讀清單",
+    "empty": "還沒有閱讀清單",
+    "count_other": "閱讀清單"
+  },
+  "alphabet": {
+    "ariaLabel": "依開頭字母瀏覽"
+  },
+  "addToCollection": {
+    "title_other": "將 {{count}} 個系列加入收藏",
+    "filterPlaceholder": "篩選收藏…",
+    "noMatch": "沒有符合的收藏",
+    "newLabel": "新收藏",
+    "added": "已加入「{{name}}」",
+    "created": "已建立「{{name}}」",
+    "addFailed": "無法加入收藏",
+    "createFailed": "無法建立收藏"
+  },
+  "addToReadList": {
+    "title_other": "將 {{count}} 本書加入閱讀清單",
+    "filterPlaceholder": "篩選閱讀清單…",
+    "noMatch": "沒有符合的閱讀清單",
+    "newLabel": "新閱讀清單",
+    "added": "已加入「{{name}}」",
+    "created": "已建立「{{name}}」",
+    "addFailed": "無法加入閱讀清單",
+    "createFailed": "無法建立閱讀清單"
+  },
+  "deleteConfirm": {
+    "body_book_other": "刪除 <num>{{count}}</num> 本書的檔案？檔案會從磁碟移除。此操作無法復原。",
+    "body_series_other": "刪除 <num>{{count}}</num> 個系列的檔案？檔案會從磁碟移除。此操作無法復原。"
+  },
+  "selection": {
+    "working": "處理中 {{done}}/{{total}}…",
+    "selected_other": "已選取 <num>{{count}}</num> 項",
+    "selectAll": "全選",
+    "clear": "清除",
+    "moreActions": "更多動作",
+    "markRead": "標記為已讀",
+    "markUnread": "標記為未讀",
+    "addToReadList": "加入閱讀清單",
+    "addToCollection": "加入收藏",
+    "editMetadata": "編輯詮釋資料",
+    "matchKomf": "以 komf 比對",
+    "deleteFiles": "刪除檔案",
+    "markBooksAs_read_other": "已將 {{count}} 本書標記為已讀",
+    "markBooksAs_unread_other": "已將 {{count}} 本書標記為未讀",
+    "markSeriesAs_read_other": "已將 {{count}} 個系列標記為已讀",
+    "markSeriesAs_unread_other": "已將 {{count}} 個系列標記為未讀",
+    "markBooksFailed_other": "{{total}} 本書中有 {{failed}} 本失敗",
+    "markSeriesFailed_other": "{{total}} 個系列中有 {{failed}} 個失敗",
+    "matchKomfQueued_other": "已為 {{count}} 個系列排入 komf 比對",
+    "matchKomfFailed_other": "{{total}} 個系列中有 {{failed}} 個失敗",
+    "deleteBooksFiles_other": "已刪除 {{count}} 本書的檔案",
+    "deleteSeriesFiles_other": "已刪除 {{count}} 個系列的檔案",
+    "deleteFilesFailed": "{{total}} 項中有 {{failed}} 項失敗"
+  }
+}

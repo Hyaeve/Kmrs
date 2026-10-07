@@ -29,7 +29,7 @@ docker run -d \
   ghcr.io/kmworks/kmrs
 ```
 
-The image bundles [kmweb](https://github.com/kmworks/kmweb), a React web UI built for kmrs, served at `/` out of the box. Prebuilt binaries (Linux, macOS, Windows; x86_64 and aarch64) are on the [releases page](https://github.com/kmworks/kmrs/releases/latest) — the standalone binary carries no UI, pair it with a Komga-compatible client like [KMReader](https://github.com/kmworks/kmreader), KOReader, or Kobo.
+The kmweb React web UI (built from [`webui/`](webui/) in this repo) is embedded in the binary and served at `/` out of the box — nothing to configure. Prebuilt binaries (Linux, macOS, Windows; x86_64 and aarch64) are on the [releases page](https://github.com/kmworks/kmrs/releases/latest); API-only clients like [KMReader](https://github.com/kmworks/kmreader), KOReader, or Kobo work too.
 
 ## Documentation
 
@@ -37,7 +37,7 @@ Full documentation lives at **[kmworks.date/server](https://kmworks.date/server/
 
 - [Installation](https://kmworks.date/server/installation) — Docker, prebuilt binaries, build from source
 - [Configuration](https://kmworks.date/server/configuration) — `config.toml` key reference, env vars, precedence
-- [Serving a web UI](https://kmworks.date/server/webui) — bundled kmweb, auto-updates, reverse-proxy setups
+- [Serving a web UI](https://kmworks.date/server/webui) — bundled web UI, reverse-proxy setups
 - [Search](https://kmworks.date/server/search) — analyzer chain, CJK cross-search extensions
 - [Compatibility](https://kmworks.date/server/compatibility) and [Known limitations](https://kmworks.date/server/limitations)
 - [Development](https://kmworks.date/server/development) — tests, crate structure, heap profiling

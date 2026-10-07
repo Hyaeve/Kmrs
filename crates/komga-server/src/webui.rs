@@ -1,40 +1,21 @@
-//! Optional static hosting of the kmweb build: `webui.dir` points at its dist
-//! directory. Unmatched paths outside the backend namespaces fall back to its
-//! index.html — the SPA history-mode equivalent of Java's
-//! `ResourceNotFoundController` forwarding to `/`.
+//! The kmweb build, embedded into the binary at compile time (rust-embed over
+//! `../../webui/dist`; build.rs substitutes a placeholder page when the UI was not
+//! built). Unmatched paths outside the backend namespaces fall back to index.html —
+//! the SPA history-mode equivalent of Java's `ResourceNotFoundController` forwarding
+//! to `/`.
 //!
 //! Cache headers split like Java's `WebMvcConfiguration`: content-hashed build
 //! output (Vite emits it under assets/) is cached for a year, everything else —
 //! index.html, favicon — is no-store.
 
-use crate::state::AppState;
-use axum::extract::{Request, State};
+use axum::extract::Request;
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
-use std::path::PathBuf;
-use tower::ServiceExt;
-use tower_http::services::{ServeDir, ServeFile};
+use rust_embed::Embed;
 
-/// The directory currently served as the web UI: initially the configured `webui.dir`
-/// (or the updater's managed copy under `<config-dir>/webui`), swapped by the updater
-/// when a new kmweb release lands. ServeDir is built per request, so the next request
-/// picks the swap up without a restart.
-#[derive(Clone, Default)]
-pub struct WebuiDir(std::sync::Arc<std::sync::RwLock<Option<PathBuf>>>);
-
-impl WebuiDir {
-    pub fn new(dir: Option<PathBuf>) -> Self {
-        Self(std::sync::Arc::new(std::sync::RwLock::new(dir)))
-    }
-
-    pub fn get(&self) -> Option<PathBuf> {
-        self.0.read().unwrap().clone()
-    }
-
-    pub fn set(&self, dir: Option<PathBuf>) {
-        *self.0.write().unwrap() = dir;
-    }
-}
+#[derive(Embed)]
+#[folder = "../../webui/dist"]
+struct WebuiAssets;
 
 /// First path segments owned by the backend: misses inside them stay 404 instead of
 /// falling through to the SPA (Java's forward excludes /api, /opds, /sse the same way).
@@ -48,41 +29,37 @@ const BACKEND_SEGMENTS: &[&str] = &[
 /// cache long-term.
 const LONG_CACHE_SEGMENTS: &[&str] = &["assets"];
 
-pub async fn fallback(State(state): State<AppState>, request: Request) -> Response {
-    let Some(dir) = state.webui_dir.get() else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
-    let path = request.uri().path().to_string();
+pub async fn fallback(request: Request) -> Response {
+    let path = request.uri().path();
     if path.split('/').any(|s| s == "..") {
-        // ServeDir would fall back to index.html here (no leak, but junk paths are 404)
+        // junk paths are 404, not the SPA
         return StatusCode::NOT_FOUND.into_response();
     }
-    let first_segment = path.split('/').nth(1).unwrap_or_default().to_string();
-    if BACKEND_SEGMENTS.contains(&first_segment.as_str()) {
+    let first_segment = path.split('/').nth(1).unwrap_or_default();
+    if BACKEND_SEGMENTS.contains(&first_segment) {
         return StatusCode::NOT_FOUND.into_response();
     }
 
-    // `.fallback` (not `not_found_service`, which would force the status to 404):
-    // missing files are served as index.html with 200, the SPA history-mode behavior
-    let service = ServeDir::new(&dir).fallback(ServeFile::new(dir.join("index.html")));
-    let mut response = match service.oneshot(request).await {
-        Ok(response) => response.map(axum::body::Body::new),
-        Err(e) => {
-            tracing::warn!("webui static file error: {e}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
+    // a miss is served as index.html: the SPA history-mode behavior
+    let Some(file) =
+        WebuiAssets::get(path.trim_start_matches('/')).or_else(|| WebuiAssets::get("index.html"))
+    else {
+        return StatusCode::NOT_FOUND.into_response();
     };
-    if response.status().is_success() {
-        let cache_control = if LONG_CACHE_SEGMENTS.contains(&first_segment.as_str()) {
-            "max-age=31536000, public"
-        } else {
-            "no-store"
-        };
-        response.headers_mut().insert(
-            header::CACHE_CONTROL,
-            HeaderValue::from_static(cache_control),
-        );
-    }
+    let cache_control = if LONG_CACHE_SEGMENTS.contains(&first_segment) {
+        "max-age=31536000, public"
+    } else {
+        "no-store"
+    };
+    let mut response = (StatusCode::OK, file.data.to_vec()).into_response();
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(file.metadata.mimetype()).unwrap(),
+    );
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static(cache_control),
+    );
     response
 }
 
@@ -92,15 +69,15 @@ mod tests {
     use crate::auth;
     use crate::config::ServerConfig;
     use crate::settings::SettingsProvider;
-    use crate::state::test_kmrs_db;
+    use crate::state::{test_kmrs_db, AppState};
     use axum::body::Body;
-    use axum::http::Request;
+    use axum::http::HeaderMap;
     use komga_db::pool::{Database, JournalMode};
     use komga_db::{Migrator, Placeholders};
     use std::sync::Arc;
     use tower::ServiceExt;
 
-    fn test_state(webui_dir: Option<std::path::PathBuf>) -> AppState {
+    fn test_state() -> AppState {
         let db = Database::open_in_memory(true).unwrap();
         Migrator::new(&komga_db::main_migrations(), Placeholders::default())
             .migrate(&db.rw().unwrap())
@@ -135,9 +112,6 @@ mod tests {
             webhooks: Default::default(),
             migration_placeholders: Default::default(),
             oauth2: Default::default(),
-            webui_dir: webui_dir.clone(),
-            webui_auto_update: false,
-            webui_update_interval: std::time::Duration::from_secs(24 * 3600),
             komf_url: None,
             komf_base_url: None,
             komf_auth_key: None,
@@ -160,22 +134,12 @@ mod tests {
             task_db,
             tasks_db,
             kmrs_db: test_kmrs_db(),
-            webui_dir: WebuiDir::new(webui_dir),
             config: Arc::new(config),
             search_index: crate::state::test_search_index(),
             kepub: crate::service::kepub::KepubConverter::new(tempfile::tempdir().unwrap().keep()),
             kobo_proxy: crate::service::kobo_proxy::KoboProxy::new(),
             shutdown_tx: tokio::sync::watch::channel(false).0,
         }
-    }
-
-    fn dist() -> tempfile::TempDir {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("index.html"), "<html>spa</html>").unwrap();
-        std::fs::create_dir(dir.path().join("assets")).unwrap();
-        std::fs::write(dir.path().join("assets/app.abc123.js"), "console.log(1)").unwrap();
-        std::fs::write(dir.path().join("favicon.svg"), "<svg/>").unwrap();
-        dir
     }
 
     async fn get(app: &axum::Router, uri: &str) -> (StatusCode, HeaderMap, String) {
@@ -196,75 +160,51 @@ mod tests {
         )
     }
 
-    use axum::http::HeaderMap;
+    fn embedded_index() -> String {
+        String::from_utf8(WebuiAssets::get("index.html").unwrap().data.into_owned()).unwrap()
+    }
 
     #[tokio::test]
-    async fn serves_index_and_assets_with_cache_policy() {
-        let dir = dist();
-        let state = test_state(Some(dir.path().to_path_buf()));
-        let app = crate::build_router(state);
+    async fn serves_embedded_index_and_assets_with_cache_policy() {
+        let app = crate::build_router(test_state());
 
         let (status, headers, body) = get(&app, "/").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(headers.get(header::CACHE_CONTROL).unwrap(), "no-store");
-        assert_eq!(body, "<html>spa</html>");
+        assert_eq!(body, embedded_index());
 
-        let (status, headers, body) = get(&app, "/assets/app.abc123.js").await;
+        // any content-hashed asset gets the year-long cache, whatever the bundle holds
+        let asset = WebuiAssets::iter()
+            .find(|p| p.starts_with("assets/") && p.ends_with(".js"))
+            .expect("the bundle ships at least one script");
+        let (status, headers, _) = get(&app, &format!("/{asset}")).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(
             headers.get(header::CACHE_CONTROL).unwrap(),
             "max-age=31536000, public"
         );
-        assert!(headers
-            .get(header::CONTENT_TYPE)
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .contains("javascript"));
-        assert_eq!(body, "console.log(1)");
-
-        let (status, headers, _) = get(&app, "/favicon.svg").await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(headers.get(header::CACHE_CONTROL).unwrap(), "no-store");
+        assert_eq!(
+            headers.get(header::CONTENT_TYPE).unwrap(),
+            "text/javascript"
+        );
     }
 
     #[tokio::test]
     async fn spa_history_routes_fall_back_to_index() {
-        let dir = dist();
-        let state = test_state(Some(dir.path().to_path_buf()));
-        let app = crate::build_router(state);
+        let app = crate::build_router(test_state());
 
         // a webui route like /login or /libraries/<id> is not a backend route
         for uri in ["/login", "/libraries/0ABCDEF", "/book/1/pages/2"] {
             let (status, headers, body) = get(&app, uri).await;
             assert_eq!(status, StatusCode::OK, "{uri}");
             assert_eq!(headers.get(header::CACHE_CONTROL).unwrap(), "no-store");
-            assert_eq!(body, "<html>spa</html>", "{uri}");
+            assert_eq!(body, embedded_index(), "{uri}");
         }
     }
 
     #[tokio::test]
-    async fn swapped_dir_is_served_on_the_next_request() {
-        let dir = dist();
-        let newer = tempfile::tempdir().unwrap();
-        std::fs::write(newer.path().join("index.html"), "<html>v2</html>").unwrap();
-        let state = test_state(Some(dir.path().to_path_buf()));
-        let app = crate::build_router(state.clone());
-
-        let (_, _, body) = get(&app, "/").await;
-        assert_eq!(body, "<html>spa</html>");
-
-        state.webui_dir.set(Some(newer.path().to_path_buf()));
-        let (status, _, body) = get(&app, "/").await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(body, "<html>v2</html>");
-    }
-
-    #[tokio::test]
     async fn backend_misses_stay_404() {
-        let dir = dist();
-        let state = test_state(Some(dir.path().to_path_buf()));
-        let app = crate::build_router(state);
+        let app = crate::build_router(test_state());
 
         for uri in [
             "/api/v1/nope",
@@ -280,21 +220,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn path_traversal_does_not_escape_the_dir() {
-        let dir = dist();
-        let state = test_state(Some(dir.path().to_path_buf()));
-        let app = crate::build_router(state);
-
-        std::fs::write(dir.path().join("..").join("secret.txt"), "top secret").unwrap();
-        let (status, _, body) = get(&app, "/../secret.txt").await;
+    async fn dotdot_paths_are_404_not_the_spa() {
+        let app = crate::build_router(test_state());
+        let (status, _, _) = get(&app, "/../secret.txt").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
-        assert_ne!(body, "top secret");
     }
 
     #[tokio::test]
     async fn xhr_401_has_no_basic_challenge() {
-        let state = test_state(None);
-        let app = crate::build_router(state);
+        let app = crate::build_router(test_state());
 
         // the web UI tags every API call with X-Requested-With: a bare 401
         // keeps browsers out of their native sign-in dialog
@@ -303,7 +237,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .uri("/api/v2/users/me")
-                    .header("x-requested-with", "XMLHttpRequest")
+                    .header("X-Requested-With", "XMLHttpRequest")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -329,14 +263,6 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn disabled_by_default() {
-        let state = test_state(None);
-        let app = crate::build_router(state);
-        let (status, _, _) = get(&app, "/").await;
-        assert_eq!(status, StatusCode::NOT_FOUND);
-    }
-
     fn preflight(origin: &str) -> Request<Body> {
         Request::options("/api/v1/series")
             .header(header::ORIGIN, origin)
@@ -347,7 +273,7 @@ mod tests {
 
     #[tokio::test]
     async fn cors_preflight_follows_configured_origins() {
-        let mut state = test_state(None);
+        let mut state = test_state();
         let mut config = (*state.config).clone();
         config.cors_allowed_origins = vec!["https://a.example".to_string()];
         state.config = Arc::new(config);
@@ -375,7 +301,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_cors_headers_without_configured_origins() {
-        let app = crate::build_router(test_state(None));
+        let app = crate::build_router(test_state());
         let response = app.oneshot(preflight("https://a.example")).await.unwrap();
         assert!(response
             .headers()
@@ -385,7 +311,7 @@ mod tests {
 
     #[tokio::test]
     async fn cors_headers_survive_an_unauthorized_actual_request() {
-        let mut state = test_state(None);
+        let mut state = test_state();
         let mut config = (*state.config).clone();
         config.cors_allowed_origins = vec!["https://a.example".to_string()];
         state.config = Arc::new(config);

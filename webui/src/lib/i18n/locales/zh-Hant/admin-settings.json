@@ -1,0 +1,198 @@
+{
+  "server": {
+    "title": "伺服器",
+    "subtitle": "kmrs {{version}}",
+    "subtitleWithCommit": "kmrs {{version}} · commit {{commit}}"
+  },
+  "settings": {
+    "title": "設定",
+    "subtitle": "儲存在資料庫中的全伺服器選項",
+    "loadFailed": "無法載入設定。"
+  },
+  "ui": {
+    "title": "介面設定",
+    "subtitle": "套用到每位使用者網頁介面的全域調整",
+    "loadFailed": "無法載入介面設定",
+    "errorFallback": "發生錯誤。",
+    "login": "登入",
+    "hidePassword": "隱藏電子郵件／密碼登入表單",
+    "hidePasswordHelper": "僅在至少設定一個 OAuth2 提供者時生效。若一個都沒有，密碼表單會一律顯示，以免有人無法登入。",
+    "hidePasswordHelperWithCount_other": "僅在至少設定一個 OAuth2 提供者時生效（已設定 {{count}} 個）。若一個都沒有，密碼表單會一律顯示，以免有人無法登入。",
+    "noProviderWarning": "尚未設定 OAuth2 提供者，因此登入頁面仍會顯示密碼表單。",
+    "saveFailed": "無法儲存設定。"
+  },
+  "stats": {
+    "version": "版本",
+    "uptime": "運作時間",
+    "cpu": "CPU",
+    "memory": "記憶體",
+    "diskFree": "可用磁碟空間",
+    "diskTotal": "共 {{total}}"
+  },
+  "sections": {
+    "content": "內容",
+    "security": "安全性",
+    "thumbnails": "縮圖",
+    "tasks": "任務",
+    "server": "伺服器",
+    "kobo": "Kobo",
+    "kepubify": "Kepubify"
+  },
+  "content": {
+    "libraries": "書庫",
+    "series": "系列",
+    "books": "書籍",
+    "collections": "收藏",
+    "readLists": "閱讀清單",
+    "sidecars": "附屬檔案",
+    "totalSize": "總大小"
+  },
+  "duration": {
+    "ms_other": "{{count}} 毫秒",
+    "second_other": "{{count}} 秒",
+    "minute_other": "{{count}} 分鐘",
+    "hour_other": "{{count}} 小時",
+    "day_other": "{{count}} 天"
+  },
+  "interval": "每 {{duration}}",
+  "taskType": {
+    "scanLibrary": "掃描書庫",
+    "findBooksToConvert": "尋找待轉換的書籍",
+    "findBooksWithMissingPageHash": "尋找缺少頁面雜湊值的書籍",
+    "findDuplicatePagesToDelete": "尋找待刪除的重複頁面",
+    "emptyTrash": "清空垃圾桶",
+    "analyzeBook": "分析書籍",
+    "generateBookThumbnail": "產生書籍縮圖",
+    "refreshBookMetadata": "重新整理書籍詮釋資料",
+    "hashBook": "計算書籍雜湊值",
+    "hashBookPages": "計算書籍頁面雜湊值",
+    "hashBookKoreader": "計算書籍 KOReader 雜湊值",
+    "refreshSeriesMetadata": "重新整理系列詮釋資料",
+    "aggregateSeriesMetadata": "彙整系列詮釋資料",
+    "refreshBookLocalArtwork": "重新整理書籍本機圖片",
+    "refreshSeriesLocalArtwork": "重新整理系列本機圖片",
+    "importBook": "匯入書籍",
+    "convertBook": "轉換書籍",
+    "repairExtension": "修復副檔名",
+    "removeHashedPages": "移除已記錄雜湊值的頁面",
+    "rebuildIndex": "重建索引",
+    "upgradeIndex": "升級索引",
+    "deleteBook": "刪除書籍",
+    "deleteSeries": "刪除系列",
+    "findBookThumbnailsToRegenerate": "尋找待重新產生的書籍縮圖"
+  },
+  "taskQueue": {
+    "title": "任務佇列",
+    "active": "佇列執行中",
+    "clear": "清空佇列",
+    "status_other": "{{count}} 個排隊任務 · 每 10 秒更新",
+    "waiting": "等待第一次更新… · 每 10 秒更新",
+    "cleared_other": "已清除 {{count}} 個排隊任務。",
+    "clearFailed": "無法清空佇列。",
+    "clearTitle": "清空任務佇列",
+    "clearBody": "尚未有工作程序處理的排隊任務會被移除。已在執行的任務不受影響。"
+  },
+  "taskExecution": {
+    "title": "任務執行",
+    "empty": "還沒有任務執行記錄。",
+    "type": "類型",
+    "runs": "執行次數",
+    "totalTime": "總時間",
+    "longest": "最長",
+    "failures_other": "記錄了 {{count}} 次任務失敗。"
+  },
+  "scheduled": {
+    "title": "排程任務",
+    "loadFailed": "無法載入排程任務。",
+    "empty": "沒有排程任務。"
+  },
+  "sessions": {
+    "title": "工作階段",
+    "loadFailed": "無法載入工作階段。",
+    "empty": "沒有使用中的工作階段。",
+    "session": "工作階段",
+    "created": "建立時間",
+    "lastActive": "最後活動",
+    "status": "狀態",
+    "actions": "動作",
+    "expired": "已過期",
+    "active": "使用中",
+    "kick": "強制登出",
+    "kickHint": "強制登出工作階段會讓該裝置登出——使用者必須重新登入。",
+    "kickFailed": "無法強制登出工作階段。",
+    "showAll_other": "顯示全部 {{count}} 個工作階段"
+  },
+  "danger": {
+    "title": "危險區域",
+    "logfile": "下載記錄檔",
+    "logfileHelper": "將目前的伺服器記錄下載為檔案。",
+    "shutdown": "關閉伺服器",
+    "shutdownHelper": "停止伺服器程序。在有人重新啟動前，伺服器會一直處於停止狀態。",
+    "shutdownButton": "關閉",
+    "shutdownBody": "伺服器程序將會結束。在重新啟動前，所有連線的使用者都會失去存取。",
+    "shutdownFailed": "無法關閉伺服器。",
+    "shuttingDown": "伺服器正在關閉",
+    "shuttingDownBody": "關閉請求已被接受。程序結束後此頁面將停止回應。重新啟動伺服器即可回來。"
+  },
+  "form": {
+    "deleteEmptyCollections": "刪除空的收藏",
+    "deleteEmptyReadLists": "刪除空的閱讀清單",
+    "rememberMeDuration": "「記住我」有效期限",
+    "rememberMeDurationHelper": "「記住我」登入的有效時間。",
+    "rememberMeDurationDays": "「記住我」有效期限（天）",
+    "days": "天",
+    "rememberMeKey": "「記住我」金鑰",
+    "rememberMeKeyHelper": "「記住我」登入背後的簽章密鑰。",
+    "thumbnailSize": "縮圖大小",
+    "thumbnailSizeHelper": "較大的縮圖更清晰，但會佔用更多磁碟空間。",
+    "taskPoolSize": "任務池大小",
+    "taskPoolSizeHelper": "可同時執行的背景任務數量。",
+    "serverPort": "伺服器連接埠",
+    "contextPath": "內容路徑",
+    "contextPathHelper": "伺服器對外服務的基礎路徑，例如 /kmrs。",
+    "koboProxy": "Kobo 代理",
+    "koboPort": "Kobo 連接埠",
+    "kepubifyPath": "Kepubify 路徑",
+    "kepubifyPathHelper": "kepubify 執行檔的路徑，用於 EPUB 轉 KEPUB。",
+    "unsaved_other": "{{count}} 項未儲存的變更",
+    "discard": "捨棄",
+    "fixInvalid": "請修正上方無效的欄位後再儲存。",
+    "saveFailed": "無法儲存設定。"
+  },
+  "thumbnail": {
+    "default": "預設",
+    "medium": "中",
+    "large": "大",
+    "xlarge": "XL"
+  },
+  "multiSource": {
+    "notSet": "未設定",
+    "overridden": "已在資料庫中覆寫",
+    "fromConfig": "來自設定檔",
+    "default": "預設",
+    "clearOverride": "清除覆寫",
+    "clearOverrideTooltip": "清除資料庫覆寫",
+    "effective": "有效值：{{value}}",
+    "none": "無"
+  },
+  "rotateKey": {
+    "button": "輪換「記住我」金鑰",
+    "confirm": "輪換金鑰",
+    "done": "金鑰已輪換——所有「記住我」登入均已登出。",
+    "body": "每位選擇「記住我」的使用者都會被登出，必須在所有裝置上重新登入。",
+    "failed": "無法輪換金鑰。"
+  },
+  "regenerate": {
+    "title": "重新產生縮圖",
+    "body": "縮圖尺寸已變更。現有書籍會保留目前的縮圖，直到重新產生——此操作會提交背景任務，可在工作佇列面板查看。",
+    "biggerOnly": "僅偏小尺寸",
+    "all": "全部書籍",
+    "skip": "暫不",
+    "failed": "無法提交重新產生任務。"
+  },
+  "validation": {
+    "positiveDays": "必須是正整數天數。",
+    "positiveInt": "必須是正整數。",
+    "contextPath": "必須以 / 開頭，並以字母或數字結尾，例如 /kmrs。"
+  }
+}

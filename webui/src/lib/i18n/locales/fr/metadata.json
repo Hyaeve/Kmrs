@@ -1,0 +1,160 @@
+{
+  "field": {
+    "title": "Titre",
+    "sortTitle": "Titre de tri",
+    "number": "Numéro",
+    "sortNumber": "Numéro de tri",
+    "releaseDate": "Date de sortie",
+    "isbn": "ISBN",
+    "summary": "Résumé",
+    "authors": "Auteurs",
+    "name": "Nom",
+    "role": "Rôle",
+    "tags": "Étiquettes",
+    "genres": "Genres",
+    "webLinks": "Liens web",
+    "label": "Libellé",
+    "url": "URL",
+    "status": "Statut",
+    "readingDirection": "Sens de lecture",
+    "publisher": "Éditeur",
+    "language": "Langue",
+    "ageRating": "Classification d'âge",
+    "totalBookCount": "Nombre total de livres",
+    "alternateTitles": "Titres alternatifs",
+    "sharingLabels": "Libellés de partage",
+    "notSet": "Non défini"
+  },
+  "tabs": {
+    "general": "Général",
+    "titles": "Titres",
+    "authors": "Auteurs",
+    "tags": "Étiquettes",
+    "links": "Liens",
+    "sharing": "Partage",
+    "sharedFields": "Champs partagés",
+    "perBook": "Par livre"
+  },
+  "action": {
+    "saveChanges": "Enregistrer les modifications"
+  },
+  "saveFailed": "Impossible d'enregistrer les métadonnées.",
+  "validation": {
+    "notBlank": "Ne doit pas être vide",
+    "url": "Doit être une URL valide",
+    "number": "Doit être un nombre",
+    "isbn": "Doit être vide ou un ISBN-13 valide",
+    "wholeNumberMinZero": "Doit être un nombre entier supérieur ou égal à 0",
+    "wholeNumberPositive": "Doit être un nombre entier supérieur à 0",
+    "bcp47": "Doit être une étiquette de langue BCP 47 valide"
+  },
+  "lockToggle": {
+    "lock": "Verrouiller {{label}}",
+    "unlock": "Déverrouiller {{label}}"
+  },
+  "batch": {
+    "change": "Modifier {{label}}"
+  },
+  "pairs": {
+    "removeRow": "Supprimer la ligne"
+  },
+  "placeholder": {
+    "authorName": "Kentaro Miura",
+    "authorRole": "scénariste",
+    "linkLabel": "Wiki",
+    "addTag": "Ajouter une étiquette…",
+    "addGenre": "Ajouter un genre…",
+    "addLabel": "Ajouter un libellé…"
+  },
+  "add": {
+    "author": "Ajouter un auteur",
+    "link": "Ajouter un lien",
+    "title": "Ajouter un titre"
+  },
+  "editBooks": {
+    "dialogTitle_single": "Modifier les métadonnées du livre",
+    "dialogTitle_batch_one": "Modifier les métadonnées de {{count}} livre",
+    "dialogTitle_batch_many": "Modifier les métadonnées de {{count}} livres",
+    "dialogTitle_batch_other": "Modifier les métadonnées de {{count}} livres",
+    "loadError": "Impossible de charger le livre",
+    "loadManyError": "Impossible de charger les livres",
+    "sortNumberHelper": "Vous pouvez utiliser des nombres décimaux",
+    "isbnHelper": "ISBN-13, vide pour effacer",
+    "batchHint": "Les champs activés sont appliqués aux {{count}} livres et verrouillés par défaut.",
+    "perBookHint": "Seuls les champs que vous touchez sont envoyés ; la modification verrouille le champ. Les valeurs par livre remplacent les champs partagés.",
+    "lockAll": "Verrouiller tous les {{label}}",
+    "unlockAll": "Déverrouiller tous les {{label}}",
+    "copySortToNumber": "Copier le numéro de tri dans le numéro",
+    "decrementAll": "Tout décrémenter de 1",
+    "incrementAll": "Tout incrémenter de 1",
+    "hint": {
+      "summaryEmpty": "Vide pour effacer le résumé.",
+      "releaseDateEmpty": "Vide pour effacer la date.",
+      "isbnEmpty": "ISBN-13, vide pour effacer.",
+      "authorsReplace": "Remplace tous les auteurs ; une liste vide les efface.",
+      "tagsReplace": "Remplace toutes les étiquettes ; une liste vide les efface.",
+      "linksReplace": "Remplace tous les liens ; une liste vide les efface."
+    }
+  },
+  "editSeries": {
+    "dialogTitle_single": "Modifier les métadonnées de la série",
+    "dialogTitle_batch_one": "Modifier les métadonnées de {{count}} série",
+    "dialogTitle_batch_many": "Modifier les métadonnées de {{count}} séries",
+    "dialogTitle_batch_other": "Modifier les métadonnées de {{count}} séries",
+    "loadError": "Impossible de charger la série",
+    "languageHelper": "Étiquette BCP 47, vide pour effacer",
+    "batchHint": "Les champs activés sont appliqués aux {{count}} séries et verrouillés par défaut.",
+    "hint": {
+      "directionNotSet": "« Non défini » efface le sens de lecture.",
+      "languageEmpty": "Étiquette BCP 47, vide pour effacer.",
+      "ageRatingEmpty": "Vide pour effacer la classification.",
+      "genresReplace": "Remplace tous les genres ; une liste vide les efface.",
+      "tagsReplace": "Remplace toutes les étiquettes ; une liste vide les efface.",
+      "sharingLabelsReplace": "Remplace tous les libellés de partage ; une liste vide les efface."
+    }
+  },
+  "identify": {
+    "searchPlaceholder": "Rechercher dans les fournisseurs komf…",
+    "providerLinks": "Liens de fournisseurs",
+    "aggregateAll": "Agréger tous les fournisseurs",
+    "aggregateHint_one": "Fusionner les métadonnées du lien fournisseur",
+    "aggregateHint_many": "Fusionner les métadonnées des {{count}} liens fournisseurs",
+    "aggregateHint_other": "Fusionner les métadonnées des {{count}} liens fournisseurs",
+    "typeToSearch": "Tapez un titre pour rechercher dans komf",
+    "searchFailed": "Impossible de rechercher dans komf",
+    "noResults": "Aucun résultat",
+    "noResultsHint": "Essayez un autre titre.",
+    "queueFailed": "Impossible de mettre l'identification en file",
+    "matchFailed": "L'association a échoué"
+  },
+  "reset": {
+    "body": "Réinitialiser <name>{{name}}</name> ? komf supprime les métadonnées qu'il a écrites, y compris les verrous de champs et les couvertures envoyées.",
+    "libraryBody": "Réinitialiser <name>{{name}}</name> ? komf supprime les métadonnées qu'il a écrites pour chaque série de cette bibliothèque, y compris les verrous de champs et les couvertures envoyées.",
+    "confirm": "Réinitialiser"
+  },
+  "poster": {
+    "kind": {
+      "series": "série",
+      "book": "livre",
+      "collection": "collection",
+      "readlist": "liste de lecture",
+      "smartlist": "liste intelligente"
+    },
+    "type": {
+      "generated": "Générée",
+      "sidecar": "Sidecar",
+      "uploaded": "Envoyée"
+    },
+    "alt": "Affiche {{type}}",
+    "upload": "Envoyer une affiche",
+    "loadFailed": "Impossible de charger les affiches",
+    "empty": "Aucune affiche pour le moment",
+    "emptyHint": "Envoyez une image pour l'utiliser comme affiche.",
+    "selected": "Affiche sélectionnée",
+    "setSelected": "Définir comme affiche sélectionnée",
+    "selectedBadge": "Sélectionnée",
+    "delete": "Supprimer l'affiche",
+    "refreshing": "Actualisation…",
+    "operationFailed": "L'opération sur l'affiche a échoué."
+  }
+}

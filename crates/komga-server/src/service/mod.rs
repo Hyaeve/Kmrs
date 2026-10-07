@@ -24,5 +24,4 @@ pub mod sync_point;
 pub mod tasks;
 pub mod transient_book;
 pub mod user;
-pub mod webui_updater;
 pub use tasks::{TaskEmitter, TaskNotify};

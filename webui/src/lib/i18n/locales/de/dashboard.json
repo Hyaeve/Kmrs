@@ -1,0 +1,41 @@
+{
+  "title": "Übersicht",
+  "scope": {
+    "all": "Alle"
+  },
+  "sections": {
+    "keepReading": "Weiterlesen",
+    "onDeck": "Als Nächstes",
+    "recentlyReleasedBooks": "Kürzlich erschienene Bücher",
+    "recentlyAddedBooks": "Kürzlich hinzugefügte Bücher",
+    "recentlyAddedSeries": "Kürzlich hinzugefügte Serien",
+    "recentlyUpdatedSeries": "Kürzlich aktualisierte Serien",
+    "recentlyRead": "Zuletzt gelesen"
+  },
+  "customizeSections": "Abschnitte anpassen",
+  "allHidden": {
+    "title": "Alle Abschnitte sind ausgeblendet",
+    "body": "Jeder Übersichtsabschnitt ist für diese Ansicht ausgeblendet."
+  },
+  "empty": {
+    "title": "Hier ist noch nichts",
+    "body": "Bücher und Serien erscheinen hier, sobald dein Server Inhalte hat."
+  },
+  "pinnedEmpty": {
+    "title": "Keine angepinnten Bibliotheken",
+    "body": "Die Übersicht „Alle“ zeigt nur Inhalte deiner angepinnten Bibliotheken. Pinne welche an, um deine Übersicht zu füllen, oder setze zurück, um wieder alle Bibliotheken zu sehen.",
+    "action": "Bibliotheken auswählen"
+  },
+  "rowError": "Dieser Abschnitt konnte nicht geladen werden.",
+  "loadError": "Laden fehlgeschlagen",
+  "bookCount_one": "{{count}} Buch",
+  "bookCount_other": "{{count}} Bücher",
+  "seriesCount_one": "{{count}} Serie",
+  "seriesCount_other": "{{count}} Serien",
+  "sectionsDialog": {
+    "bodyAll": "Gilt nur für die Ansicht „Alle“. Ziehen zum Umsortieren oder Abschnitte ausblenden, die du nicht nutzt.",
+    "bodyLibrary": "Gilt nur für diese Bibliotheksansicht. Ziehen zum Umsortieren oder Abschnitte ausblenden, die du nicht nutzt.",
+    "reorder": "{{title}} neu anordnen",
+    "reset": "Auf Standard zurücksetzen"
+  }
+}

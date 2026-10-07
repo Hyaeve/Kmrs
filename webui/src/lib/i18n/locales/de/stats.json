@@ -1,0 +1,64 @@
+{
+  "title": "Lesestatistik",
+  "subtitle": "Dein Leseverhalten in deinen Bibliotheken",
+  "failed": "Die Lesestatistik konnte nicht geladen werden.",
+  "library": {
+    "all": "Alle Bibliotheken",
+    "ariaLabel": "Statistik für {{label}}"
+  },
+  "summary": {
+    "booksRead": "Gelesene Bücher",
+    "ofTotal_one": "von {{total}} Buch",
+    "ofTotal_other": "von {{total}} Büchern",
+    "inProgress": "Am Lesen",
+    "pagesRead": "Gelesene Seiten",
+    "readingDays": "Lesetage",
+    "currentStreak": "Aktueller Streak",
+    "longestStreak": "Längster Streak",
+    "avgPages": "Ø Seiten / Buch",
+    "lastRead": "Zuletzt gelesen",
+    "never": "Nie",
+    "days_one": "{{count}} Tag",
+    "days_other": "{{count}} Tage"
+  },
+  "heatmap": {
+    "title": "Leseaktivität",
+    "range3m": "Letzte 3 Monate",
+    "range6m": "Letzte 6 Monate",
+    "range1y": "Letzte 12 Monate",
+    "empty": "Keine Leseaktivität in diesem Zeitraum.",
+    "less": "Weniger",
+    "more": "Mehr",
+    "pages_one": "{{count}} Seite",
+    "pages_other": "{{count}} Seiten",
+    "completed_one": "{{count}} Buch abgeschlossen",
+    "completed_other": "{{count}} Bücher abgeschlossen",
+    "noActivity": "Nichts gelesen",
+    "dayLabel": "{{date}}: {{activity}}"
+  },
+  "status": {
+    "title": "Bücher nach Status",
+    "read": "Gelesen",
+    "inProgress": "Am Lesen",
+    "unread": "Ungelesen",
+    "empty": "Noch keine Bücher."
+  },
+  "chart": {
+    "tooltip": "{{label}}: {{value}}"
+  },
+  "weekday": {
+    "title": "Nach Wochentag"
+  },
+  "hourly": {
+    "title": "Nach Tageszeit"
+  },
+  "tops": {
+    "title": "Am meisten gelesen",
+    "authors": "Autoren",
+    "genres": "Genres",
+    "tags": "Tags",
+    "series_one": "{{count}} Serie",
+    "series_other": "{{count}} Serien",
+    "empty": "Beende ein paar Bücher, um deine meistgelesenen Autoren, Genres und Tags zu sehen."
+  }
+}

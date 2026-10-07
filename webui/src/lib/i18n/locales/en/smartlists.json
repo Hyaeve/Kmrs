@@ -1,0 +1,47 @@
+{
+  "title": "Smart lists",
+  "create": "New smart list",
+  "createTitle": "New smart list",
+  "editTitle": "Edit smart list",
+  "deleteTitle": "Delete smart list?",
+  "nameLabel": "Name",
+  "summaryLabel": "Summary",
+  "targetLabel": "Target",
+  "target": {
+    "book": "Books",
+    "series": "Series"
+  },
+  "filtersEmpty": "No filters — matches everything",
+  "filtersActive_one": "{{count, number}} filter active",
+  "filtersActive_other": "{{count, number}} filters active",
+  "filtersStepTitle": "Filters",
+  "next": "Next",
+  "visibilityLabel": "Visibility",
+  "visibility": {"private": "Private", "public": "Public", "shared": "Shared"},
+  "sharedWithLabel": "Shared with",
+  "loadingUsers": "Loading users…",
+  "noOtherUsers": "No other users",
+  "ownerFilterLabel": "Owner filter",
+  "ownerFilter": {"all": "All lists", "mine": "My lists"},
+  "lossyWarning": "This list's filters include conditions the editor cannot display. Saving will simplify them.",
+  "loadError": "Couldn't load smart lists",
+  "loadItemsError": "Couldn't load items",
+  "empty": "No smart lists yet",
+  "notFound": "Smart list not found",
+  "read": "Read",
+  "peek": "Peek",
+  "peekTooltip": "Read without saving progress",
+  "managePosters": "Manage posters",
+  "moreActions": "More actions",
+  "count": {
+    "book_one": "{{count, number}} book",
+    "book_other": "{{count, number}} books",
+    "series_one": "{{count, number}} series",
+    "series_other": "{{count, number}} series"
+  },
+  "emptyState": {
+    "books": "No books match this list right now",
+    "series": "No series match this list right now",
+    "filtered": "No items match the active filters"
+  }
+}

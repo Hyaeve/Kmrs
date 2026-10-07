@@ -1,0 +1,89 @@
+{
+  "libraryFallback": "ライブラリ",
+  "errorFallback": "問題が発生しました。",
+  "emptyFilterHint": "フィルターを調整してみてください。",
+  "tryDifferentSearch": "別の検索条件を試してください。",
+  "tabs": {
+    "series": "シリーズ",
+    "books": "本",
+    "collections": "コレクション",
+    "readlists": "読書リスト"
+  },
+  "namePlaceholder": "名前",
+  "bookCount_other": "{{count}} 冊",
+  "seriesCount_other": "{{count}} シリーズ",
+  "books": {
+    "all": "すべての本",
+    "loadError": "本を読み込めませんでした",
+    "empty": "本が見つかりません"
+  },
+  "series": {
+    "all": "すべてのシリーズ",
+    "loadError": "シリーズを読み込めませんでした",
+    "empty": "シリーズが見つかりません"
+  },
+  "collections": {
+    "title": "コレクション",
+    "loadError": "コレクションを読み込めませんでした",
+    "empty": "コレクションがまだありません",
+    "count_other": "コレクション"
+  },
+  "readlists": {
+    "title": "読書リスト",
+    "loadError": "読書リストを読み込めませんでした",
+    "empty": "読書リストがまだありません",
+    "count_other": "読書リスト"
+  },
+  "alphabet": {
+    "ariaLabel": "頭文字で絞り込む"
+  },
+  "addToCollection": {
+    "title_other": "{{count}} シリーズをコレクションに追加",
+    "filterPlaceholder": "コレクションを絞り込む…",
+    "noMatch": "一致するコレクションがありません",
+    "newLabel": "新しいコレクション",
+    "added": "「{{name}}」に追加しました",
+    "created": "「{{name}}」を作成しました",
+    "addFailed": "コレクションに追加できませんでした",
+    "createFailed": "コレクションを作成できませんでした"
+  },
+  "addToReadList": {
+    "title_other": "{{count}} 冊を読書リストに追加",
+    "filterPlaceholder": "読書リストを絞り込む…",
+    "noMatch": "一致する読書リストがありません",
+    "newLabel": "新しい読書リスト",
+    "added": "「{{name}}」に追加しました",
+    "created": "「{{name}}」を作成しました",
+    "addFailed": "読書リストに追加できませんでした",
+    "createFailed": "読書リストを作成できませんでした"
+  },
+  "deleteConfirm": {
+    "body_book_other": "<num>{{count}}</num> 冊の本のファイルを削除しますか？ファイルはディスクから削除されます。この操作は取り消せません。",
+    "body_series_other": "<num>{{count}}</num> シリーズのファイルを削除しますか？ファイルはディスクから削除されます。この操作は取り消せません。"
+  },
+  "selection": {
+    "working": "{{total}} 件中 {{done}} 件を処理中…",
+    "selected_other": "<num>{{count}}</num> 件選択中",
+    "selectAll": "すべて選択",
+    "clear": "クリア",
+    "moreActions": "その他の操作",
+    "markRead": "既読にする",
+    "markUnread": "未読にする",
+    "addToReadList": "読書リストに追加",
+    "addToCollection": "コレクションに追加",
+    "editMetadata": "メタデータを編集",
+    "matchKomf": "komf でマッチ",
+    "deleteFiles": "ファイルを削除",
+    "markBooksAs_read_other": "{{count}} 冊を既読にしました",
+    "markBooksAs_unread_other": "{{count}} 冊を未読にしました",
+    "markSeriesAs_read_other": "{{count}} シリーズを既読にしました",
+    "markSeriesAs_unread_other": "{{count}} シリーズを未読にしました",
+    "markBooksFailed_other": "{{total}} 冊中 {{failed}} 冊が失敗しました",
+    "markSeriesFailed_other": "{{total}} シリーズ中 {{failed}} シリーズが失敗しました",
+    "matchKomfQueued_other": "{{count}} シリーズの komf マッチをキューに追加しました",
+    "matchKomfFailed_other": "{{total}} シリーズ中 {{failed}} シリーズが失敗しました",
+    "deleteBooksFiles_other": "{{count}} 冊のファイルを削除しました",
+    "deleteSeriesFiles_other": "{{count}} シリーズのファイルを削除しました",
+    "deleteFilesFailed": "{{total}} 件中 {{failed}} 件が失敗しました"
+  }
+}

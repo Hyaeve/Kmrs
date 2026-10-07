@@ -1,0 +1,68 @@
+{
+  "action": {
+    "save": "저장",
+    "cancel": "취소",
+    "delete": "삭제",
+    "edit": "편집",
+    "close": "닫기",
+    "back": "뒤로",
+    "add": "추가",
+    "remove": "제거",
+    "create": "만들기",
+    "done": "완료",
+    "confirm": "확인",
+    "search": "검색",
+    "retry": "다시 시도",
+    "dismiss": "닫기",
+    "download": "다운로드",
+    "showMore": "더 보기",
+    "showLess": "접기"
+  },
+  "state": {
+    "loading": "불러오는 중…",
+    "unavailable": "사용할 수 없음",
+    "unknown": "알 수 없음"
+  },
+  "time": {
+    "justNow": "방금"
+  },
+  "readingDirection": {
+    "leftToRight": "왼쪽에서 오른쪽으로",
+    "rightToLeft": "오른쪽에서 왼쪽으로",
+    "vertical": "세로",
+    "webtoon": "웹툰"
+  },
+  "seriesStatus": {
+    "ongoing": "연재 중",
+    "ended": "완결",
+    "abandoned": "연재 중단",
+    "hiatus": "휴재"
+  },
+  "cardStatus": {
+    "unavailable": "사용할 수 없음",
+    "error": "오류",
+    "unsupported": "지원되지 않음",
+    "toBeAnalyzed": "분석 예정"
+  },
+  "mediaIssue": {
+    "unavailable": "사용할 수 없음",
+    "error": "미디어 분석 실패",
+    "unsupported": "지원되지 않는 미디어 유형입니다",
+    "outdated": "이 책의 파일이 변경되어 다시 분석해야 합니다",
+    "unknown": "이 책은 아직 분석되지 않았습니다"
+  },
+  "notFound": {
+    "title": "페이지를 찾을 수 없음",
+    "body": "찾으시는 페이지가 존재하지 않거나 이동되었습니다.",
+    "back": "대시보드로 돌아가기"
+  },
+  "oneshot": "단편",
+  "komf": {
+    "jobsSummary_other": "매칭 {{count}}건",
+    "moreFailed_other": "+{{count}}건 실패",
+    "matching": "매칭 중…",
+    "matchCompleted": "매칭 완료",
+    "postProcessing": "후처리 중…",
+    "seriesFallback": "시리즈 매칭"
+  }
+}

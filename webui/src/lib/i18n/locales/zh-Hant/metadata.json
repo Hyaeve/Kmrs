@@ -1,0 +1,154 @@
+{
+  "field": {
+    "title": "標題",
+    "sortTitle": "排序標題",
+    "number": "編號",
+    "sortNumber": "排序編號",
+    "releaseDate": "發行日期",
+    "isbn": "ISBN",
+    "summary": "簡介",
+    "authors": "作者",
+    "name": "名稱",
+    "role": "角色",
+    "tags": "標籤",
+    "genres": "類型",
+    "webLinks": "網站連結",
+    "label": "標籤",
+    "url": "URL",
+    "status": "狀態",
+    "readingDirection": "閱讀方向",
+    "publisher": "出版社",
+    "language": "語言",
+    "ageRating": "年齡分級",
+    "totalBookCount": "書籍總數",
+    "alternateTitles": "其他標題",
+    "sharingLabels": "分享標籤",
+    "notSet": "未設定"
+  },
+  "tabs": {
+    "general": "一般",
+    "titles": "標題",
+    "authors": "作者",
+    "tags": "標籤",
+    "links": "連結",
+    "sharing": "分享",
+    "sharedFields": "共用欄位",
+    "perBook": "單本"
+  },
+  "action": {
+    "saveChanges": "儲存變更"
+  },
+  "saveFailed": "無法儲存詮釋資料。",
+  "validation": {
+    "notBlank": "不得為空白",
+    "url": "必須是有效的 URL",
+    "number": "必須是數字",
+    "isbn": "必須為空白或有效的 ISBN-13",
+    "wholeNumberMinZero": "必須是大於或等於 0 的整數",
+    "wholeNumberPositive": "必須是大於 0 的整數",
+    "bcp47": "必須是有效的 BCP 47 語言標籤"
+  },
+  "lockToggle": {
+    "lock": "鎖定 {{label}}",
+    "unlock": "解除鎖定 {{label}}"
+  },
+  "batch": {
+    "change": "變更 {{label}}"
+  },
+  "pairs": {
+    "removeRow": "移除此列"
+  },
+  "placeholder": {
+    "authorName": "三浦建太郎",
+    "authorRole": "編劇",
+    "linkLabel": "Wiki",
+    "addTag": "新增標籤…",
+    "addGenre": "新增類型…",
+    "addLabel": "新增標籤…"
+  },
+  "add": {
+    "author": "新增作者",
+    "link": "新增連結",
+    "title": "新增標題"
+  },
+  "editBooks": {
+    "dialogTitle_single": "編輯書籍詮釋資料",
+    "dialogTitle_batch_other": "編輯 {{count}} 本書的詮釋資料",
+    "loadError": "無法載入書籍",
+    "loadManyError": "無法載入書籍",
+    "sortNumberHelper": "可以使用小數",
+    "isbnHelper": "ISBN-13，留空則清除",
+    "batchHint": "開啟的欄位會套用到全部 {{count}} 本書，並預設鎖定。",
+    "perBookHint": "只會送出有更動的欄位；編輯後欄位會鎖定。單本書籍的值會覆寫共用欄位。",
+    "lockAll": "鎖定所有 {{label}}",
+    "unlockAll": "解除鎖定所有 {{label}}",
+    "copySortToNumber": "將排序編號複製到編號",
+    "decrementAll": "全部減 1",
+    "incrementAll": "全部加 1",
+    "hint": {
+      "summaryEmpty": "留空則清除簡介。",
+      "releaseDateEmpty": "留空則清除日期。",
+      "isbnEmpty": "ISBN-13，留空則清除。",
+      "authorsReplace": "取代所有作者；空清單則清除。",
+      "tagsReplace": "取代所有標籤；空清單則清除。",
+      "linksReplace": "取代所有連結；空清單則清除。"
+    }
+  },
+  "editSeries": {
+    "dialogTitle_single": "編輯系列詮釋資料",
+    "dialogTitle_batch_other": "編輯 {{count}} 個系列的詮釋資料",
+    "loadError": "無法載入系列",
+    "languageHelper": "BCP 47 標籤，留空則清除",
+    "batchHint": "開啟的欄位會套用到全部 {{count}} 個系列，並預設鎖定。",
+    "hint": {
+      "directionNotSet": "「未設定」會清除方向。",
+      "languageEmpty": "BCP 47 標籤，留空則清除。",
+      "ageRatingEmpty": "留空則清除分級。",
+      "genresReplace": "取代所有類型；空清單則清除。",
+      "tagsReplace": "取代所有標籤；空清單則清除。",
+      "sharingLabelsReplace": "取代所有分享標籤；空清單則清除。"
+    }
+  },
+  "identify": {
+    "searchPlaceholder": "搜尋 komf 資料來源…",
+    "providerLinks": "資料來源連結",
+    "aggregateAll": "彙整所有資料來源",
+    "aggregateHint_other": "合併全部 {{count}} 個資料來源連結的詮釋資料",
+    "typeToSearch": "輸入書名以搜尋 komf",
+    "searchFailed": "無法搜尋 komf",
+    "noResults": "沒有結果",
+    "noResultsHint": "試試其他書名。",
+    "queueFailed": "無法排入識別",
+    "matchFailed": "比對失敗"
+  },
+  "reset": {
+    "body": "重設 <name>{{name}}</name>？komf 會移除它寫入的詮釋資料，包括欄位鎖定與上傳的封面。",
+    "libraryBody": "重設 <name>{{name}}</name>？komf 會移除它為此書庫中每個系列寫入的詮釋資料，包括欄位鎖定與上傳的封面。",
+    "confirm": "重設"
+  },
+  "poster": {
+    "kind": {
+      "series": "系列",
+      "book": "書籍",
+      "collection": "收藏",
+      "readlist": "閱讀清單",
+      "smartlist": "智慧清單"
+    },
+    "type": {
+      "generated": "已產生",
+      "sidecar": "附屬檔案",
+      "uploaded": "已上傳"
+    },
+    "alt": "{{type}}海報",
+    "upload": "上傳海報",
+    "loadFailed": "無法載入海報",
+    "empty": "還沒有海報",
+    "emptyHint": "上傳圖片作為海報。",
+    "selected": "選取的海報",
+    "setSelected": "設為選取的海報",
+    "selectedBadge": "已選取",
+    "delete": "刪除海報",
+    "refreshing": "重新整理中…",
+    "operationFailed": "海報操作失敗。"
+  }
+}

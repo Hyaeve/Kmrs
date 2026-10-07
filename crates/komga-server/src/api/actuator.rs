@@ -897,16 +897,13 @@ struct ScheduledTaskRunnable {
 }
 
 /// Spring's `ScheduledTasksEndpoint`, fed by the scan scheduler's per-library interval tasks
-/// plus the fixed-rate jobs (daily cleanups, thumbnail sweep, web UI update check when
-/// enabled), each with `initialDelay == interval == period` like `FixedRateTask`. Targets name
+/// plus the fixed-rate jobs (daily cleanups, thumbnail sweep), each with
+/// `initialDelay == interval == period` like `FixedRateTask`. Targets name
 /// the kmrs implementation, not Java's class names: Java's own values (FQN signatures,
 /// unstable lambda class names) are not a contract worth mimicking. Java's global SSE
 /// heartbeat/task-count jobs are absent because kmrs runs those as per-connection timers, not
 /// scheduled tasks.
-async fn get_scheduled_tasks(
-    State(state): State<AppState>,
-    auth: RequireAuth,
-) -> Result<Response, ApiError> {
+async fn get_scheduled_tasks(auth: RequireAuth) -> Result<Response, ApiError> {
     auth.0.require_admin()?;
     let mut fixed_rate: Vec<ScheduledTaskEntry> =
         crate::service::scheduler::ScanScheduler::scheduled_tasks()
@@ -933,16 +930,6 @@ async fn get_scheduled_tasks(
         fixed_rate.push(ScheduledTaskEntry {
             runnable: ScheduledTaskRunnable {
                 target: target.to_string(),
-            },
-            initial_delay: millis,
-            interval: millis,
-        });
-    }
-    if state.config.webui_auto_update && state.config.webui_dir.is_some() {
-        let millis = state.config.webui_update_interval.as_millis() as u64;
-        fixed_rate.push(ScheduledTaskEntry {
-            runnable: ScheduledTaskRunnable {
-                target: "WebuiUpdater.check".to_string(),
             },
             initial_delay: millis,
             interval: millis,
@@ -1074,7 +1061,6 @@ mod tests {
             search_index: crate::state::test_search_index(),
             kepub: crate::service::kepub::KepubConverter::new(tempfile::tempdir().unwrap().keep()),
             kobo_proxy: crate::service::kobo_proxy::KoboProxy::new(),
-            webui_dir: crate::webui::WebuiDir::default(),
             shutdown_tx,
         };
         (state, shutdown_rx)

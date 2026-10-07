@@ -1,0 +1,69 @@
+{
+  "title": "用户",
+  "subtitle_other": "{{count}} 个用户 · 角色、库访问权限与内容限制",
+  "subtitleEmpty": "角色、库访问权限与内容限制",
+  "addUser": "添加用户",
+  "loadFailed": "无法加载用户。",
+  "emptyTitle": "暂无用户",
+  "emptyBody": "添加用户，让他人可以访问此服务器。",
+  "you": "你",
+  "user": "用户",
+  "rowActions": "{{email}} 的操作",
+  "selfEditHint": "不能在此编辑自己的账户",
+  "selfDeleteHint": "不能删除自己的账户",
+  "table": {
+    "restrictions": "限制",
+    "actions": "操作"
+  },
+  "restrictions": {
+    "ageAllow": "{{age}} 岁及以下",
+    "ageExclude": "排除 {{age}} 岁以上",
+    "labelsAllowed_other": "允许 {{count}} 个标签",
+    "labelsExcluded_other": "排除 {{count}} 个标签"
+  },
+  "roles": {
+    "adminDesc": "完整访问权限，包括服务器设置",
+    "fileDownloadDesc": "下载书籍文件",
+    "pageStreamingDesc": "在线阅读时流式传输页面",
+    "koboSyncDesc": "与 Kobo 阅读器同步",
+    "koreaderSyncDesc": "与 KOReader 同步阅读进度"
+  },
+  "form": {
+    "editTitle": "编辑用户",
+    "saveFailed": "无法保存用户。",
+    "sectionAccount": "账户",
+    "password": "密码",
+    "sectionLibraryAccess": "库访问权限",
+    "allLibrariesDesc": "共享所有库，包括以后创建的库",
+    "sectionContentRestrictions": "内容限制",
+    "ageRestriction": "年龄限制",
+    "age": "年龄",
+    "ageMode": {
+      "none": "无",
+      "allow": "仅限",
+      "exclude": "排除"
+    },
+    "ageInvalid": "请输入不小于 0 的整数。",
+    "ageAllowHint": "仅显示年龄分级不高于此年龄的内容。",
+    "ageExcludeHint": "隐藏年龄分级高于此年龄的内容。",
+    "allowedLabels": "允许的标签",
+    "excludedLabels": "排除的标签"
+  },
+  "changePassword": {
+    "body": "为 <email>{{email}}</email> 设置新密码。该用户的所有会话都将退出登录。"
+  },
+  "deleteDialog": {
+    "title": "删除用户",
+    "body": "要删除 <email>{{email}}</email> 吗？其阅读进度、API 密钥和会话将被永久删除，此操作无法撤销。",
+    "failed": "无法删除用户。"
+  },
+  "labelList": {
+    "remove": "移除 {{label}}"
+  },
+  "activity": {
+    "title": "认证活动",
+    "events_other": "{{count, number}} 条事件",
+    "loadFailed": "无法加载认证活动。",
+    "empty": "暂无活动记录。"
+  }
+}

@@ -1,0 +1,198 @@
+{
+  "server": {
+    "title": "서버",
+    "subtitle": "kmrs {{version}}",
+    "subtitleWithCommit": "kmrs {{version}} · 커밋 {{commit}}"
+  },
+  "settings": {
+    "title": "설정",
+    "subtitle": "데이터베이스에 저장되는 서버 전체 옵션",
+    "loadFailed": "설정을 불러올 수 없습니다."
+  },
+  "ui": {
+    "title": "UI 설정",
+    "subtitle": "모든 사용자의 웹 UI에 적용되는 전역 조정",
+    "loadFailed": "UI 설정을 불러올 수 없습니다",
+    "errorFallback": "문제가 발생했습니다.",
+    "login": "로그인",
+    "hidePassword": "이메일/비밀번호 로그인 폼 숨기기",
+    "hidePasswordHelper": "OAuth2 제공자가 하나 이상 구성된 경우에만 적용됩니다. 없으면 누구도 잠기지 않도록 비밀번호 폼이 항상 표시됩니다.",
+    "hidePasswordHelperWithCount_other": "OAuth2 제공자가 하나 이상 구성된 경우에만 적용됩니다({{count}}개 구성됨). 없으면 누구도 잠기지 않도록 비밀번호 폼이 항상 표시됩니다.",
+    "noProviderWarning": "구성된 OAuth2 제공자가 없어 로그인 페이지에 비밀번호 폼이 계속 표시됩니다.",
+    "saveFailed": "설정을 저장할 수 없습니다."
+  },
+  "stats": {
+    "version": "버전",
+    "uptime": "가동 시간",
+    "cpu": "CPU",
+    "memory": "메모리",
+    "diskFree": "디스크 여유",
+    "diskTotal": "전체 {{total}}"
+  },
+  "sections": {
+    "content": "콘텐츠",
+    "security": "보안",
+    "thumbnails": "썸네일",
+    "tasks": "작업",
+    "server": "서버",
+    "kobo": "Kobo",
+    "kepubify": "Kepubify"
+  },
+  "content": {
+    "libraries": "라이브러리",
+    "series": "시리즈",
+    "books": "책",
+    "collections": "컬렉션",
+    "readLists": "읽기 목록",
+    "sidecars": "사이드카",
+    "totalSize": "전체 크기"
+  },
+  "duration": {
+    "ms_other": "{{count}}ms",
+    "second_other": "{{count}}초",
+    "minute_other": "{{count}}분",
+    "hour_other": "{{count}}시간",
+    "day_other": "{{count}}일"
+  },
+  "interval": "{{duration}}마다",
+  "taskType": {
+    "scanLibrary": "라이브러리 스캔",
+    "findBooksToConvert": "변환할 책 찾기",
+    "findBooksWithMissingPageHash": "페이지 해시가 누락된 책 찾기",
+    "findDuplicatePagesToDelete": "삭제할 중복 페이지 찾기",
+    "emptyTrash": "휴지통 비우기",
+    "analyzeBook": "책 분석",
+    "generateBookThumbnail": "책 썸네일 생성",
+    "refreshBookMetadata": "책 메타데이터 새로 고침",
+    "hashBook": "책 해시",
+    "hashBookPages": "책 페이지 해시",
+    "hashBookKoreader": "책 Koreader 해시",
+    "refreshSeriesMetadata": "시리즈 메타데이터 새로 고침",
+    "aggregateSeriesMetadata": "시리즈 메타데이터 집계",
+    "refreshBookLocalArtwork": "책 로컬 아트워크 새로 고침",
+    "refreshSeriesLocalArtwork": "시리즈 로컬 아트워크 새로 고침",
+    "importBook": "책 가져오기",
+    "convertBook": "책 변환",
+    "repairExtension": "확장자 복구",
+    "removeHashedPages": "해시된 페이지 제거",
+    "rebuildIndex": "인덱스 재구축",
+    "upgradeIndex": "인덱스 업그레이드",
+    "deleteBook": "책 삭제",
+    "deleteSeries": "시리즈 삭제",
+    "findBookThumbnailsToRegenerate": "재생성할 책 썸네일 찾기"
+  },
+  "taskQueue": {
+    "title": "작업 큐",
+    "active": "큐 활성",
+    "clear": "큐 비우기",
+    "status_other": "대기 중인 작업 {{count}}개 · 10초마다 업데이트",
+    "waiting": "첫 업데이트를 기다리는 중… · 10초마다 업데이트",
+    "cleared_other": "대기 중인 작업 {{count}}개를 비웠습니다.",
+    "clearFailed": "큐를 비울 수 없습니다.",
+    "clearTitle": "작업 큐 비우기",
+    "clearBody": "아직 워커가 가져가지 않은 대기 중인 작업이 제거됩니다. 이미 실행 중인 작업은 영향을 받지 않습니다."
+  },
+  "taskExecution": {
+    "title": "작업 실행",
+    "empty": "아직 기록된 작업 실행이 없습니다.",
+    "type": "유형",
+    "runs": "실행 수",
+    "totalTime": "총 시간",
+    "longest": "최장",
+    "failures_other": "기록된 작업 실패 {{count}}건."
+  },
+  "scheduled": {
+    "title": "예약된 작업",
+    "loadFailed": "예약된 작업을 불러올 수 없습니다.",
+    "empty": "예약된 작업이 없습니다."
+  },
+  "sessions": {
+    "title": "세션",
+    "loadFailed": "세션을 불러올 수 없습니다.",
+    "empty": "활성 세션이 없습니다.",
+    "session": "세션",
+    "created": "생성됨",
+    "lastActive": "마지막 활동",
+    "status": "상태",
+    "actions": "작업",
+    "expired": "만료됨",
+    "active": "활성",
+    "kick": "강제 종료",
+    "kickHint": "세션을 강제 종료하면 해당 기기가 로그아웃되며 사용자는 다시 로그인해야 합니다.",
+    "kickFailed": "세션을 강제 종료할 수 없습니다.",
+    "showAll_other": "세션 {{count}}개 모두 보기"
+  },
+  "danger": {
+    "title": "위험 영역",
+    "logfile": "로그 파일 다운로드",
+    "logfileHelper": "현재 서버 로그를 파일로 가져옵니다.",
+    "shutdown": "서버 종료",
+    "shutdownHelper": "서버 프로세스를 중지합니다. 누군가 다시 시작할 때까지 중지된 상태로 유지됩니다.",
+    "shutdownButton": "종료",
+    "shutdownBody": "서버 프로세스가 종료됩니다. 다시 시작할 때까지 연결된 모든 사용자가 접근할 수 없게 됩니다.",
+    "shutdownFailed": "서버를 종료할 수 없습니다.",
+    "shuttingDown": "서버가 종료되는 중",
+    "shuttingDownBody": "종료 요청이 수락되었습니다. 프로세스가 종료되면 이 페이지는 응답을 멈춥니다. 서버를 다시 시작하면 돌아올 수 있습니다."
+  },
+  "form": {
+    "deleteEmptyCollections": "빈 컬렉션 삭제",
+    "deleteEmptyReadLists": "빈 읽기 목록 삭제",
+    "rememberMeDuration": "로그인 유지 기간",
+    "rememberMeDurationHelper": "'로그인 상태 유지' 로그인이 유효한 기간입니다.",
+    "rememberMeDurationDays": "로그인 유지 기간(일)",
+    "days": "일",
+    "rememberMeKey": "로그인 유지 키",
+    "rememberMeKeyHelper": "'로그인 상태 유지' 로그인의 서명 비밀값입니다.",
+    "thumbnailSize": "썸네일 크기",
+    "thumbnailSizeHelper": "썸네일이 클수록 선명하지만 디스크 공간을 더 차지합니다.",
+    "taskPoolSize": "작업 풀 크기",
+    "taskPoolSizeHelper": "동시에 실행할 수 있는 백그라운드 작업 수입니다.",
+    "serverPort": "서버 포트",
+    "contextPath": "컨텍스트 경로",
+    "contextPathHelper": "서버가 제공되는 기본 경로입니다. 예: /kmrs.",
+    "koboProxy": "Kobo 프록시",
+    "koboPort": "Kobo 포트",
+    "kepubifyPath": "Kepubify 경로",
+    "kepubifyPathHelper": "EPUB에서 KEPUB 변환에 사용하는 kepubify 바이너리 경로입니다.",
+    "unsaved_other": "저장되지 않은 변경 사항 {{count}}개",
+    "discard": "버리기",
+    "fixInvalid": "저장하려면 위의 잘못된 필드를 수정하세요.",
+    "saveFailed": "설정을 저장할 수 없습니다."
+  },
+  "thumbnail": {
+    "default": "기본",
+    "medium": "중간",
+    "large": "크게",
+    "xlarge": "특대"
+  },
+  "multiSource": {
+    "notSet": "설정되지 않음",
+    "overridden": "데이터베이스에서 재정의됨",
+    "fromConfig": "구성에서 지정됨",
+    "default": "기본값",
+    "clearOverride": "재정의 지우기",
+    "clearOverrideTooltip": "데이터베이스 재정의 지우기",
+    "effective": "적용 값: {{value}}",
+    "none": "없음"
+  },
+  "rotateKey": {
+    "button": "로그인 유지 키 교체",
+    "confirm": "키 교체",
+    "done": "키가 교체되었습니다. 모든 '로그인 상태 유지' 로그인이 로그아웃되었습니다.",
+    "body": "'로그인 상태 유지'를 선택한 모든 사용자가 로그아웃되며 모든 기기에서 다시 로그인해야 합니다.",
+    "failed": "키를 교체할 수 없습니다."
+  },
+  "regenerate": {
+    "title": "썸네일 재생성",
+    "body": "썸네일 크기가 변경되었습니다. 기존 책은 재생성하기 전까지 현재 썸네일을 유지합니다. 백그라운드 작업으로 추가되며 작업 큐 패널에서 확인할 수 있습니다.",
+    "biggerOnly": "작은 것만",
+    "all": "모든 책",
+    "skip": "나중에",
+    "failed": "재생성 작업을 시작할 수 없습니다."
+  },
+  "validation": {
+    "positiveDays": "0보다 큰 정수(일)여야 합니다.",
+    "positiveInt": "양의 정수여야 합니다.",
+    "contextPath": "/로 시작하고 문자나 숫자로 끝나야 합니다. 예: /kmrs."
+  }
+}

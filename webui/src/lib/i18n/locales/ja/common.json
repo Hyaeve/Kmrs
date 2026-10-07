@@ -1,0 +1,68 @@
+{
+  "action": {
+    "save": "保存",
+    "cancel": "キャンセル",
+    "delete": "削除",
+    "edit": "編集",
+    "close": "閉じる",
+    "back": "戻る",
+    "add": "追加",
+    "remove": "取り除く",
+    "create": "作成",
+    "done": "完了",
+    "confirm": "確定",
+    "search": "検索",
+    "retry": "再試行",
+    "dismiss": "非表示",
+    "download": "ダウンロード",
+    "showMore": "もっと見る",
+    "showLess": "折りたたむ"
+  },
+  "state": {
+    "loading": "読み込み中…",
+    "unavailable": "利用不可",
+    "unknown": "不明"
+  },
+  "time": {
+    "justNow": "たった今"
+  },
+  "readingDirection": {
+    "leftToRight": "左から右",
+    "rightToLeft": "右から左",
+    "vertical": "縦",
+    "webtoon": "ウェブトゥーン"
+  },
+  "seriesStatus": {
+    "ongoing": "連載中",
+    "ended": "完結",
+    "abandoned": "打ち切り",
+    "hiatus": "休載中"
+  },
+  "cardStatus": {
+    "unavailable": "利用不可",
+    "error": "エラー",
+    "unsupported": "未対応",
+    "toBeAnalyzed": "分析待ち"
+  },
+  "mediaIssue": {
+    "unavailable": "利用不可",
+    "error": "メディア分析に失敗しました",
+    "unsupported": "このメディア形式はサポートされていません",
+    "outdated": "この本のファイルが変更されたため、再分析が必要です",
+    "unknown": "この本はまだ分析されていません"
+  },
+  "notFound": {
+    "title": "ページが見つかりません",
+    "body": "お探しのページは存在しないか、移動しました。",
+    "back": "ダッシュボードに戻る"
+  },
+  "oneshot": "読み切り",
+  "komf": {
+    "jobsSummary_other": "{{count}} 件マッチ",
+    "moreFailed_other": "+{{count}} 件失敗",
+    "matching": "マッチ中…",
+    "matchCompleted": "マッチ完了",
+    "postProcessing": "後処理中…",
+    "seriesFallback": "シリーズマッチ"
+  }
+}

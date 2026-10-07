@@ -1,0 +1,98 @@
+{
+  "books": {
+    "title": "Importer des livres",
+    "subtitle": "Importer des fichiers hors de vos bibliothèques dans une série existante",
+    "folderLabel": "Dossier sur le serveur",
+    "browse": "Parcourir",
+    "scan": "Scanner",
+    "queued_one": "Import mis en file pour {{count}} livre",
+    "queued_many": "Import mis en file pour {{count}} livres",
+    "queued_other": "Import mis en file pour {{count}} livres",
+    "queuedBody": "Les imports s'exécutent en tâches d'arrière-plan. Suivez la progression sur la <link>page Serveur</link>.",
+    "importMore": "Importer plus de fichiers",
+    "emptyTitle": "Aucun fichier importable",
+    "emptyBody": "Le dossier ne contient aucun fichier de livre.",
+    "copyMode": {
+      "move": "Déplacer",
+      "copy": "Copier",
+      "hardlink": "Lien dur"
+    },
+    "selectedCount_one": "{{checked}} fichier sur {{count}} sélectionné",
+    "selectedCount_many": "{{checked}} fichiers sur {{count}} sélectionnés",
+    "selectedCount_other": "{{checked}} fichiers sur {{count}} sélectionnés",
+    "importSelected": "Importer la sélection",
+    "missingSeries_one": "Sélectionnez une série pour chaque fichier coché ({{count}} ligne manquante).",
+    "missingSeries_many": "Sélectionnez une série pour chaque fichier coché ({{count}} lignes manquantes).",
+    "missingSeries_other": "Sélectionnez une série pour chaque fichier coché ({{count}} lignes manquantes).",
+    "selectAll": "Tout sélectionner",
+    "importFile": "Importer {{fileName}}",
+    "table": {
+      "sourceFile": "Fichier source",
+      "series": "Série",
+      "number": "Numéro",
+      "destinationName": "Nom de destination",
+      "analyze": "Analyser"
+    },
+    "status": {
+      "analyzed": "Analysé",
+      "notAnalyzed": "Non analysé"
+    },
+    "selectedSeries": "Série sélectionnée",
+    "change": "Changer",
+    "selectSeries": "Sélectionner une série…",
+    "analyze": "Analyser",
+    "pickerTitle": "Sélectionner une série",
+    "pickerConfirm": "Utiliser cette série"
+  },
+  "readlist": {
+    "title": "Importer une liste de lecture",
+    "subtitle": "Créer une liste de lecture à partir d'un fichier ComicRack .cbl",
+    "chooseFile": "Choisir un fichier",
+    "noFileChosen": "Aucun fichier choisi",
+    "match": "Faire correspondre avec la bibliothèque",
+    "nameLabel": "Nom de la liste de lecture",
+    "nameConflict": "Une liste de lecture avec ce nom existe déjà",
+    "summary": {
+      "matched": "{{count}} correspondant(s)",
+      "multiple": "{{count}} multiple(s)",
+      "noMatch": "{{count}} sans correspondance"
+    },
+    "startOver": "Recommencer",
+    "create_one": "Créer la liste de lecture ({{count}} livre)",
+    "create_many": "Créer la liste de lecture ({{count}} livres)",
+    "create_other": "Créer la liste de lecture ({{count}} livres)",
+    "skippedNote": "Les entrées sans livre correspondant sont ignorées.",
+    "filter": {
+      "all": "Toutes ({{count}})",
+      "matched": "Correspondantes ({{count}})",
+      "multiple": "Multiples ({{count}})",
+      "noMatch": "Sans correspondance ({{count}})"
+    },
+    "emptyTitle": "Rien ici",
+    "emptyBody": "Aucune entrée avec ce statut.",
+    "table": {
+      "requested": "Demandé",
+      "matchedBook": "Livre correspondant",
+      "status": "Statut",
+      "action": "Action"
+    },
+    "unknownSeries": "Série inconnue",
+    "manual": "manuel",
+    "chooseBook": "Choisir un livre…",
+    "noLibraryMatch": "Aucune correspondance dans la bibliothèque",
+    "status": {
+      "matched": "Correspondant",
+      "ambiguous": "Multiple",
+      "unmatched": "Sans correspondance"
+    },
+    "change": "Changer",
+    "pickBook": "Choisir un livre",
+    "pageInfo": "Page {{page}} sur {{pages}}",
+    "previous": "Précédent",
+    "next": "Suivant",
+    "pickerTitle": "Choisir un livre pour {{series}} nº {{number}}",
+    "pickerEntry": "entrée",
+    "pickerTitleDefault": "Choisir un livre",
+    "pickerConfirm": "Utiliser ce livre"
+  }
+}

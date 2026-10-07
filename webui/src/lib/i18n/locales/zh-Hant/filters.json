@@ -1,0 +1,113 @@
+{
+  "title": "篩選",
+  "clearAll": "全部清除",
+  "close": "關閉篩選",
+  "noun": {
+    "books_other": "<num>{{count, number}}</num> 本書",
+    "series_other": "<num>{{count, number}}</num> 個系列",
+    "collections_other": "<num>{{count, number}}</num> 個收藏",
+    "readlists_other": "<num>{{count, number}}</num> 個閱讀清單"
+  },
+  "chip": {
+    "remove": "移除篩選條件：{{label}}",
+    "author": "作者：{{name}}",
+    "search": "搜尋：{{q}}",
+    "value": "{{group}}：{{value}}",
+    "value_negated": "{{group}}：非 {{value}}"
+  },
+  "mode": {
+    "any": "任一",
+    "all": "全部"
+  },
+  "negate": {
+    "is": "是",
+    "isNot": "不是"
+  },
+  "section": {
+    "flags": "標記",
+    "metadata": "後設資料"
+  },
+  "resetGroup": "重置",
+  "group": {
+    "readStatus": "閱讀狀態",
+    "seriesStatus": "系列狀態",
+    "letter": "開頭字母",
+    "complete": "完整",
+    "deleted": "已刪除",
+    "publishers": "出版社",
+    "genres": "類型",
+    "tags": "標籤",
+    "sharingLabels": "分享標籤",
+    "ageRatings": "年齡分級",
+    "languages": "語言",
+    "releaseYears": "發行年份",
+    "authors": "作者",
+    "mediaProfiles": "媒體設定檔",
+    "mediaStatuses": "媒體狀態",
+    "poster": "海報",
+    "libraries": "書庫",
+    "readlists": "閱讀清單",
+    "collections": "合集"
+  },
+  "option": {
+    "readStatus": {
+      "read": "已讀",
+      "unread": "未讀",
+      "inProgress": "閱讀中"
+    },
+    "yesNo": {
+      "yes": "是",
+      "no": "否"
+    },
+    "mediaProfile": {
+      "divina": "Divina",
+      "pdf": "PDF",
+      "epub": "EPUB"
+    },
+    "mediaStatus": {
+      "ready": "就緒",
+      "outdated": "已過時"
+    },
+    "poster": {
+      "selected": "有海報",
+      "missing": "沒有海報"
+    },
+    "ageRating": {
+      "unset": "無"
+    }
+  },
+  "sort": {
+    "sortBy": "排序依據",
+    "ascending": "遞增",
+    "descending": "遞減",
+    "title": "標題",
+    "series": "系列",
+    "number": "編號",
+    "dateAdded": "加入日期",
+    "dateUpdated": "更新日期",
+    "releaseDate": "發行日期",
+    "lastRead": "最近閱讀",
+    "folderName": "資料夾名稱",
+    "fileName": "檔案名稱",
+    "fileSize": "檔案大小",
+    "pages": "頁數",
+    "booksCount": "書籍數",
+    "random": "隨機",
+    "listOrder": "清單順序"
+  },
+  "options": {
+    "filterPlaceholder": "篩選選項…",
+    "loadError": "無法載入選項。",
+    "noMatch": "沒有符合的選項。"
+  },
+  "authors": {
+    "searchPlaceholder": "搜尋作者…",
+    "noMatch": "沒有符合的作者。"
+  },
+  "search": {
+    "books": "搜尋書籍…",
+    "series": "搜尋系列…",
+    "collections": "搜尋收藏…",
+    "readlists": "搜尋閱讀清單…"
+  }
+}

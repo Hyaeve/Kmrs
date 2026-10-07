@@ -1,0 +1,44 @@
+{
+  "title": "スマートリスト",
+  "create": "新規スマートリスト",
+  "createTitle": "新規スマートリスト",
+  "editTitle": "スマートリストを編集",
+  "deleteTitle": "スマートリストを削除しますか？",
+  "nameLabel": "名前",
+  "summaryLabel": "概要",
+  "targetLabel": "対象",
+  "target": {
+    "book": "書籍",
+    "series": "シリーズ"
+  },
+  "filtersEmpty": "フィルターなし — すべてに一致",
+  "filtersActive_other": "{{count, number}} 件のフィルターが有効",
+  "filtersStepTitle": "フィルター",
+  "next": "次へ",
+  "visibilityLabel": "公開範囲",
+  "visibility": {"private": "非公開", "public": "公開", "shared": "共有"},
+  "sharedWithLabel": "共有ユーザー",
+  "loadingUsers": "ユーザー読み込み中…",
+  "noOtherUsers": "他のユーザーがいません",
+  "ownerFilterLabel": "所有者フィルター",
+  "ownerFilter": {"all": "すべてのリスト", "mine": "自分のリスト"},
+  "lossyWarning": "このリストのフィルターにはエディターで表示できない条件が含まれています。保存すると簡略化されます。",
+  "loadError": "スマートリストを読み込めませんでした",
+  "loadItemsError": "項目を読み込めませんでした",
+  "empty": "スマートリストはまだありません",
+  "notFound": "スマートリストが見つかりません",
+  "read": "読む",
+  "peek": "プレビュー",
+  "peekTooltip": "進捗を保存せずに読む",
+  "managePosters": "ポスターを管理",
+  "moreActions": "その他の操作",
+  "count": {
+    "book_other": "{{count, number}} 冊の書籍",
+    "series_other": "{{count, number}} 件のシリーズ"
+  },
+  "emptyState": {
+    "books": "現在、このリストに一致する書籍はありません",
+    "series": "現在、このリストに一致するシリーズはありません",
+    "filtered": "アクティブなフィルターに一致する項目はありません"
+  }
+}

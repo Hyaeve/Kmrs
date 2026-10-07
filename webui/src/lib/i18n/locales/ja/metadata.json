@@ -1,0 +1,154 @@
+{
+  "field": {
+    "title": "タイトル",
+    "sortTitle": "ソート用タイトル",
+    "number": "番号",
+    "sortNumber": "ソート用番号",
+    "releaseDate": "発売日",
+    "isbn": "ISBN",
+    "summary": "あらすじ",
+    "authors": "著者",
+    "name": "名前",
+    "role": "役割",
+    "tags": "タグ",
+    "genres": "ジャンル",
+    "webLinks": "ウェブリンク",
+    "label": "ラベル",
+    "url": "URL",
+    "status": "ステータス",
+    "readingDirection": "読む方向",
+    "publisher": "出版社",
+    "language": "言語",
+    "ageRating": "対象年齢",
+    "totalBookCount": "総冊数",
+    "alternateTitles": "別タイトル",
+    "sharingLabels": "共有ラベル",
+    "notSet": "未設定"
+  },
+  "tabs": {
+    "general": "一般",
+    "titles": "タイトル",
+    "authors": "著者",
+    "tags": "タグ",
+    "links": "リンク",
+    "sharing": "共有",
+    "sharedFields": "共通フィールド",
+    "perBook": "本ごと"
+  },
+  "action": {
+    "saveChanges": "変更を保存"
+  },
+  "saveFailed": "メタデータを保存できませんでした。",
+  "validation": {
+    "notBlank": "空白にはできません",
+    "url": "有効な URL を入力してください",
+    "number": "数値を入力してください",
+    "isbn": "空白か有効な ISBN-13 を入力してください",
+    "wholeNumberMinZero": "0 以上の整数を入力してください",
+    "wholeNumberPositive": "0 より大きい整数を入力してください",
+    "bcp47": "有効な BCP 47 言語タグを入力してください"
+  },
+  "lockToggle": {
+    "lock": "{{label}} をロック",
+    "unlock": "{{label}} のロックを解除"
+  },
+  "batch": {
+    "change": "{{label}} を変更"
+  },
+  "pairs": {
+    "removeRow": "行を取り除く"
+  },
+  "placeholder": {
+    "authorName": "三浦建太郎",
+    "authorRole": "原作",
+    "linkLabel": "Wiki",
+    "addTag": "タグを追加…",
+    "addGenre": "ジャンルを追加…",
+    "addLabel": "ラベルを追加…"
+  },
+  "add": {
+    "author": "著者を追加",
+    "link": "リンクを追加",
+    "title": "タイトルを追加"
+  },
+  "editBooks": {
+    "dialogTitle_single": "本のメタデータを編集",
+    "dialogTitle_batch_other": "{{count}} 冊のメタデータを編集",
+    "loadError": "本を読み込めませんでした",
+    "loadManyError": "本を読み込めませんでした",
+    "sortNumberHelper": "小数も使えます",
+    "isbnHelper": "ISBN-13。空欄でクリア",
+    "batchHint": "オンにしたフィールドは {{count}} 冊すべてに適用され、デフォルトでロックされます。",
+    "perBookHint": "変更したフィールドのみ送信され、編集するとフィールドがロックされます。本ごとの値は共通フィールドより優先されます。",
+    "lockAll": "{{label}} をすべてロック",
+    "unlockAll": "{{label}} のロックをすべて解除",
+    "copySortToNumber": "ソート用番号を番号にコピー",
+    "decrementAll": "すべて 1 減らす",
+    "incrementAll": "すべて 1 増やす",
+    "hint": {
+      "summaryEmpty": "空欄にするとあらすじがクリアされます。",
+      "releaseDateEmpty": "空欄にすると日付がクリアされます。",
+      "isbnEmpty": "ISBN-13。空欄にするとクリアされます。",
+      "authorsReplace": "すべての著者を置き換えます。空のリストにするとクリアされます。",
+      "tagsReplace": "すべてのタグを置き換えます。空のリストにするとクリアされます。",
+      "linksReplace": "すべてのリンクを置き換えます。空のリストにするとクリアされます。"
+    }
+  },
+  "editSeries": {
+    "dialogTitle_single": "シリーズのメタデータを編集",
+    "dialogTitle_batch_other": "{{count}} シリーズのメタデータを編集",
+    "loadError": "シリーズを読み込めませんでした",
+    "languageHelper": "BCP 47 タグ。空欄でクリア",
+    "batchHint": "オンにしたフィールドは {{count}} シリーズすべてに適用され、デフォルトでロックされます。",
+    "hint": {
+      "directionNotSet": "「未設定」にすると読む方向がクリアされます。",
+      "languageEmpty": "BCP 47 タグ。空欄にするとクリアされます。",
+      "ageRatingEmpty": "空欄にすると対象年齢がクリアされます。",
+      "genresReplace": "すべてのジャンルを置き換えます。空のリストにするとクリアされます。",
+      "tagsReplace": "すべてのタグを置き換えます。空のリストにするとクリアされます。",
+      "sharingLabelsReplace": "すべての共有ラベルを置き換えます。空のリストにするとクリアされます。"
+    }
+  },
+  "identify": {
+    "searchPlaceholder": "komf プロバイダーを検索…",
+    "providerLinks": "プロバイダーリンク",
+    "aggregateAll": "すべてのプロバイダーを集約",
+    "aggregateHint_other": "{{count}} 件のプロバイダーリンクすべてからメタデータを統合",
+    "typeToSearch": "タイトルを入力して komf を検索",
+    "searchFailed": "komf を検索できませんでした",
+    "noResults": "結果がありません",
+    "noResultsHint": "別のタイトルを試してください。",
+    "queueFailed": "識別をキューに追加できませんでした",
+    "matchFailed": "マッチに失敗しました"
+  },
+  "reset": {
+    "body": "<name>{{name}}</name> をリセットしますか？komf が書き込んだメタデータ（フィールドロックやアップロードされたカバーを含む）が削除されます。",
+    "libraryBody": "<name>{{name}}</name> をリセットしますか？このライブラリ内のすべてのシリーズについて、komf が書き込んだメタデータ（フィールドロックやアップロードされたカバーを含む）が削除されます。",
+    "confirm": "リセット"
+  },
+  "poster": {
+    "kind": {
+      "series": "シリーズ",
+      "book": "本",
+      "collection": "コレクション",
+      "readlist": "読書リスト",
+      "smartlist": "スマートリスト"
+    },
+    "type": {
+      "generated": "生成",
+      "sidecar": "サイドカー",
+      "uploaded": "アップロード"
+    },
+    "alt": "{{type}}のポスター",
+    "upload": "ポスターをアップロード",
+    "loadFailed": "ポスターを読み込めませんでした",
+    "empty": "ポスターがまだありません",
+    "emptyHint": "画像をアップロードしてポスターとして使います。",
+    "selected": "選択中のポスター",
+    "setSelected": "選択中のポスターに設定",
+    "selectedBadge": "選択中",
+    "delete": "ポスターを削除",
+    "refreshing": "更新中…",
+    "operationFailed": "ポスター操作に失敗しました。"
+  }
+}

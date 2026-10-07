@@ -1,0 +1,27 @@
+{
+  "title": "검색",
+  "titleWithQuery": "검색: {{q}}",
+  "scope": {
+    "all": "모든 라이브러리",
+    "pinned": "고정된 라이브러리",
+    "library": "라이브러리",
+    "ariaLabel": "검색 범위: {{label}}"
+  },
+  "tabs": {
+    "all": "전체",
+    "series": "시리즈",
+    "books": "책",
+    "collections": "컬렉션",
+    "readlists": "읽기 목록"
+  },
+  "placeholderTop": "시리즈, 책, 작가 검색…",
+  "placeholderPage": "시리즈, 책, 컬렉션, 읽기 목록 검색…",
+  "clear": "검색 지우기",
+  "emptyTitle": "라이브러리 검색",
+  "emptyBody": "시리즈, 책, 컬렉션, 읽기 목록을 찾습니다. title:berserk AND tag:seinen 같은 필드 쿼리도 작동합니다.",
+  "viewAll": "모두 보기",
+  "noResultsTitle": "\"{{q}}\"에 대한 결과 없음",
+  "noResultsBody": "다른 키워드를 시도하거나 하나의 카테고리에서 검색해 보세요.",
+  "failedTitle": "검색 실패",
+  "failedBody": "문제가 발생했습니다."
+}

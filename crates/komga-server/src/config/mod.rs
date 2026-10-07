@@ -60,11 +60,6 @@ pub struct ServerConfig {
     pub server_context_path: Option<String>,
     pub webhooks: WebhookConfig,
     pub oauth2: OAuth2Config,
-    /// built web UI (e.g. kmweb's dist/) served at / with SPA fallback; None = no web UI (default)
-    pub webui_dir: Option<PathBuf>,
-    /// track the latest kmweb release into <config-dir>/webui and serve that instead
-    pub webui_auto_update: bool,
-    pub webui_update_interval: Duration,
     /// komf metadata fetcher base URL; preset for the integration, runtime state lives in kmrs.sqlite
     pub komf_url: Option<String>,
     /// the base URL komf uses to call back into kmrs (written to komf's `komga.baseUri`)
@@ -203,6 +198,13 @@ impl ServerConfig {
                 .with_context(|| format!("read config file {}", path.display()))?;
             let parsed: FileConfig = toml::from_str(&text)
                 .with_context(|| format!("parse config file {}", path.display()))?;
+            if parsed.webui.is_some() {
+                tracing::warn!(
+                    "the [webui] config section was removed: the web UI is embedded in the \
+                     binary — delete the section from {}",
+                    path.display()
+                );
+            }
             tracing::info!("loaded configuration from {}", path.display());
             parsed
         } else {
@@ -383,26 +385,6 @@ impl ServerConfig {
             },
             server_context_path,
             oauth2: merge_oauth2(file.and_then(|f| f.oauth2.as_ref()), env),
-            webui_dir: env_path(env, "KOMGA_WEBUI_DIR")
-                .or_else(|| {
-                    file.and_then(|f| f.webui.as_ref())
-                        .and_then(|w| w.dir.clone())
-                })
-                .filter(|p| !p.as_os_str().is_empty()),
-            webui_auto_update: env_bool(env, "KOMGA_WEBUI_AUTOUPDATE")
-                .or_else(|| {
-                    file.and_then(|f| f.webui.as_ref())
-                        .and_then(|w| w.auto_update)
-                })
-                .unwrap_or(false),
-            webui_update_interval: env_duration(env, "KOMGA_WEBUI_UPDATEINTERVAL")
-                .transpose()?
-                .or_else(|| {
-                    file.and_then(|f| f.webui.as_ref())
-                        .and_then(|w| w.update_interval)
-                        .map(|d| d.0)
-                })
-                .unwrap_or(Duration::from_secs(24 * 3600)),
             komf_url: env_string(env, "KOMGA_KOMF_URL")
                 .or_else(|| {
                     file.and_then(|f| f.komf.as_ref())
@@ -1003,29 +985,6 @@ events = ["BookAdded"]
     }
 
     #[test]
-    fn webui_update_defaults_and_overrides() {
-        let config = resolve("", Cli::default(), &[]);
-        assert!(!config.webui_auto_update);
-        assert_eq!(config.webui_update_interval, Duration::from_secs(24 * 3600));
-
-        let config = resolve(
-            "[webui]\nauto-update = true\nupdate-interval = \"6h\"\n",
-            Cli::default(),
-            &[],
-        );
-        assert!(config.webui_auto_update);
-        assert_eq!(config.webui_update_interval, Duration::from_secs(6 * 3600));
-
-        let config = resolve(
-            "[webui]\nauto-update = true\n",
-            Cli::default(),
-            &env(&[("KOMGA_WEBUI_UPDATEINTERVAL", "30m")]),
-        );
-        assert!(config.webui_auto_update);
-        assert_eq!(config.webui_update_interval, Duration::from_secs(1800));
-    }
-
-    #[test]
     fn komf_from_file_env_and_default() {
         let config = resolve("", Cli::default(), &[]);
         assert_eq!(config.komf_url, None);
@@ -1161,6 +1120,17 @@ issuer-uri = "https://github.com"
     fn unknown_keys_are_rejected() {
         let err = toml::from_str::<FileConfig>("[books]\npage-hshing = 5\n").unwrap_err();
         assert!(err.to_string().contains("unknown field"));
+    }
+
+    #[test]
+    fn removed_webui_section_still_parses() {
+        // configs written by older kmrs versions carry the section; upgrades must not choke on it
+        let config = resolve(
+            "[webui]\ndir = \"/srv/ui\"\nauto-update = true\nupdate-interval = \"6h\"\n",
+            Cli::default(),
+            &[],
+        );
+        assert_eq!(config.port, 25600);
     }
 
     #[test]

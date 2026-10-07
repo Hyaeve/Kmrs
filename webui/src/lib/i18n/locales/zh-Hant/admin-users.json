@@ -1,0 +1,69 @@
+{
+  "title": "使用者",
+  "subtitle_other": "{{count}} 位使用者 · 角色、書庫存取與內容限制",
+  "subtitleEmpty": "角色、書庫存取與內容限制",
+  "addUser": "新增使用者",
+  "loadFailed": "無法載入使用者。",
+  "emptyTitle": "還沒有使用者",
+  "emptyBody": "新增使用者，讓其他人能存取此伺服器。",
+  "you": "你",
+  "user": "使用者",
+  "rowActions": "{{email}} 的動作",
+  "selfEditHint": "你不能在此編輯自己的帳號",
+  "selfDeleteHint": "你不能刪除自己的帳號",
+  "table": {
+    "restrictions": "限制",
+    "actions": "動作"
+  },
+  "restrictions": {
+    "ageAllow": "年齡 ≤ {{age}}",
+    "ageExclude": "排除年齡 > {{age}}",
+    "labelsAllowed_other": "允許 {{count}} 個標籤",
+    "labelsExcluded_other": "排除 {{count}} 個標籤"
+  },
+  "roles": {
+    "adminDesc": "完整存取，包含伺服器設定",
+    "fileDownloadDesc": "下載書籍檔案",
+    "pageStreamingDesc": "串流頁面以線上閱讀",
+    "koboSyncDesc": "與 Kobo 電子閱讀器同步",
+    "koreaderSyncDesc": "與 KOReader 同步閱讀進度"
+  },
+  "form": {
+    "editTitle": "編輯使用者",
+    "saveFailed": "無法儲存使用者。",
+    "sectionAccount": "帳號",
+    "password": "密碼",
+    "sectionLibraryAccess": "書庫存取",
+    "allLibrariesDesc": "分享每個書庫，包含之後建立的",
+    "sectionContentRestrictions": "內容限制",
+    "ageRestriction": "年齡限制",
+    "age": "年齡",
+    "ageMode": {
+      "none": "無",
+      "allow": "僅允許",
+      "exclude": "排除"
+    },
+    "ageInvalid": "請輸入大於或等於 0 的整數。",
+    "ageAllowHint": "只顯示年齡分級不高於此年齡的內容。",
+    "ageExcludeHint": "隱藏年齡分級高於此年齡的內容。",
+    "allowedLabels": "允許的標籤",
+    "excludedLabels": "排除的標籤"
+  },
+  "changePassword": {
+    "body": "為 <email>{{email}}</email> 設定新密碼。其所有工作階段都會登出。"
+  },
+  "deleteDialog": {
+    "title": "刪除使用者",
+    "body": "刪除 <email>{{email}}</email>？其閱讀進度、API 金鑰與工作階段都會被永久移除。此操作無法復原。",
+    "failed": "無法刪除使用者。"
+  },
+  "labelList": {
+    "remove": "移除 {{label}}"
+  },
+  "activity": {
+    "title": "驗證活動",
+    "events_other": "{{count, number}} 個事件",
+    "loadFailed": "無法載入驗證活動。",
+    "empty": "還沒有活動。"
+  }
+}

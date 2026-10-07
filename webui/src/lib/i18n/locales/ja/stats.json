@@ -1,0 +1,59 @@
+{
+  "title": "読書統計",
+  "subtitle": "ライブラリ全体の読書状況",
+  "failed": "読書統計を読み込めませんでした。",
+  "library": {
+    "all": "すべてのライブラリ",
+    "ariaLabel": "{{label}} の統計"
+  },
+  "summary": {
+    "booksRead": "読了した本",
+    "ofTotal_other": "全 {{total}} 冊中",
+    "inProgress": "読書中",
+    "pagesRead": "読んだページ数",
+    "readingDays": "読書日数",
+    "currentStreak": "現在の連続記録",
+    "longestStreak": "最長連続記録",
+    "avgPages": "平均ページ数 / 冊",
+    "lastRead": "最後に読んだ日",
+    "never": "なし",
+    "days_other": "{{count}} 日"
+  },
+  "heatmap": {
+    "title": "読書アクティビティ",
+    "range3m": "過去 3 か月",
+    "range6m": "過去 6 か月",
+    "range1y": "過去 12 か月",
+    "empty": "この期間の読書アクティビティはありません。",
+    "less": "少",
+    "more": "多",
+    "pages_other": "{{count}} ページ",
+    "completed_other": "{{count}} 冊読了",
+    "noActivity": "読書なし",
+    "dayLabel": "{{date}}: {{activity}}"
+  },
+  "status": {
+    "title": "ステータス別の本",
+    "read": "既読",
+    "inProgress": "読書中",
+    "unread": "未読",
+    "empty": "本がまだありません。"
+  },
+  "chart": {
+    "tooltip": "{{label}}: {{value}}"
+  },
+  "weekday": {
+    "title": "曜日別"
+  },
+  "hourly": {
+    "title": "時間帯別"
+  },
+  "tops": {
+    "title": "最も読んだもの",
+    "authors": "著者",
+    "genres": "ジャンル",
+    "tags": "タグ",
+    "series_other": "{{count}} シリーズ",
+    "empty": "本を読了すると、最も読んだ著者、ジャンル、タグがここに表示されます。"
+  }
+}

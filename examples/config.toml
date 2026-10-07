@@ -104,12 +104,6 @@
 # user-info-uri = "..."
 # user-name-attribute = "..."
 
-[webui]
-# serve a built web UI (e.g. kmweb's dist/) at /; unmatched paths fall back to its index.html
-# dir = "/path/to/kmweb/dist" # env: KOMGA_WEBUI_DIR
-# auto-update = false # track the latest kmweb release into <config-dir>/webui; env: KOMGA_WEBUI_AUTOUPDATE
-# update-interval = "1d" # env: KOMGA_WEBUI_UPDATEINTERVAL
-
 [komf]
 # komf metadata fetcher integration (kmrs enhancement, no Java equivalent);
 # pre-fills the setup form in the admin UI — nothing is provisioned until an admin confirms

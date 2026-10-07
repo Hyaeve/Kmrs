@@ -1,0 +1,27 @@
+{
+  "title": "検索",
+  "titleWithQuery": "検索: {{q}}",
+  "scope": {
+    "all": "すべてのライブラリ",
+    "pinned": "ピン留めライブラリ",
+    "library": "ライブラリ",
+    "ariaLabel": "検索範囲: {{label}}"
+  },
+  "tabs": {
+    "all": "すべて",
+    "series": "シリーズ",
+    "books": "本",
+    "collections": "コレクション",
+    "readlists": "読書リスト"
+  },
+  "placeholderTop": "シリーズ、本、著者を検索…",
+  "placeholderPage": "シリーズ、本、コレクション、読書リストを検索…",
+  "clear": "検索をクリア",
+  "emptyTitle": "ライブラリを検索",
+  "emptyBody": "シリーズ、本、コレクション、読書リストを検索できます。title:berserk AND tag:seinen のようなフィールドクエリも使えます。",
+  "viewAll": "すべて表示",
+  "noResultsTitle": "「{{q}}」の結果はありません",
+  "noResultsBody": "別のキーワードを試すか、1 つのカテゴリーで検索してください。",
+  "failedTitle": "検索に失敗しました",
+  "failedBody": "問題が発生しました。"
+}

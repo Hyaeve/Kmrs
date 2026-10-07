@@ -1,0 +1,70 @@
+{
+  "action": {
+    "save": "Speichern",
+    "cancel": "Abbrechen",
+    "delete": "Löschen",
+    "edit": "Bearbeiten",
+    "close": "Schließen",
+    "back": "Zurück",
+    "add": "Hinzufügen",
+    "remove": "Entfernen",
+    "create": "Erstellen",
+    "done": "Fertig",
+    "confirm": "Bestätigen",
+    "search": "Suchen",
+    "retry": "Erneut versuchen",
+    "dismiss": "Verwerfen",
+    "download": "Herunterladen",
+    "showMore": "Mehr",
+    "showLess": "Weniger"
+  },
+  "state": {
+    "loading": "Wird geladen…",
+    "unavailable": "Nicht verfügbar",
+    "unknown": "Unbekannt"
+  },
+  "time": {
+    "justNow": "gerade eben"
+  },
+  "readingDirection": {
+    "leftToRight": "Von links nach rechts",
+    "rightToLeft": "Von rechts nach links",
+    "vertical": "Vertikal",
+    "webtoon": "Webtoon"
+  },
+  "seriesStatus": {
+    "ongoing": "Laufend",
+    "ended": "Beendet",
+    "abandoned": "Eingestellt",
+    "hiatus": "Pausiert"
+  },
+  "cardStatus": {
+    "unavailable": "Nicht verfügbar",
+    "error": "Fehler",
+    "unsupported": "Nicht unterstützt",
+    "toBeAnalyzed": "Analyse ausstehend"
+  },
+  "mediaIssue": {
+    "unavailable": "Nicht verfügbar",
+    "error": "Medienanalyse fehlgeschlagen",
+    "unsupported": "Dieser Medientyp wird nicht unterstützt",
+    "outdated": "Die Datei dieses Buches hat sich geändert und muss erneut analysiert werden",
+    "unknown": "Dieses Buch wurde noch nicht analysiert"
+  },
+  "notFound": {
+    "title": "Seite nicht gefunden",
+    "body": "Die gesuchte Seite existiert nicht oder wurde verschoben.",
+    "back": "Zurück zur Übersicht"
+  },
+  "oneshot": "Oneshot",
+  "komf": {
+    "jobsSummary_one": "{{count}} Treffer",
+    "jobsSummary_other": "{{count}} Treffer",
+    "moreFailed_one": "+{{count}} fehlgeschlagen",
+    "moreFailed_other": "+{{count}} fehlgeschlagen",
+    "matching": "Abgleich läuft…",
+    "matchCompleted": "Abgleich abgeschlossen",
+    "postProcessing": "Nachbearbeitung…",
+    "seriesFallback": "Serienabgleich"
+  }
+}

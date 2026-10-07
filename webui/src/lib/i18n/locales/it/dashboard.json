@@ -1,0 +1,43 @@
+{
+  "title": "Dashboard",
+  "scope": {
+    "all": "Tutte"
+  },
+  "sections": {
+    "keepReading": "Continua a leggere",
+    "onDeck": "In coda",
+    "recentlyReleasedBooks": "Libri usciti di recente",
+    "recentlyAddedBooks": "Libri aggiunti di recente",
+    "recentlyAddedSeries": "Serie aggiunte di recente",
+    "recentlyUpdatedSeries": "Serie aggiornate di recente",
+    "recentlyRead": "Letti di recente"
+  },
+  "customizeSections": "Personalizza sezioni",
+  "allHidden": {
+    "title": "Tutte le sezioni sono nascoste",
+    "body": "Ogni sezione della dashboard è nascosta in questa vista."
+  },
+  "empty": {
+    "title": "Ancora nulla qui",
+    "body": "Libri e serie appariranno qui quando il tuo server avrà dei contenuti."
+  },
+  "pinnedEmpty": {
+    "title": "Nessuna libreria fissata",
+    "body": "La dashboard Tutte mostra solo contenuti dalle tue librerie fissate. Fissane qualcuna per comporre la tua dashboard, oppure reimposta per vedere di nuovo tutte le librerie.",
+    "action": "Scegli librerie"
+  },
+  "rowError": "Impossibile caricare questa sezione.",
+  "loadError": "Impossibile caricare",
+  "bookCount_one": "{{count}} libro",
+  "bookCount_many": "{{count}} libri",
+  "bookCount_other": "{{count}} libri",
+  "seriesCount_one": "{{count}} serie",
+  "seriesCount_many": "{{count}} serie",
+  "seriesCount_other": "{{count}} serie",
+  "sectionsDialog": {
+    "bodyAll": "Vale solo per la vista dashboard Tutte. Trascina per riordinare, o nascondi le sezioni che non usi.",
+    "bodyLibrary": "Vale solo per questa vista libreria. Trascina per riordinare, o nascondi le sezioni che non usi.",
+    "reorder": "Riordina {{title}}",
+    "reset": "Ripristina predefiniti"
+  }
+}

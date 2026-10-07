@@ -1,0 +1,101 @@
+{
+  "language": {
+    "title": "言語",
+    "label": "表示言語"
+  },
+  "profile": {
+    "title": "プロフィール",
+    "email": "メールアドレス",
+    "roles": "ロール",
+    "libraries": "ライブラリ",
+    "allLibraries": "すべてのライブラリ",
+    "sharedLibraries_other": "{{count}} ライブラリ",
+    "role": {
+      "admin": "管理者",
+      "user": "ユーザー",
+      "fileDownload": "ファイルダウンロード",
+      "pageStreaming": "ページストリーミング",
+      "koboSync": "Kobo 同期",
+      "koreaderSync": "KOReader 同期"
+    }
+  },
+  "security": {
+    "title": "セキュリティ",
+    "subtitle": "パスワードとログイン履歴",
+    "password": {
+      "title": "パスワードを変更",
+      "new": "新しいパスワード",
+      "confirm": "パスワード（確認）",
+      "staySignedIn": "このデバイスではログイン状態が維持されます。",
+      "mismatch": "パスワードが一致しません。",
+      "updated": "パスワードを更新しました。他のセッションはログアウトされました。",
+      "failed": "パスワードを更新できませんでした。",
+      "submit": "パスワードを更新"
+    },
+    "activity": {
+      "title": "ログイン履歴",
+      "failed": "ログイン履歴を読み込めませんでした。",
+      "empty": "ログイン履歴はまだありません。",
+      "when": "日時",
+      "ip": "IP",
+      "source": "接続元",
+      "status": "ステータス",
+      "agent": "エージェント",
+      "success": "成功",
+      "statusFailed": "失敗",
+      "page": "{{current}} / {{total}} ページ",
+      "previous": "前へ",
+      "next": "次へ"
+    }
+  },
+  "apiKeys": {
+    "title": "API キー",
+    "subtitle": "サードパーティクライアントと同期用のキー",
+    "failed": "API キーを読み込めませんでした。",
+    "empty": "API キーがまだありません。",
+    "resyncHint": "再同期すると、KOReader と Kobo デバイスはすべてを再取得します。",
+    "resyncAll": "すべてのデバイスを再同期",
+    "untitled": "無題",
+    "createdOnly": "作成日 {{date}}",
+    "createdAndUsed": "作成日 {{date}} · 最終使用 {{time}}",
+    "resyncKey": "{{name}} を強制再同期",
+    "delete": "API キーを削除",
+    "deleteFailed": "API キーを削除できませんでした。",
+    "resyncDone": "{{name}} の再同期をリクエストしました。",
+    "allDevices": "すべてのデバイス",
+    "new": "新しい API キー",
+    "commentPlaceholder": "コメント（例: Boox の KOReader）",
+    "createFailed": "API キーを作成できませんでした。",
+    "createdTitle": "API キーを作成しました",
+    "shownOnce": "このキーは一度だけ表示されます。",
+    "copy": "コピー",
+    "copied": "コピーしました",
+    "resyncTitle": "強制再同期",
+    "resyncKeyBody": "<name>{{name}}</name> の同期ポイントをリセットしますか？このキーを使う次の KOReader / Kobo デバイスは進捗全体を再ダウンロードします。",
+    "resyncAllBody": "すべての API キーの同期ポイントをリセットしますか？すべての KOReader / Kobo デバイスが次回同期時に進捗全体を再ダウンロードします。",
+    "resyncFailed": "再同期をリクエストできませんでした。"
+  },
+  "reader": {
+    "title": "リーダー",
+    "subtitle": "コミックリーダーのデフォルト",
+    "defaultsTitle": "リーダーのデフォルト",
+    "direction": "読む方向",
+    "scale": "スケール",
+    "scaleScreen": "画面に合わせる",
+    "scaleWidth": "幅に合わせる",
+    "scaleShrinkWidth": "幅に合わせて縮小",
+    "scaleHeight": "高さに合わせる",
+    "scaleOriginal": "原寸",
+    "pageLayout": "ページレイアウト",
+    "layoutSingle": "単ページ",
+    "layoutDouble": "見開き",
+    "layoutDoubleNoCover": "見開き（表紙なし）",
+    "background": "背景",
+    "backgroundLabel": "背景 {{color}}",
+    "backgrounds": {
+      "black": "黒",
+      "gray": "グレー",
+      "white": "白"
+    }
+  }
+}

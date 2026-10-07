@@ -1,0 +1,125 @@
+{
+  "title": "Фильтры",
+  "clearAll": "Сбросить все",
+  "close": "Закрыть фильтры",
+  "noun": {
+    "books_one": "<num>{{count, number}}</num> книга",
+    "books_few": "<num>{{count, number}}</num> книги",
+    "books_many": "<num>{{count, number}}</num> книг",
+    "books_other": "<num>{{count, number}}</num> книги",
+    "series_one": "<num>{{count, number}}</num> серия",
+    "series_few": "<num>{{count, number}}</num> серии",
+    "series_many": "<num>{{count, number}}</num> серий",
+    "series_other": "<num>{{count, number}}</num> серии",
+    "collections_one": "<num>{{count, number}}</num> коллекция",
+    "collections_few": "<num>{{count, number}}</num> коллекции",
+    "collections_many": "<num>{{count, number}}</num> коллекций",
+    "collections_other": "<num>{{count, number}}</num> коллекции",
+    "readlists_one": "<num>{{count, number}}</num> список чтения",
+    "readlists_few": "<num>{{count, number}}</num> списка чтения",
+    "readlists_many": "<num>{{count, number}}</num> списков чтения",
+    "readlists_other": "<num>{{count, number}}</num> списка чтения"
+  },
+  "chip": {
+    "remove": "Убрать фильтр: {{label}}",
+    "author": "Автор: {{name}}",
+    "search": "Поиск: {{q}}",
+    "value": "{{group}}: {{value}}",
+    "value_negated": "{{group}}: не {{value}}"
+  },
+  "mode": {
+    "any": "Любой",
+    "all": "Все"
+  },
+  "negate": {
+    "is": "соответствует",
+    "isNot": "не соответствует"
+  },
+  "section": {
+    "flags": "Флаги",
+    "metadata": "Метаданные"
+  },
+  "resetGroup": "Сбросить",
+  "group": {
+    "readStatus": "Статус чтения",
+    "seriesStatus": "Статус серии",
+    "letter": "Первая буква",
+    "complete": "Завершённые",
+    "deleted": "Удалённые",
+    "publishers": "Издатели",
+    "genres": "Жанры",
+    "tags": "Теги",
+    "sharingLabels": "Метки доступа",
+    "ageRatings": "Возрастной рейтинг",
+    "languages": "Языки",
+    "releaseYears": "Годы выхода",
+    "authors": "Авторы",
+    "mediaProfiles": "Профиль медиа",
+    "mediaStatuses": "Статус медиа",
+    "poster": "Постер",
+    "libraries": "Библиотеки",
+    "readlists": "Списки чтения",
+    "collections": "Коллекции"
+  },
+  "option": {
+    "readStatus": {
+      "read": "Прочитано",
+      "unread": "Непрочитано",
+      "inProgress": "В процессе"
+    },
+    "yesNo": {
+      "yes": "Да",
+      "no": "Нет"
+    },
+    "mediaProfile": {
+      "divina": "Divina",
+      "pdf": "PDF",
+      "epub": "EPUB"
+    },
+    "mediaStatus": {
+      "ready": "Готово",
+      "outdated": "Устарело"
+    },
+    "poster": {
+      "selected": "Есть постер",
+      "missing": "Нет постера"
+    },
+    "ageRating": {
+      "unset": "Нет"
+    }
+  },
+  "sort": {
+    "sortBy": "Сортировать по",
+    "ascending": "По возрастанию",
+    "descending": "По убыванию",
+    "title": "Название",
+    "series": "Серия",
+    "number": "Номер",
+    "dateAdded": "Дата добавления",
+    "dateUpdated": "Дата обновления",
+    "releaseDate": "Дата выхода",
+    "lastRead": "Последнее чтение",
+    "folderName": "Имя папки",
+    "fileName": "Имя файла",
+    "fileSize": "Размер файла",
+    "pages": "Страницы",
+    "booksCount": "Количество книг",
+    "random": "Случайно",
+    "listOrder": "Порядок списка"
+  },
+  "options": {
+    "filterPlaceholder": "Фильтр вариантов…",
+    "loadError": "Не удалось загрузить варианты.",
+    "noMatch": "Нет подходящих вариантов."
+  },
+  "authors": {
+    "searchPlaceholder": "Поиск авторов…",
+    "noMatch": "Нет подходящих авторов."
+  },
+  "search": {
+    "books": "Поиск книг…",
+    "series": "Поиск серий…",
+    "collections": "Поиск коллекций…",
+    "readlists": "Поиск списков чтения…"
+  }
+}

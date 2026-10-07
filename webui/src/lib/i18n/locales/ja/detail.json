@@ -1,0 +1,143 @@
+{
+  "read": "読む",
+  "peek": "プレビュー",
+  "peekTooltip": "進捗を保存せずに読む",
+  "continue": "続きを読む",
+  "continueWithPage": "続きを読む · {{page}} ページ",
+  "markAsRead": "既読にする",
+  "markAsUnread": "未読にする",
+  "moreActions": "その他の操作",
+  "addToReadList": "読書リストに追加",
+  "addToCollection": "コレクションに追加",
+  "addSeries": "シリーズを追加",
+  "addBooks": "本を追加",
+  "removeFromCollection": "{{name}} から取り除く",
+  "removeFromReadList": "{{name}} から取り除く",
+  "rename": "名前を変更",
+  "nameLabel": "名前",
+  "summaryLabel": "あらすじ",
+  "previous": "前へ",
+  "next": "次へ",
+  "inCollections": "コレクション",
+  "inReadLists": "読書リスト",
+  "booksHeading": "本",
+  "bookCount_other": "{{count}} 冊",
+  "seriesCount": "{{count}} シリーズ",
+  "selectedCount": "{{count}} 件選択中",
+  "menu": {
+    "editMetadata": "メタデータを編集",
+    "editBookMetadata": "本のメタデータを編集",
+    "managePosters": "ポスターを管理",
+    "analyze": "分析",
+    "refreshMetadata": "メタデータを更新",
+    "identifyKomf": "komf で識別",
+    "matchKomf": "komf でマッチ",
+    "resetKomf": "komf でメタデータをリセット",
+    "deleteFile": "ファイルを削除",
+    "previousBook": "前の本",
+    "nextBook": "次の本",
+    "editDetails": "詳細を編集"
+  },
+  "toast": {
+    "analysisQueued": "分析をキューに追加しました",
+    "queueAnalysisFailed": "分析をキューに追加できませんでした",
+    "refreshQueued": "メタデータの更新をキューに追加しました",
+    "queueRefreshFailed": "更新をキューに追加できませんでした",
+    "identifyQueued": "識別をキューに追加しました",
+    "metadataReset": "メタデータをリセットしました",
+    "resetMetadataFailed": "メタデータをリセットできませんでした",
+    "queueMatchFailed": "マッチをキューに追加できませんでした",
+    "deleteFileFailed": "ファイルを削除できませんでした",
+    "deleteFilesFailed": "ファイルを削除できませんでした",
+    "removedFromCollection": "{{name}} から取り除きました",
+    "removedFromReadList": "{{name}} から取り除きました",
+    "collectionDeleted": "コレクションを削除しました",
+    "readListDeleted": "読書リストを削除しました",
+    "removeFromCollectionFailed": "コレクションから取り除けませんでした",
+    "removeFromReadListFailed": "読書リストから取り除けませんでした"
+  },
+  "notFound": {
+    "book": "本が見つかりません",
+    "series": "シリーズが見つかりません",
+    "collection": "コレクションが見つかりません",
+    "readList": "読書リストが見つかりません"
+  },
+  "field": {
+    "pages": "ページ",
+    "size": "サイズ",
+    "format": "形式",
+    "profile": "プロファイル",
+    "releaseDate": "発売日",
+    "file": "ファイル",
+    "added": "追加日"
+  },
+  "progress": {
+    "completed": "読了",
+    "pageOf": "{{total}} ページ中 {{page}} ページ"
+  },
+  "stats": {
+    "books_other": "<num>{{count}}</num> 冊",
+    "read": "<num>{{count}}</num> 冊読了",
+    "unread": "<num>{{count}}</num> 冊未読"
+  },
+  "empty": {
+    "loadBooksFailed": "本を読み込めませんでした",
+    "loadSeriesFailed": "シリーズを読み込めませんでした",
+    "noBooks": "本がありません",
+    "noBooksFiltered": "フィルターに一致する本がありません。",
+    "seriesEmpty": "このシリーズには本がありません。",
+    "noSeries": "シリーズがありません",
+    "noSeriesFiltered": "フィルターに一致するシリーズがありません。",
+    "collectionEmpty": "このコレクションは空です。",
+    "readListEmpty": "この読書リストは空です。",
+    "noBook": "本がありません",
+    "oneshotNoBook": "この読み切りにはまだ本がありません。"
+  },
+  "confirmDelete": {
+    "body": "<name>{{name}}</name> を削除しますか？この操作は取り消せません。"
+  },
+  "error": {
+    "title": "問題が発生しました",
+    "unknown": "不明なエラー",
+    "notFoundBody": "削除されたか、アクセス権がない可能性があります。"
+  },
+  "addToReadListDialog": {
+    "empty": "読書リストがまだありません"
+  },
+  "collection": {
+    "renameTitle": "コレクション名を変更",
+    "deleteTitle": "コレクションを削除",
+    "editMembersEmpty": "コレクションには少なくとも 1 つのシリーズが必要です。空にする代わりに削除してください。",
+    "selectedSeriesCount_other": "{{count}} 件選択中"
+  },
+  "readList": {
+    "editTitle": "読書リストを編集",
+    "deleteTitle": "読書リストを削除"
+  },
+  "deleteDialog": {
+    "bookFileTitle": "本のファイルを削除",
+    "bookFileName": "{{name}} のファイル",
+    "seriesFilesTitle": "シリーズのファイルを削除",
+    "seriesFilesName": "{{name}} のすべてのファイル"
+  },
+  "picker": {
+    "searchPlaceholder": "本を検索…",
+    "searchSeriesPlaceholder": "シリーズを検索…",
+    "noBooksFound": "本が見つかりません",
+    "noSeriesFound": "シリーズが見つかりません",
+    "tryDifferentSearch": "別の検索条件を試してください。",
+    "addedBadge": "追加済み",
+    "pickOne": "本を 1 冊選択",
+    "pickOneSeries": "シリーズを 1 つ選択",
+    "noneSelected": "未選択"
+  },
+  "editBooks": {
+    "selectAll": "すべて選択",
+    "clearSelection": "選択を解除",
+    "removeSelected": "選択した項目を取り除く",
+    "manualOrdering": "手動の並び順",
+    "emptyNotAllowed": "読書リストには少なくとも 1 冊の本が必要です。空にする代わりに削除してください。",
+    "selectRow": "行を選択",
+    "dragToReorder": "ドラッグして並べ替え"
+  }
+}

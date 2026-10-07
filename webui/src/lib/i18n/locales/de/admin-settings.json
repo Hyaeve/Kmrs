@@ -1,0 +1,209 @@
+{
+  "server": {
+    "title": "Server",
+    "subtitle": "kmrs {{version}}",
+    "subtitleWithCommit": "kmrs {{version}} · Commit {{commit}}"
+  },
+  "settings": {
+    "title": "Einstellungen",
+    "subtitle": "Serverweite Optionen, in der Datenbank gespeichert",
+    "loadFailed": "Einstellungen konnten nicht geladen werden."
+  },
+  "ui": {
+    "title": "UI-Einstellungen",
+    "subtitle": "Globale Anpassungen für die Web-UI aller Benutzer",
+    "loadFailed": "UI-Einstellungen konnten nicht geladen werden",
+    "errorFallback": "Etwas ist schiefgelaufen.",
+    "login": "Anmeldung",
+    "hidePassword": "E-Mail/Passwort-Anmeldeformular ausblenden",
+    "hidePasswordHelper": "Wirkt nur, wenn mindestens ein OAuth2-Anbieter konfiguriert ist. Ohne einen wird das Passwortformular immer angezeigt, damit sich niemand aussperrt.",
+    "hidePasswordHelperWithCount_one": "Wirkt nur, wenn mindestens ein OAuth2-Anbieter konfiguriert ist ({{count}} konfiguriert). Ohne einen wird das Passwortformular immer angezeigt, damit sich niemand aussperrt.",
+    "hidePasswordHelperWithCount_other": "Wirkt nur, wenn mindestens ein OAuth2-Anbieter konfiguriert ist ({{count}} konfiguriert). Ohne einen wird das Passwortformular immer angezeigt, damit sich niemand aussperrt.",
+    "noProviderWarning": "Es ist kein OAuth2-Anbieter konfiguriert, daher wird das Passwortformular auf der Anmeldeseite weiterhin angezeigt.",
+    "saveFailed": "Die Einstellung konnte nicht gespeichert werden."
+  },
+  "stats": {
+    "version": "Version",
+    "uptime": "Laufzeit",
+    "cpu": "CPU",
+    "memory": "Arbeitsspeicher",
+    "diskFree": "Freier Speicherplatz",
+    "diskTotal": "von {{total}}"
+  },
+  "sections": {
+    "content": "Inhalte",
+    "security": "Sicherheit",
+    "thumbnails": "Vorschaubilder",
+    "tasks": "Aufgaben",
+    "server": "Server",
+    "kobo": "Kobo",
+    "kepubify": "Kepubify"
+  },
+  "content": {
+    "libraries": "Bibliotheken",
+    "series": "Serien",
+    "books": "Bücher",
+    "collections": "Sammlungen",
+    "readLists": "Leselisten",
+    "sidecars": "Sidecars",
+    "totalSize": "Gesamtgröße"
+  },
+  "duration": {
+    "ms_one": "{{count}}ms",
+    "ms_other": "{{count}}ms",
+    "second_one": "{{count}}s",
+    "second_other": "{{count}}s",
+    "minute_one": "{{count}}min",
+    "minute_other": "{{count}}min",
+    "hour_one": "{{count}}h",
+    "hour_other": "{{count}}h",
+    "day_one": "{{count}}d",
+    "day_other": "{{count}}d"
+  },
+  "interval": "Alle {{duration}}",
+  "taskType": {
+    "scanLibrary": "Bibliothek scannen",
+    "findBooksToConvert": "Zu konvertierende Bücher finden",
+    "findBooksWithMissingPageHash": "Bücher mit fehlendem Seiten-Hash finden",
+    "findDuplicatePagesToDelete": "Zu löschende doppelte Seiten finden",
+    "emptyTrash": "Papierkorb leeren",
+    "analyzeBook": "Buch analysieren",
+    "generateBookThumbnail": "Buch-Vorschaubild erzeugen",
+    "refreshBookMetadata": "Buch-Metadaten aktualisieren",
+    "hashBook": "Buch hashen",
+    "hashBookPages": "Buchseiten hashen",
+    "hashBookKoreader": "KOReader-Position des Buches hashen",
+    "refreshSeriesMetadata": "Serien-Metadaten aktualisieren",
+    "aggregateSeriesMetadata": "Serien-Metadaten zusammenführen",
+    "refreshBookLocalArtwork": "Lokale Buch-Artworks aktualisieren",
+    "refreshSeriesLocalArtwork": "Lokale Serien-Artworks aktualisieren",
+    "importBook": "Buch importieren",
+    "convertBook": "Buch konvertieren",
+    "repairExtension": "Erweiterung reparieren",
+    "removeHashedPages": "Gehashte Seiten entfernen",
+    "rebuildIndex": "Index neu aufbauen",
+    "upgradeIndex": "Index aktualisieren",
+    "deleteBook": "Buch löschen",
+    "deleteSeries": "Serie löschen",
+    "findBookThumbnailsToRegenerate": "Zu erneuernde Buch-Vorschaubilder finden"
+  },
+  "taskQueue": {
+    "title": "Aufgabenwarteschlange",
+    "active": "Warteschlange aktiv",
+    "clear": "Warteschlange leeren",
+    "status_one": "{{count}} wartende Aufgabe · Aktualisierung alle 10 s",
+    "status_other": "{{count}} wartende Aufgaben · Aktualisierung alle 10 s",
+    "waiting": "Warte auf die erste Aktualisierung… · Aktualisierung alle 10 s",
+    "cleared_one": "{{count}} wartende Aufgabe entfernt.",
+    "cleared_other": "{{count}} wartende Aufgaben entfernt.",
+    "clearFailed": "Die Warteschlange konnte nicht geleert werden.",
+    "clearTitle": "Aufgabenwarteschlange leeren",
+    "clearBody": "Wartende Aufgaben, die noch kein Worker aufgegriffen hat, werden entfernt. Bereits laufende Aufgaben bleiben unberührt."
+  },
+  "taskExecution": {
+    "title": "Aufgabenausführung",
+    "empty": "Noch keine Aufgabenausführungen aufgezeichnet.",
+    "type": "Typ",
+    "runs": "Läufe",
+    "totalTime": "Gesamtzeit",
+    "longest": "Längster",
+    "failures_one": "{{count}} Aufgabenfehler aufgezeichnet.",
+    "failures_other": "{{count}} Aufgabenfehler aufgezeichnet."
+  },
+  "scheduled": {
+    "title": "Geplante Aufgaben",
+    "loadFailed": "Geplante Aufgaben konnten nicht geladen werden.",
+    "empty": "Keine geplanten Aufgaben."
+  },
+  "sessions": {
+    "title": "Sitzungen",
+    "loadFailed": "Sitzungen konnten nicht geladen werden.",
+    "empty": "Keine aktiven Sitzungen.",
+    "session": "Sitzung",
+    "created": "Erstellt",
+    "lastActive": "Zuletzt aktiv",
+    "status": "Status",
+    "actions": "Aktionen",
+    "expired": "Abgelaufen",
+    "active": "Aktiv",
+    "kick": "Beenden",
+    "kickHint": "Das Beenden einer Sitzung meldet das Gerät ab – der Benutzer muss sich erneut anmelden.",
+    "kickFailed": "Die Sitzung konnte nicht beendet werden.",
+    "showAll_one": "{{count}} Sitzung anzeigen",
+    "showAll_other": "Alle {{count}} Sitzungen anzeigen"
+  },
+  "danger": {
+    "title": "Gefahrenzone",
+    "logfile": "Logdatei herunterladen",
+    "logfileHelper": "Das aktuelle Server-Log als Datei abrufen.",
+    "shutdown": "Server herunterfahren",
+    "shutdownHelper": "Den Serverprozess stoppen. Er bleibt aus, bis ihn jemand wieder startet.",
+    "shutdownButton": "Herunterfahren",
+    "shutdownBody": "Der Serverprozess wird beendet. Jeder verbundene Benutzer verliert den Zugriff, bis er wieder gestartet wird.",
+    "shutdownFailed": "Der Server konnte nicht heruntergefahren werden.",
+    "shuttingDown": "Server fährt herunter",
+    "shuttingDownBody": "Die Anfrage zum Herunterfahren wurde angenommen. Diese Seite reagiert nicht mehr, sobald der Prozess endet. Starte den Server erneut, um zurückzukommen."
+  },
+  "form": {
+    "deleteEmptyCollections": "Leere Sammlungen löschen",
+    "deleteEmptyReadLists": "Leere Leselisten löschen",
+    "rememberMeDuration": "„Angemeldet bleiben“-Dauer",
+    "rememberMeDurationHelper": "Wie lange eine Anmeldung mit „Angemeldet bleiben“ gültig bleibt.",
+    "rememberMeDurationDays": "„Angemeldet bleiben“-Dauer in Tagen",
+    "days": "Tage",
+    "rememberMeKey": "„Angemeldet bleiben“-Schlüssel",
+    "rememberMeKeyHelper": "Signaturgeheimnis hinter „Angemeldet bleiben“-Anmeldungen.",
+    "thumbnailSize": "Vorschaubildgröße",
+    "thumbnailSizeHelper": "Größere Vorschaubilder sehen schärfer aus, brauchen aber mehr Speicherplatz.",
+    "taskPoolSize": "Aufgaben-Poolgröße",
+    "taskPoolSizeHelper": "Wie viele Hintergrundaufgaben gleichzeitig laufen können.",
+    "serverPort": "Server-Port",
+    "contextPath": "Kontextpfad",
+    "contextPathHelper": "Basispfad, unter dem der Server ausgeliefert wird, z. B. /kmrs.",
+    "koboProxy": "Kobo-Proxy",
+    "koboPort": "Kobo-Port",
+    "kepubifyPath": "Kepubify-Pfad",
+    "kepubifyPathHelper": "Pfad zur kepubify-Binary, verwendet für die Konvertierung von EPUB nach KEPUB.",
+    "unsaved_one": "{{count}} ungespeicherte Änderung",
+    "unsaved_other": "{{count}} ungespeicherte Änderungen",
+    "discard": "Verwerfen",
+    "fixInvalid": "Korrigiere die ungültigen Felder oben, um zu speichern.",
+    "saveFailed": "Einstellungen konnten nicht gespeichert werden."
+  },
+  "thumbnail": {
+    "default": "Standard",
+    "medium": "Mittel",
+    "large": "Groß",
+    "xlarge": "XL"
+  },
+  "multiSource": {
+    "notSet": "Nicht gesetzt",
+    "overridden": "In der Datenbank überschrieben",
+    "fromConfig": "Aus der Konfiguration",
+    "default": "Standard",
+    "clearOverride": "Überschreibung aufheben",
+    "clearOverrideTooltip": "Die Datenbank-Überschreibung aufheben",
+    "effective": "Effektiv: {{value}}",
+    "none": "keiner"
+  },
+  "rotateKey": {
+    "button": "„Angemeldet bleiben“-Schlüssel rotieren",
+    "confirm": "Schlüssel rotieren",
+    "done": "Schlüssel rotiert – alle „Angemeldet bleiben“-Anmeldungen wurden abgemeldet.",
+    "body": "Jeder Benutzer, der „Angemeldet bleiben“ gewählt hat, wird abgemeldet und muss sich auf allen Geräten erneut anmelden.",
+    "failed": "Der Schlüssel konnte nicht rotiert werden."
+  },
+  "regenerate": {
+    "title": "Vorschaubilder neu generieren",
+    "body": "Die Größe der Vorschaubilder wurde geändert. Bücher behalten ihre aktuellen Vorschaubilder, bis sie neu generiert werden – dafür wird eine Hintergrundaufgabe eingereiht, die in der Aufgabenwarteschlange sichtbar ist.",
+    "biggerOnly": "Nur kleinere",
+    "all": "Alle Bücher",
+    "skip": "Nicht jetzt",
+    "failed": "Die Aufgabe konnte nicht eingereiht werden."
+  },
+  "validation": {
+    "positiveDays": "Muss eine positive ganze Anzahl von Tagen sein.",
+    "positiveInt": "Muss eine positive ganze Zahl sein.",
+    "contextPath": "Muss mit / beginnen und mit einem Buchstaben oder einer Ziffer enden, z. B. /kmrs."
+  }
+}

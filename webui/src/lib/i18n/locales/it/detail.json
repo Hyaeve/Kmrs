@@ -1,0 +1,149 @@
+{
+  "read": "Leggi",
+  "peek": "Sbircia",
+  "peekTooltip": "Leggi senza salvare i progressi",
+  "continue": "Continua",
+  "continueWithPage": "Continua · pagina {{page}}",
+  "markAsRead": "Segna come letto",
+  "markAsUnread": "Segna come da leggere",
+  "moreActions": "Altre azioni",
+  "addToReadList": "Aggiungi a lista di lettura",
+  "addToCollection": "Aggiungi a raccolta",
+  "addSeries": "Aggiungi serie",
+  "addBooks": "Aggiungi libri",
+  "removeFromCollection": "Rimuovi da {{name}}",
+  "removeFromReadList": "Rimuovi da {{name}}",
+  "rename": "Rinomina",
+  "nameLabel": "Nome",
+  "summaryLabel": "Trama",
+  "previous": "Precedente",
+  "next": "Successivo",
+  "inCollections": "In raccolte",
+  "inReadLists": "In liste di lettura",
+  "booksHeading": "Libri",
+  "bookCount_one": "{{count}} libro",
+  "bookCount_many": "{{count}} libri",
+  "bookCount_other": "{{count}} libri",
+  "seriesCount": "{{count}} serie",
+  "selectedCount": "{{count}} selezionati",
+  "menu": {
+    "editMetadata": "Modifica metadati",
+    "editBookMetadata": "Modifica metadati libro",
+    "managePosters": "Gestisci poster",
+    "analyze": "Analizza",
+    "refreshMetadata": "Aggiorna metadati",
+    "identifyKomf": "Identifica con komf",
+    "matchKomf": "Abbina con komf",
+    "resetKomf": "Reimposta metadati con komf",
+    "deleteFile": "Elimina file",
+    "previousBook": "Libro precedente",
+    "nextBook": "Libro successivo",
+    "editDetails": "Modifica dettagli"
+  },
+  "toast": {
+    "analysisQueued": "Analisi in coda",
+    "queueAnalysisFailed": "Impossibile mettere in coda l'analisi",
+    "refreshQueued": "Aggiornamento metadati in coda",
+    "queueRefreshFailed": "Impossibile mettere in coda l'aggiornamento",
+    "identifyQueued": "Identificazione in coda",
+    "metadataReset": "Metadati reimpostati",
+    "resetMetadataFailed": "Impossibile reimpostare i metadati",
+    "queueMatchFailed": "Impossibile mettere in coda l'abbinamento",
+    "deleteFileFailed": "Impossibile eliminare il file",
+    "deleteFilesFailed": "Impossibile eliminare i file",
+    "removedFromCollection": "Rimosso da {{name}}",
+    "removedFromReadList": "Rimosso da {{name}}",
+    "collectionDeleted": "Raccolta eliminata",
+    "readListDeleted": "Lista di lettura eliminata",
+    "removeFromCollectionFailed": "Impossibile rimuovere dalla raccolta",
+    "removeFromReadListFailed": "Impossibile rimuovere dalla lista di lettura"
+  },
+  "notFound": {
+    "book": "Libro non trovato",
+    "series": "Serie non trovata",
+    "collection": "Raccolta non trovata",
+    "readList": "Lista di lettura non trovata"
+  },
+  "field": {
+    "pages": "Pagine",
+    "size": "Dimensione",
+    "format": "Formato",
+    "profile": "Profilo",
+    "releaseDate": "Data di uscita",
+    "file": "File",
+    "added": "Aggiunto"
+  },
+  "progress": {
+    "completed": "Completato",
+    "pageOf": "Pagina {{page}} di {{total}}"
+  },
+  "stats": {
+    "books_one": "<num>{{count}}</num> libro",
+    "books_many": "<num>{{count}}</num> libri",
+    "books_other": "<num>{{count}}</num> libri",
+    "read": "<num>{{count}}</num> letti",
+    "unread": "<num>{{count}}</num> da leggere"
+  },
+  "empty": {
+    "loadBooksFailed": "Impossibile caricare i libri",
+    "loadSeriesFailed": "Impossibile caricare le serie",
+    "noBooks": "Nessun libro",
+    "noBooksFiltered": "Nessun libro corrisponde ai filtri.",
+    "seriesEmpty": "Questa serie non ha libri.",
+    "noSeries": "Nessuna serie",
+    "noSeriesFiltered": "Nessuna serie corrisponde ai filtri.",
+    "collectionEmpty": "Questa raccolta è vuota.",
+    "readListEmpty": "Questa lista di lettura è vuota.",
+    "noBook": "Nessun libro",
+    "oneshotNoBook": "Questo oneshot non ha ancora un libro."
+  },
+  "confirmDelete": {
+    "body": "Eliminare <name>{{name}}</name>? L'operazione è irreversibile."
+  },
+  "error": {
+    "title": "Qualcosa è andato storto",
+    "unknown": "Errore sconosciuto",
+    "notFoundBody": "Potrebbe essere stato eliminato, oppure non hai accesso."
+  },
+  "addToReadListDialog": {
+    "empty": "Ancora nessuna lista di lettura"
+  },
+  "collection": {
+    "renameTitle": "Rinomina raccolta",
+    "deleteTitle": "Elimina raccolta",
+    "editMembersEmpty": "Una raccolta richiede almeno una serie. Eliminala invece di svuotarla.",
+    "selectedSeriesCount_one": "{{count}} selezionata",
+    "selectedSeriesCount_many": "{{count}} selezionate",
+    "selectedSeriesCount_other": "{{count}} selezionate"
+  },
+  "readList": {
+    "editTitle": "Modifica lista di lettura",
+    "deleteTitle": "Elimina lista di lettura"
+  },
+  "deleteDialog": {
+    "bookFileTitle": "Elimina file del libro",
+    "bookFileName": "il file di {{name}}",
+    "seriesFilesTitle": "Elimina file della serie",
+    "seriesFilesName": "tutti i file di {{name}}"
+  },
+  "picker": {
+    "searchPlaceholder": "Cerca libri…",
+    "searchSeriesPlaceholder": "Cerca serie…",
+    "noBooksFound": "Nessun libro trovato",
+    "noSeriesFound": "Nessuna serie trovata",
+    "tryDifferentSearch": "Prova una ricerca diversa.",
+    "addedBadge": "Aggiunto",
+    "pickOne": "Scegli un libro",
+    "pickOneSeries": "Scegli una serie",
+    "noneSelected": "Nessuna selezione"
+  },
+  "editBooks": {
+    "selectAll": "Seleziona tutto",
+    "clearSelection": "Deseleziona",
+    "removeSelected": "Rimuovi selezionati",
+    "manualOrdering": "Ordinamento manuale",
+    "emptyNotAllowed": "Una lista di lettura richiede almeno un libro. Eliminala invece di svuotarla.",
+    "selectRow": "Seleziona riga",
+    "dragToReorder": "Trascina per riordinare"
+  }
+}

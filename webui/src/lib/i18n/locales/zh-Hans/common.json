@@ -1,0 +1,68 @@
+{
+  "action": {
+    "save": "保存",
+    "cancel": "取消",
+    "delete": "删除",
+    "edit": "编辑",
+    "close": "关闭",
+    "back": "返回",
+    "add": "添加",
+    "remove": "移除",
+    "create": "创建",
+    "done": "完成",
+    "confirm": "确认",
+    "search": "搜索",
+    "retry": "重试",
+    "dismiss": "忽略",
+    "download": "下载",
+    "showMore": "展开",
+    "showLess": "收起"
+  },
+  "state": {
+    "loading": "加载中…",
+    "unavailable": "不可用",
+    "unknown": "未知"
+  },
+  "time": {
+    "justNow": "刚刚"
+  },
+  "readingDirection": {
+    "leftToRight": "从左到右",
+    "rightToLeft": "从右到左",
+    "vertical": "纵向",
+    "webtoon": "条漫"
+  },
+  "seriesStatus": {
+    "ongoing": "连载中",
+    "ended": "已完结",
+    "abandoned": "已放弃",
+    "hiatus": "暂停连载"
+  },
+  "cardStatus": {
+    "unavailable": "不可用",
+    "error": "错误",
+    "unsupported": "不支持",
+    "toBeAnalyzed": "待分析"
+  },
+  "mediaIssue": {
+    "unavailable": "不可用",
+    "error": "媒体分析失败",
+    "unsupported": "不支持此媒体类型",
+    "outdated": "此书的文件已变更，需要重新分析",
+    "unknown": "此书尚未分析"
+  },
+  "notFound": {
+    "title": "页面不存在",
+    "body": "您要找的页面不存在或已被移动。",
+    "back": "返回首页"
+  },
+  "oneshot": "单篇",
+  "komf": {
+    "jobsSummary_other": "{{count}} 个匹配",
+    "moreFailed_other": "另有 {{count}} 个失败",
+    "matching": "匹配中…",
+    "matchCompleted": "匹配完成",
+    "postProcessing": "后处理中…",
+    "seriesFallback": "系列匹配"
+  }
+}

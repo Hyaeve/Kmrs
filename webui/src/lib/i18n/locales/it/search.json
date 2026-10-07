@@ -1,0 +1,27 @@
+{
+  "title": "Cerca",
+  "titleWithQuery": "Cerca: {{q}}",
+  "scope": {
+    "all": "Tutte le librerie",
+    "pinned": "Librerie fissate",
+    "library": "Libreria",
+    "ariaLabel": "Ambito di ricerca: {{label}}"
+  },
+  "tabs": {
+    "all": "Tutto",
+    "series": "Serie",
+    "books": "Libri",
+    "collections": "Raccolte",
+    "readlists": "Liste di lettura"
+  },
+  "placeholderTop": "Cerca serie, libri, autori…",
+  "placeholderPage": "Cerca serie, libri, raccolte, liste di lettura…",
+  "clear": "Cancella ricerca",
+  "emptyTitle": "Cerca nella tua libreria",
+  "emptyBody": "Trova serie, libri, raccolte e liste di lettura. Funzionano anche query sui campi come title:berserk AND tag:seinen.",
+  "viewAll": "Mostra tutto",
+  "noResultsTitle": "Nessun risultato per «{{q}}»",
+  "noResultsBody": "Prova parole chiave diverse, o cerca in una singola categoria.",
+  "failedTitle": "Ricerca non riuscita",
+  "failedBody": "Qualcosa è andato storto."
+}

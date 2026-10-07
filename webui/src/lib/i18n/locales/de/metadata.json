@@ -1,0 +1,157 @@
+{
+  "field": {
+    "title": "Titel",
+    "sortTitle": "Sortiertitel",
+    "number": "Nummer",
+    "sortNumber": "Sortiernummer",
+    "releaseDate": "Erscheinungsdatum",
+    "isbn": "ISBN",
+    "summary": "Zusammenfassung",
+    "authors": "Autoren",
+    "name": "Name",
+    "role": "Rolle",
+    "tags": "Tags",
+    "genres": "Genres",
+    "webLinks": "Weblinks",
+    "label": "Label",
+    "url": "URL",
+    "status": "Status",
+    "readingDirection": "Leserichtung",
+    "publisher": "Verlag",
+    "language": "Sprache",
+    "ageRating": "Altersfreigabe",
+    "totalBookCount": "Gesamtbuchanzahl",
+    "alternateTitles": "Alternative Titel",
+    "sharingLabels": "Freigabe-Labels",
+    "notSet": "Nicht gesetzt"
+  },
+  "tabs": {
+    "general": "Allgemein",
+    "titles": "Titel",
+    "authors": "Autoren",
+    "tags": "Tags",
+    "links": "Links",
+    "sharing": "Freigabe",
+    "sharedFields": "Gemeinsame Felder",
+    "perBook": "Pro Buch"
+  },
+  "action": {
+    "saveChanges": "Änderungen speichern"
+  },
+  "saveFailed": "Die Metadaten konnten nicht gespeichert werden.",
+  "validation": {
+    "notBlank": "Darf nicht leer sein",
+    "url": "Muss eine gültige URL sein",
+    "number": "Muss eine Zahl sein",
+    "isbn": "Muss leer oder eine gültige ISBN-13 sein",
+    "wholeNumberMinZero": "Muss eine ganze Zahl von 0 oder mehr sein",
+    "wholeNumberPositive": "Muss eine ganze Zahl größer als 0 sein",
+    "bcp47": "Muss ein gültiges BCP-47-Sprachtag sein"
+  },
+  "lockToggle": {
+    "lock": "{{label}} sperren",
+    "unlock": "{{label}} entsperren"
+  },
+  "batch": {
+    "change": "{{label}} ändern"
+  },
+  "pairs": {
+    "removeRow": "Zeile entfernen"
+  },
+  "placeholder": {
+    "authorName": "Kentaro Miura",
+    "authorRole": "Autor",
+    "linkLabel": "Wiki",
+    "addTag": "Tag hinzufügen…",
+    "addGenre": "Genre hinzufügen…",
+    "addLabel": "Label hinzufügen…"
+  },
+  "add": {
+    "author": "Autor hinzufügen",
+    "link": "Link hinzufügen",
+    "title": "Titel hinzufügen"
+  },
+  "editBooks": {
+    "dialogTitle_single": "Buch-Metadaten bearbeiten",
+    "dialogTitle_batch_one": "Metadaten von {{count}} Buch bearbeiten",
+    "dialogTitle_batch_other": "Metadaten von {{count}} Büchern bearbeiten",
+    "loadError": "Das Buch konnte nicht geladen werden",
+    "loadManyError": "Die Bücher konnten nicht geladen werden",
+    "sortNumberHelper": "Du kannst Dezimalzahlen verwenden",
+    "isbnHelper": "ISBN-13, leer zum Entfernen",
+    "batchHint": "Eingeschaltete Felder werden auf alle {{count}} Bücher angewendet und standardmäßig gesperrt.",
+    "perBookHint": "Nur Felder, die du anfasst, werden gesendet; Bearbeiten sperrt das Feld. Werte pro Buch überschreiben gemeinsame Felder.",
+    "lockAll": "Alle {{label}} sperren",
+    "unlockAll": "Alle {{label}} entsperren",
+    "copySortToNumber": "Sortiernummer in Nummer kopieren",
+    "decrementAll": "Alle um 1 verringern",
+    "incrementAll": "Alle um 1 erhöhen",
+    "hint": {
+      "summaryEmpty": "Leer löscht die Zusammenfassung.",
+      "releaseDateEmpty": "Leer löscht das Datum.",
+      "isbnEmpty": "ISBN-13, leer zum Entfernen.",
+      "authorsReplace": "Ersetzt alle Autoren; eine leere Liste löscht sie.",
+      "tagsReplace": "Ersetzt alle Tags; eine leere Liste löscht sie.",
+      "linksReplace": "Ersetzt alle Links; eine leere Liste löscht sie."
+    }
+  },
+  "editSeries": {
+    "dialogTitle_single": "Serien-Metadaten bearbeiten",
+    "dialogTitle_batch_one": "Metadaten von {{count}} Serie bearbeiten",
+    "dialogTitle_batch_other": "Metadaten von {{count}} Serien bearbeiten",
+    "loadError": "Die Serie konnte nicht geladen werden",
+    "languageHelper": "BCP-47-Tag, leer zum Entfernen",
+    "batchHint": "Eingeschaltete Felder werden auf alle {{count}} Serien angewendet und standardmäßig gesperrt.",
+    "hint": {
+      "directionNotSet": "„Nicht gesetzt“ löscht die Richtung.",
+      "languageEmpty": "BCP-47-Tag, leer zum Entfernen.",
+      "ageRatingEmpty": "Leer löscht die Altersfreigabe.",
+      "genresReplace": "Ersetzt alle Genres; eine leere Liste löscht sie.",
+      "tagsReplace": "Ersetzt alle Tags; eine leere Liste löscht sie.",
+      "sharingLabelsReplace": "Ersetzt alle Freigabe-Labels; eine leere Liste löscht sie."
+    }
+  },
+  "identify": {
+    "searchPlaceholder": "komf-Anbieter durchsuchen…",
+    "providerLinks": "Anbieter-Links",
+    "aggregateAll": "Alle Anbieter zusammenführen",
+    "aggregateHint_one": "Metadaten aus dem Anbieter-Link zusammenführen",
+    "aggregateHint_other": "Metadaten aus allen {{count}} Anbieter-Links zusammenführen",
+    "typeToSearch": "Gib einen Titel ein, um komf zu durchsuchen",
+    "searchFailed": "komf konnte nicht durchsucht werden",
+    "noResults": "Keine Ergebnisse",
+    "noResultsHint": "Versuche einen anderen Titel.",
+    "queueFailed": "Die Identifizierung konnte nicht eingereiht werden",
+    "matchFailed": "Abgleich fehlgeschlagen"
+  },
+  "reset": {
+    "body": "<name>{{name}}</name> zurücksetzen? komf entfernt die von ihm geschriebenen Metadaten, einschließlich Feldsperren und hochgeladener Cover.",
+    "libraryBody": "<name>{{name}}</name> zurücksetzen? komf entfernt die Metadaten, die es für jede Serie in dieser Bibliothek geschrieben hat, einschließlich Feldsperren und hochgeladener Cover.",
+    "confirm": "Zurücksetzen"
+  },
+  "poster": {
+    "kind": {
+      "series": "Serie",
+      "book": "Buch",
+      "collection": "Sammlung",
+      "readlist": "Leseliste",
+      "smartlist": "Smarte Liste"
+    },
+    "type": {
+      "generated": "Generiert",
+      "sidecar": "Sidecar",
+      "uploaded": "Hochgeladen"
+    },
+    "alt": "Poster: {{type}}",
+    "upload": "Poster hochladen",
+    "loadFailed": "Poster konnten nicht geladen werden",
+    "empty": "Noch keine Poster",
+    "emptyHint": "Lade ein Bild hoch, um es als Poster zu verwenden.",
+    "selected": "Ausgewähltes Poster",
+    "setSelected": "Als ausgewähltes Poster festlegen",
+    "selectedBadge": "Ausgewählt",
+    "delete": "Poster löschen",
+    "refreshing": "Aktualisieren…",
+    "operationFailed": "Die Poster-Aktion ist fehlgeschlagen."
+  }
+}

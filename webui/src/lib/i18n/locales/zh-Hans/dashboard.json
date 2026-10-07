@@ -1,0 +1,39 @@
+{
+  "title": "首页",
+  "scope": {
+    "all": "全部"
+  },
+  "sections": {
+    "keepReading": "继续阅读",
+    "onDeck": "待阅读",
+    "recentlyReleasedBooks": "最新出版",
+    "recentlyAddedBooks": "最近添加的书籍",
+    "recentlyAddedSeries": "最近添加的系列",
+    "recentlyUpdatedSeries": "最近更新的系列",
+    "recentlyRead": "最近阅读"
+  },
+  "customizeSections": "自定义板块",
+  "allHidden": {
+    "title": "所有板块均已隐藏",
+    "body": "此视图的首页板块均已隐藏。"
+  },
+  "empty": {
+    "title": "这里还什么都没有",
+    "body": "服务器有了内容之后，书籍和系列就会出现在这里。"
+  },
+  "pinnedEmpty": {
+    "title": "还没有固定的库",
+    "body": "「全部」首页只显示您固定的库中的内容。固定一些库来打造您的首页，或重置以重新显示所有库。",
+    "action": "选择库"
+  },
+  "rowError": "无法加载此板块。",
+  "loadError": "加载失败",
+  "bookCount_other": "{{count}} 本书",
+  "seriesCount_other": "{{count}} 个系列",
+  "sectionsDialog": {
+    "bodyAll": "仅应用于「全部」首页视图。拖拽可调整顺序，也可以隐藏不用的板块。",
+    "bodyLibrary": "仅应用于此库视图。拖拽可调整顺序，也可以隐藏不用的板块。",
+    "reorder": "拖拽排序 {{title}}",
+    "reset": "恢复默认"
+  }
+}

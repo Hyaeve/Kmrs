@@ -1,0 +1,90 @@
+{
+  "books": {
+    "title": "导入书籍",
+    "subtitle": "将书库之外的文件导入到已有系列",
+    "folderLabel": "服务器上的文件夹",
+    "browse": "浏览",
+    "scan": "扫描",
+    "queued_other": "已排队导入 {{count}} 本书",
+    "queuedBody": "导入将作为后台任务运行，可在<link>服务器页面</link>查看进度。",
+    "importMore": "继续导入文件",
+    "emptyTitle": "没有可导入的文件",
+    "emptyBody": "该文件夹中没有书籍文件。",
+    "copyMode": {
+      "move": "移动",
+      "copy": "复制",
+      "hardlink": "硬链接"
+    },
+    "selectedCount_other": "已选 {{checked}} / {{count}} 个文件",
+    "importSelected": "导入所选",
+    "missingSeries_other": "请为每个勾选的文件选择系列（还有 {{count}} 行未选择）。",
+    "selectAll": "全选",
+    "importFile": "导入 {{fileName}}",
+    "table": {
+      "sourceFile": "源文件",
+      "series": "系列",
+      "number": "编号",
+      "destinationName": "目标文件名",
+      "analyze": "分析"
+    },
+    "status": {
+      "analyzed": "已分析",
+      "notAnalyzed": "未分析"
+    },
+    "selectedSeries": "已选择系列",
+    "change": "更改",
+    "selectSeries": "选择系列…",
+    "analyze": "分析",
+    "pickerTitle": "选择系列",
+    "pickerConfirm": "使用此系列"
+  },
+  "readlist": {
+    "title": "导入阅读列表",
+    "subtitle": "从 ComicRack .cbl 文件创建阅读列表",
+    "chooseFile": "选择文件",
+    "noFileChosen": "未选择文件",
+    "match": "与书库匹配",
+    "nameLabel": "阅读列表名称",
+    "nameConflict": "已存在同名阅读列表",
+    "summary": {
+      "matched": "{{count}} 已匹配",
+      "multiple": "{{count}} 多候选",
+      "noMatch": "{{count}} 无匹配"
+    },
+    "startOver": "重新开始",
+    "create_other": "创建阅读列表（{{count}} 本书）",
+    "skippedNote": "没有匹配到书籍的条目将被跳过。",
+    "filter": {
+      "all": "全部（{{count}}）",
+      "matched": "已匹配（{{count}}）",
+      "multiple": "多候选（{{count}}）",
+      "noMatch": "无匹配（{{count}}）"
+    },
+    "emptyTitle": "空空如也",
+    "emptyBody": "没有此状态的条目。",
+    "table": {
+      "requested": "请求",
+      "matchedBook": "匹配的书籍",
+      "status": "状态",
+      "action": "操作"
+    },
+    "unknownSeries": "未知系列",
+    "manual": "手动",
+    "chooseBook": "选择书籍…",
+    "noLibraryMatch": "书库中无匹配",
+    "status": {
+      "matched": "已匹配",
+      "ambiguous": "多候选",
+      "unmatched": "无匹配"
+    },
+    "change": "更改",
+    "pickBook": "选择书籍",
+    "pageInfo": "第 {{page}} / {{pages}} 页",
+    "previous": "上一页",
+    "next": "下一页",
+    "pickerTitle": "为 {{series}} #{{number}} 选择书籍",
+    "pickerEntry": "该条目",
+    "pickerTitleDefault": "选择书籍",
+    "pickerConfirm": "使用此书"
+  }
+}

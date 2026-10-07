@@ -1,0 +1,90 @@
+{
+  "books": {
+    "title": "책 가져오기",
+    "subtitle": "라이브러리 밖의 파일을 기존 시리즈로 가져옵니다",
+    "folderLabel": "서버의 폴더",
+    "browse": "찾아보기",
+    "scan": "스캔",
+    "queued_other": "책 {{count}}권의 가져오기를 큐에 추가함",
+    "queuedBody": "가져오기는 백그라운드 작업으로 실행됩니다. <link>서버 페이지</link>에서 진행 상황을 확인하세요.",
+    "importMore": "더 많은 파일 가져오기",
+    "emptyTitle": "가져올 수 있는 파일 없음",
+    "emptyBody": "폴더에 책 파일이 없습니다.",
+    "copyMode": {
+      "move": "이동",
+      "copy": "복사",
+      "hardlink": "하드링크"
+    },
+    "selectedCount_other": "파일 {{count}}개 중 {{checked}}개 선택됨",
+    "importSelected": "선택 항목 가져오기",
+    "missingSeries_other": "선택한 모든 파일의 시리즈를 지정하세요({{count}}개 행 누락).",
+    "selectAll": "모두 선택",
+    "importFile": "{{fileName}} 가져오기",
+    "table": {
+      "sourceFile": "원본 파일",
+      "series": "시리즈",
+      "number": "번호",
+      "destinationName": "대상 이름",
+      "analyze": "분석"
+    },
+    "status": {
+      "analyzed": "분석됨",
+      "notAnalyzed": "분석되지 않음"
+    },
+    "selectedSeries": "선택된 시리즈",
+    "change": "변경",
+    "selectSeries": "시리즈 선택…",
+    "analyze": "분석",
+    "pickerTitle": "시리즈 선택",
+    "pickerConfirm": "이 시리즈 사용"
+  },
+  "readlist": {
+    "title": "읽기 목록 가져오기",
+    "subtitle": "ComicRack .cbl 파일에서 읽기 목록 만들기",
+    "chooseFile": "파일 선택",
+    "noFileChosen": "선택된 파일 없음",
+    "match": "라이브러리와 매칭",
+    "nameLabel": "읽기 목록 이름",
+    "nameConflict": "이 이름의 읽기 목록이 이미 있습니다",
+    "summary": {
+      "matched": "일치 {{count}}개",
+      "multiple": "복수 일치 {{count}}개",
+      "noMatch": "일치 없음 {{count}}개"
+    },
+    "startOver": "처음부터",
+    "create_other": "읽기 목록 만들기(책 {{count}}권)",
+    "skippedNote": "매칭된 책이 없는 항목은 건너뜁니다.",
+    "filter": {
+      "all": "전체({{count}})",
+      "matched": "일치({{count}})",
+      "multiple": "복수({{count}})",
+      "noMatch": "일치 없음({{count}})"
+    },
+    "emptyTitle": "아무것도 없음",
+    "emptyBody": "이 상태의 항목이 없습니다.",
+    "table": {
+      "requested": "요청됨",
+      "matchedBook": "매칭된 책",
+      "status": "상태",
+      "action": "작업"
+    },
+    "unknownSeries": "알 수 없는 시리즈",
+    "manual": "수동",
+    "chooseBook": "책 선택…",
+    "noLibraryMatch": "라이브러리에 일치하는 항목 없음",
+    "status": {
+      "matched": "일치",
+      "ambiguous": "복수",
+      "unmatched": "일치 없음"
+    },
+    "change": "변경",
+    "pickBook": "책 선택",
+    "pageInfo": "{{page}} / {{pages}} 페이지",
+    "previous": "이전",
+    "next": "다음",
+    "pickerTitle": "{{series}} #{{number}}의 책 선택",
+    "pickerEntry": "항목",
+    "pickerTitleDefault": "책 선택",
+    "pickerConfirm": "이 책 사용"
+  }
+}

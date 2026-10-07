@@ -1,0 +1,102 @@
+{
+  "language": {
+    "title": "Sprache",
+    "label": "Oberflächensprache"
+  },
+  "profile": {
+    "title": "Profil",
+    "email": "E-Mail",
+    "roles": "Rollen",
+    "libraries": "Bibliotheken",
+    "allLibraries": "Alle Bibliotheken",
+    "sharedLibraries_one": "{{count}} Bibliothek",
+    "sharedLibraries_other": "{{count}} Bibliotheken",
+    "role": {
+      "admin": "Admin",
+      "user": "Benutzer",
+      "fileDownload": "Datei-Download",
+      "pageStreaming": "Seiten-Streaming",
+      "koboSync": "Kobo-Sync",
+      "koreaderSync": "KOReader-Sync"
+    }
+  },
+  "security": {
+    "title": "Sicherheit",
+    "subtitle": "Passwort und Anmeldeaktivität",
+    "password": {
+      "title": "Passwort ändern",
+      "new": "Neues Passwort",
+      "confirm": "Passwort bestätigen",
+      "staySignedIn": "Du bleibst auf diesem Gerät angemeldet.",
+      "mismatch": "Die Passwörter stimmen nicht überein.",
+      "updated": "Passwort aktualisiert. Andere Sitzungen wurden abgemeldet.",
+      "failed": "Das Passwort konnte nicht aktualisiert werden.",
+      "submit": "Passwort aktualisieren"
+    },
+    "activity": {
+      "title": "Anmeldeaktivität",
+      "failed": "Die Anmeldeaktivität konnte nicht geladen werden.",
+      "empty": "Noch keine Anmeldeaktivität.",
+      "when": "Zeitpunkt",
+      "ip": "IP",
+      "source": "Quelle",
+      "status": "Status",
+      "agent": "Agent",
+      "success": "Erfolgreich",
+      "statusFailed": "Fehlgeschlagen",
+      "page": "Seite {{current}} von {{total}}",
+      "previous": "Zurück",
+      "next": "Weiter"
+    }
+  },
+  "apiKeys": {
+    "title": "API-Schlüssel",
+    "subtitle": "Schlüssel für Drittanbieter-Clients und Sync",
+    "failed": "API-Schlüssel konnten nicht geladen werden.",
+    "empty": "Noch keine API-Schlüssel.",
+    "resyncHint": "Ein erneuter Sync zwingt KOReader- und Kobo-Geräte, alles erneut abzurufen.",
+    "resyncAll": "Alle Geräte erneut synchronisieren",
+    "untitled": "Ohne Titel",
+    "createdOnly": "Erstellt am {{date}}",
+    "createdAndUsed": "Erstellt am {{date}} · Zuletzt verwendet {{time}}",
+    "resyncKey": "Erneuten Sync für {{name}} erzwingen",
+    "delete": "API-Schlüssel löschen",
+    "deleteFailed": "Der API-Schlüssel konnte nicht gelöscht werden.",
+    "resyncDone": "Erneuter Sync für {{name}} angefordert.",
+    "allDevices": "alle Geräte",
+    "new": "Neuer API-Schlüssel",
+    "commentPlaceholder": "Kommentar, z. B. KOReader auf Boox",
+    "createFailed": "Der API-Schlüssel konnte nicht erstellt werden.",
+    "createdTitle": "API-Schlüssel erstellt",
+    "shownOnce": "Dieser Schlüssel wird nur einmal angezeigt.",
+    "copy": "Kopieren",
+    "copied": "Kopiert",
+    "resyncTitle": "Sync erzwingen",
+    "resyncKeyBody": "Den Sync-Punkt für <name>{{name}}</name> zurücksetzen? Das nächste KOReader- oder Kobo-Gerät mit diesem Schlüssel lädt seinen gesamten Fortschritt erneut herunter.",
+    "resyncAllBody": "Die Sync-Punkte aller API-Schlüssel zurücksetzen? Alle deine KOReader- und Kobo-Geräte laden beim nächsten Sync ihren gesamten Fortschritt erneut herunter.",
+    "resyncFailed": "Der erneute Sync konnte nicht angefordert werden."
+  },
+  "reader": {
+    "title": "Reader",
+    "subtitle": "Standards für den Comic-Reader",
+    "defaultsTitle": "Reader-Standards",
+    "direction": "Leserichtung",
+    "scale": "Skalierung",
+    "scaleScreen": "An Bildschirm anpassen",
+    "scaleWidth": "An Breite anpassen",
+    "scaleShrinkWidth": "Auf Breite verkleinern",
+    "scaleHeight": "An Höhe anpassen",
+    "scaleOriginal": "Original",
+    "pageLayout": "Seitenlayout",
+    "layoutSingle": "Einzelseite",
+    "layoutDouble": "Doppelseite",
+    "layoutDoubleNoCover": "Doppelseite ohne Cover",
+    "background": "Hintergrund",
+    "backgroundLabel": "Hintergrund {{color}}",
+    "backgrounds": {
+      "black": "Schwarz",
+      "gray": "Grau",
+      "white": "Weiß"
+    }
+  }
+}

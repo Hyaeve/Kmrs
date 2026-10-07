@@ -1,0 +1,209 @@
+{
+  "server": {
+    "title": "Server",
+    "subtitle": "kmrs {{version}}",
+    "subtitleWithCommit": "kmrs {{version}} · commit {{commit}}"
+  },
+  "settings": {
+    "title": "Settings",
+    "subtitle": "Server-wide options, stored in the database",
+    "loadFailed": "Could not load settings."
+  },
+  "ui": {
+    "title": "UI settings",
+    "subtitle": "Global tweaks applied to every user's web UI",
+    "loadFailed": "Couldn't load UI settings",
+    "errorFallback": "Something went wrong.",
+    "login": "Login",
+    "hidePassword": "Hide email/password login form",
+    "hidePasswordHelper": "Only takes effect when at least one OAuth2 provider is configured. Without one, the password form always shows so nobody gets locked out.",
+    "hidePasswordHelperWithCount_one": "Only takes effect when at least one OAuth2 provider is configured ({{count}} configured). Without one, the password form always shows so nobody gets locked out.",
+    "hidePasswordHelperWithCount_other": "Only takes effect when at least one OAuth2 provider is configured ({{count}} configured). Without one, the password form always shows so nobody gets locked out.",
+    "noProviderWarning": "No OAuth2 provider is configured, so the password form still shows on the login page.",
+    "saveFailed": "Could not save the setting."
+  },
+  "stats": {
+    "version": "Version",
+    "uptime": "Uptime",
+    "cpu": "CPU",
+    "memory": "Memory",
+    "diskFree": "Disk free",
+    "diskTotal": "of {{total}}"
+  },
+  "sections": {
+    "content": "Content",
+    "security": "Security",
+    "thumbnails": "Thumbnails",
+    "tasks": "Tasks",
+    "server": "Server",
+    "kobo": "Kobo",
+    "kepubify": "Kepubify"
+  },
+  "content": {
+    "libraries": "Libraries",
+    "series": "Series",
+    "books": "Books",
+    "collections": "Collections",
+    "readLists": "Read lists",
+    "sidecars": "Sidecars",
+    "totalSize": "Total size"
+  },
+  "duration": {
+    "ms_one": "{{count}}ms",
+    "ms_other": "{{count}}ms",
+    "second_one": "{{count}}s",
+    "second_other": "{{count}}s",
+    "minute_one": "{{count}}m",
+    "minute_other": "{{count}}m",
+    "hour_one": "{{count}}h",
+    "hour_other": "{{count}}h",
+    "day_one": "{{count}}d",
+    "day_other": "{{count}}d"
+  },
+  "interval": "Every {{duration}}",
+  "taskType": {
+    "scanLibrary": "Scan library",
+    "findBooksToConvert": "Find books to convert",
+    "findBooksWithMissingPageHash": "Find books with missing page hash",
+    "findDuplicatePagesToDelete": "Find duplicate pages to delete",
+    "emptyTrash": "Empty trash",
+    "analyzeBook": "Analyze book",
+    "generateBookThumbnail": "Generate book thumbnail",
+    "refreshBookMetadata": "Refresh book metadata",
+    "hashBook": "Hash book",
+    "hashBookPages": "Hash book pages",
+    "hashBookKoreader": "Hash book koreader",
+    "refreshSeriesMetadata": "Refresh series metadata",
+    "aggregateSeriesMetadata": "Aggregate series metadata",
+    "refreshBookLocalArtwork": "Refresh book local artwork",
+    "refreshSeriesLocalArtwork": "Refresh series local artwork",
+    "importBook": "Import book",
+    "convertBook": "Convert book",
+    "repairExtension": "Repair extension",
+    "removeHashedPages": "Remove hashed pages",
+    "rebuildIndex": "Rebuild index",
+    "upgradeIndex": "Upgrade index",
+    "deleteBook": "Delete book",
+    "deleteSeries": "Delete series",
+    "findBookThumbnailsToRegenerate": "Find book thumbnails to regenerate"
+  },
+  "taskQueue": {
+    "title": "Task queue",
+    "active": "Queue active",
+    "clear": "Clear queue",
+    "status_one": "{{count}} queued task · Updates every 10s",
+    "status_other": "{{count}} queued tasks · Updates every 10s",
+    "waiting": "Waiting for the first update… · Updates every 10s",
+    "cleared_one": "Cleared {{count}} queued task.",
+    "cleared_other": "Cleared {{count}} queued tasks.",
+    "clearFailed": "Could not clear the queue.",
+    "clearTitle": "Clear task queue",
+    "clearBody": "Queued tasks that no worker has picked up yet will be removed. Tasks already running are unaffected."
+  },
+  "taskExecution": {
+    "title": "Task execution",
+    "empty": "No task executions recorded yet.",
+    "type": "Type",
+    "runs": "Runs",
+    "totalTime": "Total time",
+    "longest": "Longest",
+    "failures_one": "{{count}} task failure recorded.",
+    "failures_other": "{{count}} task failures recorded."
+  },
+  "scheduled": {
+    "title": "Scheduled tasks",
+    "loadFailed": "Could not load scheduled tasks.",
+    "empty": "No scheduled tasks."
+  },
+  "sessions": {
+    "title": "Sessions",
+    "loadFailed": "Could not load sessions.",
+    "empty": "No active sessions.",
+    "session": "Session",
+    "created": "Created",
+    "lastActive": "Last active",
+    "status": "Status",
+    "actions": "Actions",
+    "expired": "Expired",
+    "active": "Active",
+    "kick": "Kick",
+    "kickHint": "Kicking a session signs that device out — the user has to log in again.",
+    "kickFailed": "Could not kick the session.",
+    "showAll_one": "Show all {{count}} session",
+    "showAll_other": "Show all {{count}} sessions"
+  },
+  "danger": {
+    "title": "Danger zone",
+    "logfile": "Download logfile",
+    "logfileHelper": "Fetch the current server log as a file.",
+    "shutdown": "Shutdown server",
+    "shutdownHelper": "Stop the server process. It stays down until someone starts it again.",
+    "shutdownButton": "Shutdown",
+    "shutdownBody": "The server process will exit. Every connected user loses access until it is started again.",
+    "shutdownFailed": "Could not shut down the server.",
+    "shuttingDown": "Server is shutting down",
+    "shuttingDownBody": "The shutdown request was accepted. This page will stop responding once the process exits. Start the server again to come back."
+  },
+  "form": {
+    "deleteEmptyCollections": "Delete empty collections",
+    "deleteEmptyReadLists": "Delete empty read lists",
+    "rememberMeDuration": "Remember-me duration",
+    "rememberMeDurationHelper": "How long a “Remember me” login stays valid.",
+    "rememberMeDurationDays": "Remember-me duration in days",
+    "days": "days",
+    "rememberMeKey": "Remember-me key",
+    "rememberMeKeyHelper": "Signing secret behind “Remember me” logins.",
+    "thumbnailSize": "Thumbnail size",
+    "thumbnailSizeHelper": "Larger thumbnails look sharper but take more disk space.",
+    "taskPoolSize": "Task pool size",
+    "taskPoolSizeHelper": "How many background tasks can run at once.",
+    "serverPort": "Server port",
+    "contextPath": "Context path",
+    "contextPathHelper": "Base path the server is served under, e.g. /kmrs.",
+    "koboProxy": "Kobo proxy",
+    "koboPort": "Kobo port",
+    "kepubifyPath": "Kepubify path",
+    "kepubifyPathHelper": "Path to the kepubify binary, used for EPUB to KEPUB conversion.",
+    "unsaved_one": "{{count}} unsaved change",
+    "unsaved_other": "{{count}} unsaved changes",
+    "discard": "Discard",
+    "fixInvalid": "Fix the invalid fields above to save.",
+    "saveFailed": "Could not save settings."
+  },
+  "thumbnail": {
+    "default": "Default",
+    "medium": "Medium",
+    "large": "Large",
+    "xlarge": "XL"
+  },
+  "multiSource": {
+    "notSet": "Not set",
+    "overridden": "Overridden in database",
+    "fromConfig": "From configuration",
+    "default": "Default",
+    "clearOverride": "Clear override",
+    "clearOverrideTooltip": "Clear the database override",
+    "effective": "Effective: {{value}}",
+    "none": "none"
+  },
+  "rotateKey": {
+    "button": "Rotate remember-me key",
+    "confirm": "Rotate key",
+    "done": "Key rotated — all \"Remember me\" logins were signed out.",
+    "body": "Every user who chose \"Remember me\" will be signed out and has to log in again on all devices.",
+    "failed": "Could not rotate the key."
+  },
+  "regenerate": {
+    "title": "Regenerate thumbnails",
+    "body": "The thumbnail size was changed. Books keep their current thumbnails until they are regenerated — this queues a background task, visible in the task queue panel.",
+    "biggerOnly": "Only smaller ones",
+    "all": "All books",
+    "skip": "Not now",
+    "failed": "Could not queue the regeneration task."
+  },
+  "validation": {
+    "positiveDays": "Must be a positive whole number of days.",
+    "positiveInt": "Must be a positive whole number.",
+    "contextPath": "Must start with / and end with a letter or digit, e.g. /kmrs."
+  }
+}

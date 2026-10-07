@@ -1,0 +1,42 @@
+{
+  "card": {
+    "actionsFor": "{{title}} 작업",
+    "continueReading": "{{title}} 이어 읽기",
+    "pageCount_other": "페이지 {{count}}개"
+  },
+  "menu": {
+    "select": "선택",
+    "read": "읽기",
+    "peek": "미리 읽기",
+    "bookDetails": "책 세부 정보",
+    "markAsRead": "읽음으로 표시",
+    "markAsUnread": "읽지 않음으로 표시",
+    "addToReadList": "읽기 목록에 추가",
+    "addToCollection": "컬렉션에 추가",
+    "download": "다운로드",
+    "editMetadata": "메타데이터 편집",
+    "deleteFile": "파일 삭제",
+    "deleteFiles": "파일 삭제",
+    "identifyWithKomf": "komf로 식별"
+  },
+  "identifyQueued": "식별이 큐에 추가됨",
+  "select": {
+    "select": "{{title}} 선택",
+    "deselect": "{{title}} 선택 해제"
+  },
+  "series": {
+    "progressSummary_other": "{{pct}}% · {{count}}권",
+    "unreadSummary": "{{total}}권 중 {{unread}}권 읽지 않음",
+    "booksCount_other": "책 {{count}}권"
+  },
+  "collection": {
+    "seriesCount_other": "시리즈 {{count}}개"
+  },
+  "readList": {
+    "bookCount_other": "책 {{count}}권"
+  },
+  "row": {
+    "scrollLeft": "왼쪽으로 스크롤",
+    "scrollRight": "오른쪽으로 스크롤"
+  }
+}

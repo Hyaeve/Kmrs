@@ -1,0 +1,53 @@
+{
+  "title": "Умные списки",
+  "create": "Новый умный список",
+  "createTitle": "Новый умный список",
+  "editTitle": "Изменить умный список",
+  "deleteTitle": "Удалить умный список?",
+  "nameLabel": "Название",
+  "summaryLabel": "Описание",
+  "targetLabel": "Цель",
+  "target": {
+    "book": "Книги",
+    "series": "Серии"
+  },
+  "filtersEmpty": "Без фильтров — совпадает со всем",
+  "filtersActive_one": "{{count, number}} фильтр активен",
+  "filtersActive_few": "{{count, number}} фильтра активно",
+  "filtersActive_many": "{{count, number}} фильтров активно",
+  "filtersActive_other": "{{count, number}} фильтра активно",
+  "filtersStepTitle": "Фильтры",
+  "next": "Далее",
+  "visibilityLabel": "Видимость",
+  "visibility": {"private": "Приватный", "public": "Публичный", "shared": "Общий"},
+  "sharedWithLabel": "Доступен пользователям",
+  "loadingUsers": "Загрузка пользователей…",
+  "noOtherUsers": "Других пользователей нет",
+  "ownerFilterLabel": "Фильтр по владельцу",
+  "ownerFilter": {"all": "Все списки", "mine": "Мои списки"},
+  "lossyWarning": "Фильтры этого списка содержат условия, которые редактор не может показать. При сохранении они будут упрощены.",
+  "loadError": "Не удалось загрузить умные списки",
+  "loadItemsError": "Не удалось загрузить элементы",
+  "empty": "Умных списков пока нет",
+  "notFound": "Умный список не найден",
+  "read": "Читать",
+  "peek": "Просмотр",
+  "peekTooltip": "Читать без сохранения прогресса",
+  "managePosters": "Управлять обложками",
+  "moreActions": "Другие действия",
+  "count": {
+    "book_one": "{{count, number}} книга",
+    "book_few": "{{count, number}} книги",
+    "book_many": "{{count, number}} книг",
+    "book_other": "{{count, number}} книги",
+    "series_one": "{{count, number}} серия",
+    "series_few": "{{count, number}} серии",
+    "series_many": "{{count, number}} серий",
+    "series_other": "{{count, number}} серии"
+  },
+  "emptyState": {
+    "books": "Сейчас нет книг, подходящих под этот список",
+    "series": "Сейчас нет серий, подходящих под этот список",
+    "filtered": "Нет элементов, подходящих под активные фильтры"
+  }
+}

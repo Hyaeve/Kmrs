@@ -1,0 +1,154 @@
+{
+  "field": {
+    "title": "标题",
+    "sortTitle": "排序标题",
+    "number": "编号",
+    "sortNumber": "排序编号",
+    "releaseDate": "发布日期",
+    "isbn": "ISBN",
+    "summary": "简介",
+    "authors": "作者",
+    "name": "名称",
+    "role": "角色",
+    "tags": "标签",
+    "genres": "题材",
+    "webLinks": "网络链接",
+    "label": "标签",
+    "url": "URL",
+    "status": "状态",
+    "readingDirection": "阅读方向",
+    "publisher": "出版方",
+    "language": "语言",
+    "ageRating": "年龄分级",
+    "totalBookCount": "书籍总数",
+    "alternateTitles": "其他标题",
+    "sharingLabels": "共享标签",
+    "notSet": "未设置"
+  },
+  "tabs": {
+    "general": "常规",
+    "titles": "标题",
+    "authors": "作者",
+    "tags": "标签",
+    "links": "链接",
+    "sharing": "共享",
+    "sharedFields": "公共字段",
+    "perBook": "逐本"
+  },
+  "action": {
+    "saveChanges": "保存更改"
+  },
+  "saveFailed": "无法保存元数据。",
+  "validation": {
+    "notBlank": "不能为空",
+    "url": "必须是有效的 URL",
+    "number": "必须是数字",
+    "isbn": "必须留空或填写有效的 ISBN-13",
+    "wholeNumberMinZero": "必须是大于等于 0 的整数",
+    "wholeNumberPositive": "必须是大于 0 的整数",
+    "bcp47": "必须是有效的 BCP 47 语言标签"
+  },
+  "lockToggle": {
+    "lock": "锁定{{label}}",
+    "unlock": "解锁{{label}}"
+  },
+  "batch": {
+    "change": "修改{{label}}"
+  },
+  "pairs": {
+    "removeRow": "删除此行"
+  },
+  "placeholder": {
+    "authorName": "三浦建太郎",
+    "authorRole": "原作",
+    "linkLabel": "维基",
+    "addTag": "添加标签…",
+    "addGenre": "添加题材…",
+    "addLabel": "添加标签…"
+  },
+  "add": {
+    "author": "添加作者",
+    "link": "添加链接",
+    "title": "添加标题"
+  },
+  "editBooks": {
+    "dialogTitle_single": "编辑书籍元数据",
+    "dialogTitle_batch_other": "编辑 {{count}} 本书的元数据",
+    "loadError": "无法加载这本书",
+    "loadManyError": "无法加载书籍",
+    "sortNumberHelper": "可以使用小数",
+    "isbnHelper": "ISBN-13，留空则清除",
+    "batchHint": "开启的字段将应用到全部 {{count}} 本书，并默认锁定。",
+    "perBookHint": "只发送修改过的字段；修改字段会将其锁定。单本书的值优先于公共字段。",
+    "lockAll": "锁定全部{{label}}",
+    "unlockAll": "解锁全部{{label}}",
+    "copySortToNumber": "将排序编号填入编号",
+    "decrementAll": "全部减 1",
+    "incrementAll": "全部加 1",
+    "hint": {
+      "summaryEmpty": "留空则清除简介。",
+      "releaseDateEmpty": "留空则清除日期。",
+      "isbnEmpty": "ISBN-13，留空则清除。",
+      "authorsReplace": "替换全部作者；留空则清除。",
+      "tagsReplace": "替换全部标签；留空则清除。",
+      "linksReplace": "替换全部链接；留空则清除。"
+    }
+  },
+  "editSeries": {
+    "dialogTitle_single": "编辑系列元数据",
+    "dialogTitle_batch_other": "编辑 {{count}} 个系列的元数据",
+    "loadError": "无法加载该系列",
+    "languageHelper": "BCP 47 标签，留空则清除",
+    "batchHint": "开启的字段将应用到全部 {{count}} 个系列，并默认锁定。",
+    "hint": {
+      "directionNotSet": "选择“未设置”则清除阅读方向。",
+      "languageEmpty": "BCP 47 标签，留空则清除。",
+      "ageRatingEmpty": "留空则清除分级。",
+      "genresReplace": "替换全部题材；留空则清除。",
+      "tagsReplace": "替换全部标签；留空则清除。",
+      "sharingLabelsReplace": "替换全部共享标签；留空则清除。"
+    }
+  },
+  "identify": {
+    "searchPlaceholder": "搜索 komf 来源…",
+    "providerLinks": "来源链接",
+    "aggregateAll": "聚合所有来源",
+    "aggregateHint_other": "合并全部 {{count}} 个来源链接的元数据",
+    "typeToSearch": "输入标题以搜索 komf",
+    "searchFailed": "无法搜索 komf",
+    "noResults": "没有结果",
+    "noResultsHint": "换个标题试试。",
+    "queueFailed": "无法将识别加入队列",
+    "matchFailed": "匹配失败"
+  },
+  "reset": {
+    "body": "重置<name>{{name}}</name>？komf 会移除它写入的元数据，包括字段锁定和已上传的封面。",
+    "libraryBody": "重置<name>{{name}}</name>？komf 会移除它为库中每个系列写入的元数据，包括字段锁定和已上传的封面。",
+    "confirm": "重置"
+  },
+  "poster": {
+    "kind": {
+      "series": "系列",
+      "book": "书",
+      "collection": "合集",
+      "readlist": "阅读列表",
+      "smartlist": "智能列表"
+    },
+    "type": {
+      "generated": "自动生成",
+      "sidecar": "随附文件",
+      "uploaded": "用户上传"
+    },
+    "alt": "{{type}}海报",
+    "upload": "上传海报",
+    "loadFailed": "无法加载海报",
+    "empty": "还没有海报",
+    "emptyHint": "上传一张图片作为海报。",
+    "selected": "已选中的海报",
+    "setSelected": "设为选中海报",
+    "selectedBadge": "已选中",
+    "delete": "删除海报",
+    "refreshing": "刷新中…",
+    "operationFailed": "海报操作失败。"
+  }
+}

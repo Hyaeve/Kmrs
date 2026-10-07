@@ -1,0 +1,121 @@
+{
+  "title": "Filtros",
+  "clearAll": "Borrar todo",
+  "close": "Cerrar filtros",
+  "noun": {
+    "books_one": "<num>{{count, number}}</num> libro",
+    "books_many": "<num>{{count, number}}</num> libros",
+    "books_other": "<num>{{count, number}}</num> libros",
+    "series_one": "<num>{{count, number}}</num> serie",
+    "series_many": "<num>{{count, number}}</num> series",
+    "series_other": "<num>{{count, number}}</num> series",
+    "collections_one": "<num>{{count, number}}</num> colección",
+    "collections_many": "<num>{{count, number}}</num> colecciones",
+    "collections_other": "<num>{{count, number}}</num> colecciones",
+    "readlists_one": "<num>{{count, number}}</num> lista de lectura",
+    "readlists_many": "<num>{{count, number}}</num> listas de lectura",
+    "readlists_other": "<num>{{count, number}}</num> listas de lectura"
+  },
+  "chip": {
+    "remove": "Quitar filtro: {{label}}",
+    "author": "Autor: {{name}}",
+    "search": "Búsqueda: {{q}}",
+    "value": "{{group}}: {{value}}",
+    "value_negated": "{{group}}: no {{value}}"
+  },
+  "mode": {
+    "any": "Cualquiera",
+    "all": "Todos"
+  },
+  "negate": {
+    "is": "es",
+    "isNot": "no es"
+  },
+  "section": {
+    "flags": "Indicadores",
+    "metadata": "Metadatos"
+  },
+  "resetGroup": "Restablecer",
+  "group": {
+    "readStatus": "Estado de lectura",
+    "seriesStatus": "Estado de la serie",
+    "letter": "Letra inicial",
+    "complete": "Completa",
+    "deleted": "Eliminados",
+    "publishers": "Editoriales",
+    "genres": "Géneros",
+    "tags": "Etiquetas",
+    "sharingLabels": "Etiquetas para compartir",
+    "ageRatings": "Clasificación por edad",
+    "languages": "Idiomas",
+    "releaseYears": "Años de publicación",
+    "authors": "Autores",
+    "mediaProfiles": "Perfil de medio",
+    "mediaStatuses": "Estado del medio",
+    "poster": "Póster",
+    "libraries": "Bibliotecas",
+    "readlists": "Listas de lectura",
+    "collections": "Colecciones"
+  },
+  "option": {
+    "readStatus": {
+      "read": "Leído",
+      "unread": "No leído",
+      "inProgress": "En curso"
+    },
+    "yesNo": {
+      "yes": "Sí",
+      "no": "No"
+    },
+    "mediaProfile": {
+      "divina": "Divina",
+      "pdf": "PDF",
+      "epub": "EPUB"
+    },
+    "mediaStatus": {
+      "ready": "Listo",
+      "outdated": "Desactualizado"
+    },
+    "poster": {
+      "selected": "Con póster",
+      "missing": "Sin póster"
+    },
+    "ageRating": {
+      "unset": "Ninguna"
+    }
+  },
+  "sort": {
+    "sortBy": "Ordenar por",
+    "ascending": "Ascendente",
+    "descending": "Descendente",
+    "title": "Título",
+    "series": "Serie",
+    "number": "Número",
+    "dateAdded": "Fecha de añadido",
+    "dateUpdated": "Fecha de actualización",
+    "releaseDate": "Fecha de publicación",
+    "lastRead": "Última lectura",
+    "folderName": "Nombre de carpeta",
+    "fileName": "Nombre de archivo",
+    "fileSize": "Tamaño de archivo",
+    "pages": "Páginas",
+    "booksCount": "Número de libros",
+    "random": "Aleatorio",
+    "listOrder": "Orden de la lista"
+  },
+  "options": {
+    "filterPlaceholder": "Filtrar opciones…",
+    "loadError": "No se pudieron cargar las opciones.",
+    "noMatch": "No hay opciones coincidentes."
+  },
+  "authors": {
+    "searchPlaceholder": "Buscar autores…",
+    "noMatch": "No hay autores coincidentes."
+  },
+  "search": {
+    "books": "Buscar libros…",
+    "series": "Buscar series…",
+    "collections": "Buscar colecciones…",
+    "readlists": "Buscar listas de lectura…"
+  }
+}

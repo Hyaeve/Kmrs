@@ -1,0 +1,160 @@
+{
+  "field": {
+    "title": "Título",
+    "sortTitle": "Título de ordenación",
+    "number": "Número",
+    "sortNumber": "Número de ordenación",
+    "releaseDate": "Fecha de publicación",
+    "isbn": "ISBN",
+    "summary": "Sinopsis",
+    "authors": "Autores",
+    "name": "Nombre",
+    "role": "Rol",
+    "tags": "Etiquetas",
+    "genres": "Géneros",
+    "webLinks": "Enlaces web",
+    "label": "Etiqueta",
+    "url": "URL",
+    "status": "Estado",
+    "readingDirection": "Dirección de lectura",
+    "publisher": "Editorial",
+    "language": "Idioma",
+    "ageRating": "Clasificación por edad",
+    "totalBookCount": "Número total de libros",
+    "alternateTitles": "Títulos alternativos",
+    "sharingLabels": "Etiquetas para compartir",
+    "notSet": "Sin definir"
+  },
+  "tabs": {
+    "general": "General",
+    "titles": "Títulos",
+    "authors": "Autores",
+    "tags": "Etiquetas",
+    "links": "Enlaces",
+    "sharing": "Compartir",
+    "sharedFields": "Campos compartidos",
+    "perBook": "Por libro"
+  },
+  "action": {
+    "saveChanges": "Guardar cambios"
+  },
+  "saveFailed": "No se pudieron guardar los metadatos.",
+  "validation": {
+    "notBlank": "No debe estar vacío",
+    "url": "Debe ser una URL válida",
+    "number": "Debe ser un número",
+    "isbn": "Debe estar vacío o ser un ISBN-13 válido",
+    "wholeNumberMinZero": "Debe ser un número entero de 0 o más",
+    "wholeNumberPositive": "Debe ser un número entero mayor que 0",
+    "bcp47": "Debe ser una etiqueta de idioma BCP 47 válida"
+  },
+  "lockToggle": {
+    "lock": "Bloquear {{label}}",
+    "unlock": "Desbloquear {{label}}"
+  },
+  "batch": {
+    "change": "Cambiar {{label}}"
+  },
+  "pairs": {
+    "removeRow": "Quitar fila"
+  },
+  "placeholder": {
+    "authorName": "Kentaro Miura",
+    "authorRole": "guionista",
+    "linkLabel": "Wiki",
+    "addTag": "Añadir etiqueta…",
+    "addGenre": "Añadir género…",
+    "addLabel": "Añadir etiqueta…"
+  },
+  "add": {
+    "author": "Añadir autor",
+    "link": "Añadir enlace",
+    "title": "Añadir título"
+  },
+  "editBooks": {
+    "dialogTitle_single": "Editar metadatos del libro",
+    "dialogTitle_batch_one": "Editar metadatos de {{count}} libro",
+    "dialogTitle_batch_many": "Editar metadatos de {{count}} libros",
+    "dialogTitle_batch_other": "Editar metadatos de {{count}} libros",
+    "loadError": "No se pudo cargar el libro",
+    "loadManyError": "No se pudieron cargar los libros",
+    "sortNumberHelper": "Puedes usar números decimales",
+    "isbnHelper": "ISBN-13; vacío para borrar",
+    "batchHint": "Los campos activados se aplican a los {{count}} libros y se bloquean de forma predeterminada.",
+    "perBookHint": "Solo se envían los campos que tocas; editar bloquea el campo. Los valores por libro prevalecen sobre los campos compartidos.",
+    "lockAll": "Bloquear todo: {{label}}",
+    "unlockAll": "Desbloquear todo: {{label}}",
+    "copySortToNumber": "Copiar número de ordenación en número",
+    "decrementAll": "Decrementar todos en 1",
+    "incrementAll": "Incrementar todos en 1",
+    "hint": {
+      "summaryEmpty": "Vacío borra la sinopsis.",
+      "releaseDateEmpty": "Vacío borra la fecha.",
+      "isbnEmpty": "ISBN-13; vacío para borrar.",
+      "authorsReplace": "Sustituye todos los autores; una lista vacía los borra.",
+      "tagsReplace": "Sustituye todas las etiquetas; una lista vacía las borra.",
+      "linksReplace": "Sustituye todos los enlaces; una lista vacía los borra."
+    }
+  },
+  "editSeries": {
+    "dialogTitle_single": "Editar metadatos de la serie",
+    "dialogTitle_batch_one": "Editar metadatos de {{count}} serie",
+    "dialogTitle_batch_many": "Editar metadatos de {{count}} series",
+    "dialogTitle_batch_other": "Editar metadatos de {{count}} series",
+    "loadError": "No se pudo cargar la serie",
+    "languageHelper": "Etiqueta BCP 47; vacío para borrar",
+    "batchHint": "Los campos activados se aplican a las {{count}} series y se bloquean de forma predeterminada.",
+    "hint": {
+      "directionNotSet": "«Sin definir» borra la dirección.",
+      "languageEmpty": "Etiqueta BCP 47; vacío para borrar.",
+      "ageRatingEmpty": "Vacío borra la clasificación.",
+      "genresReplace": "Sustituye todos los géneros; una lista vacía los borra.",
+      "tagsReplace": "Sustituye todas las etiquetas; una lista vacía las borra.",
+      "sharingLabelsReplace": "Sustituye todas las etiquetas para compartir; una lista vacía las borra."
+    }
+  },
+  "identify": {
+    "searchPlaceholder": "Buscar en proveedores de komf…",
+    "providerLinks": "Enlaces de proveedores",
+    "aggregateAll": "Agregar todos los proveedores",
+    "aggregateHint_one": "Combinar metadatos del enlace de proveedor",
+    "aggregateHint_many": "Combinar metadatos de los {{count}} enlaces de proveedores",
+    "aggregateHint_other": "Combinar metadatos de los {{count}} enlaces de proveedores",
+    "typeToSearch": "Escribe un título para buscar en komf",
+    "searchFailed": "No se pudo buscar en komf",
+    "noResults": "Sin resultados",
+    "noResultsHint": "Prueba con otro título.",
+    "queueFailed": "No se pudo encolar la identificación",
+    "matchFailed": "Falló el emparejamiento"
+  },
+  "reset": {
+    "body": "¿Restablecer <name>{{name}}</name>? komf elimina los metadatos que escribió, incluidos los bloqueos de campos y las portadas subidas.",
+    "libraryBody": "¿Restablecer <name>{{name}}</name>? komf elimina los metadatos que escribió para cada serie de esta biblioteca, incluidos los bloqueos de campos y las portadas subidas.",
+    "confirm": "Restablecer"
+  },
+  "poster": {
+    "kind": {
+      "series": "serie",
+      "book": "libro",
+      "collection": "colección",
+      "readlist": "lista de lectura",
+      "smartlist": "lista inteligente"
+    },
+    "type": {
+      "generated": "Generado",
+      "sidecar": "Sidecar",
+      "uploaded": "Subido"
+    },
+    "alt": "Póster: {{type}}",
+    "upload": "Subir póster",
+    "loadFailed": "No se pudieron cargar los pósters",
+    "empty": "Aún no hay pósters",
+    "emptyHint": "Sube una imagen para usarla como póster.",
+    "selected": "Póster seleccionado",
+    "setSelected": "Establecer como póster seleccionado",
+    "selectedBadge": "Seleccionado",
+    "delete": "Eliminar póster",
+    "refreshing": "Actualizando…",
+    "operationFailed": "La operación con el póster falló."
+  }
+}

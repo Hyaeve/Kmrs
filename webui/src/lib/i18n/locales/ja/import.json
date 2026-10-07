@@ -1,0 +1,90 @@
+{
+  "books": {
+    "title": "本をインポート",
+    "subtitle": "ライブラリ外のファイルを既存のシリーズにインポートします",
+    "folderLabel": "サーバー上のフォルダー",
+    "browse": "参照",
+    "scan": "スキャン",
+    "queued_other": "{{count}} 冊のインポートをキューに追加しました",
+    "queuedBody": "インポートはバックグラウンドタスクとして実行されます。進捗は<link>サーバーページ</link>で確認できます。",
+    "importMore": "さらにファイルをインポート",
+    "emptyTitle": "インポートできるファイルがありません",
+    "emptyBody": "このフォルダーに本のファイルがありません。",
+    "copyMode": {
+      "move": "移動",
+      "copy": "コピー",
+      "hardlink": "ハードリンク"
+    },
+    "selectedCount_other": "{{count}} 件中 {{checked}} 件のファイルを選択中",
+    "importSelected": "選択したものをインポート",
+    "missingSeries_other": "チェックしたすべてのファイルにシリーズを選択してください（{{count}} 行が未選択）。",
+    "selectAll": "すべて選択",
+    "importFile": "{{fileName}} をインポート",
+    "table": {
+      "sourceFile": "ソースファイル",
+      "series": "シリーズ",
+      "number": "番号",
+      "destinationName": "インポート先の名前",
+      "analyze": "分析"
+    },
+    "status": {
+      "analyzed": "分析済み",
+      "notAnalyzed": "未分析"
+    },
+    "selectedSeries": "選択したシリーズ",
+    "change": "変更",
+    "selectSeries": "シリーズを選択…",
+    "analyze": "分析",
+    "pickerTitle": "シリーズを選択",
+    "pickerConfirm": "このシリーズを使う"
+  },
+  "readlist": {
+    "title": "読書リストをインポート",
+    "subtitle": "ComicRack の .cbl ファイルから読書リストを作成します",
+    "chooseFile": "ファイルを選択",
+    "noFileChosen": "ファイルが選択されていません",
+    "match": "ライブラリと照合",
+    "nameLabel": "読書リスト名",
+    "nameConflict": "この名前の読書リストは既に存在します",
+    "summary": {
+      "matched": "{{count}} 件一致",
+      "multiple": "{{count}} 件複数一致",
+      "noMatch": "{{count}} 件一致なし"
+    },
+    "startOver": "最初からやり直す",
+    "create_other": "読書リストを作成（{{count}} 冊）",
+    "skippedNote": "一致する本がないエントリーはスキップされます。",
+    "filter": {
+      "all": "すべて（{{count}}）",
+      "matched": "一致（{{count}}）",
+      "multiple": "複数一致（{{count}}）",
+      "noMatch": "一致なし（{{count}}）"
+    },
+    "emptyTitle": "ここには何もありません",
+    "emptyBody": "このステータスのエントリーはありません。",
+    "table": {
+      "requested": "エントリー",
+      "matchedBook": "一致した本",
+      "status": "ステータス",
+      "action": "操作"
+    },
+    "unknownSeries": "不明なシリーズ",
+    "manual": "手動",
+    "chooseBook": "本を選択…",
+    "noLibraryMatch": "ライブラリに一致なし",
+    "status": {
+      "matched": "一致",
+      "ambiguous": "複数",
+      "unmatched": "一致なし"
+    },
+    "change": "変更",
+    "pickBook": "本を選択",
+    "pageInfo": "{{pages}} ページ中 {{page}} ページ",
+    "previous": "前へ",
+    "next": "次へ",
+    "pickerTitle": "{{series}} #{{number}} の本を選択",
+    "pickerEntry": "エントリー",
+    "pickerTitleDefault": "本を選択",
+    "pickerConfirm": "この本を使う"
+  }
+}

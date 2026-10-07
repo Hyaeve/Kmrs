@@ -1,0 +1,101 @@
+{
+  "language": {
+    "title": "語言",
+    "label": "介面語言"
+  },
+  "profile": {
+    "title": "個人資料",
+    "email": "電子郵件",
+    "roles": "角色",
+    "libraries": "書庫",
+    "allLibraries": "所有書庫",
+    "sharedLibraries_other": "{{count}} 個書庫",
+    "role": {
+      "admin": "管理員",
+      "user": "使用者",
+      "fileDownload": "檔案下載",
+      "pageStreaming": "頁面串流",
+      "koboSync": "Kobo 同步",
+      "koreaderSync": "KOReader 同步"
+    }
+  },
+  "security": {
+    "title": "安全性",
+    "subtitle": "密碼與登入活動",
+    "password": {
+      "title": "變更密碼",
+      "new": "新密碼",
+      "confirm": "確認密碼",
+      "staySignedIn": "你會在此裝置上保持登入。",
+      "mismatch": "兩次輸入的密碼不一致。",
+      "updated": "密碼已更新。其他工作階段均已登出。",
+      "failed": "無法更新密碼。",
+      "submit": "更新密碼"
+    },
+    "activity": {
+      "title": "登入活動",
+      "failed": "無法載入登入活動。",
+      "empty": "還沒有登入活動。",
+      "when": "時間",
+      "ip": "IP",
+      "source": "來源",
+      "status": "狀態",
+      "agent": "使用者代理",
+      "success": "成功",
+      "statusFailed": "失敗",
+      "page": "第 {{current}} 頁，共 {{total}} 頁",
+      "previous": "上一頁",
+      "next": "下一頁"
+    }
+  },
+  "apiKeys": {
+    "title": "API 金鑰",
+    "subtitle": "供第三方用戶端與同步使用的金鑰",
+    "failed": "無法載入 API 金鑰。",
+    "empty": "還沒有 API 金鑰。",
+    "resyncHint": "重新同步會強制 KOReader 與 Kobo 裝置重新取得所有內容。",
+    "resyncAll": "重新同步所有裝置",
+    "untitled": "未命名",
+    "createdOnly": "建立於 {{date}}",
+    "createdAndUsed": "建立於 {{date}} · 上次使用 {{time}}",
+    "resyncKey": "強制重新同步 {{name}}",
+    "delete": "刪除 API 金鑰",
+    "deleteFailed": "無法刪除 API 金鑰。",
+    "resyncDone": "已要求重新同步 {{name}}。",
+    "allDevices": "所有裝置",
+    "new": "新增 API 金鑰",
+    "commentPlaceholder": "備註，例如 Boox 上的 KOReader",
+    "createFailed": "無法建立 API 金鑰。",
+    "createdTitle": "API 金鑰已建立",
+    "shownOnce": "此金鑰只會顯示一次。",
+    "copy": "複製",
+    "copied": "已複製",
+    "resyncTitle": "強制重新同步",
+    "resyncKeyBody": "重設 <name>{{name}}</name> 的同步點？下一台使用此金鑰的 KOReader 或 Kobo 裝置會重新下載全部進度。",
+    "resyncAllBody": "重設所有 API 金鑰的同步點？你的所有 KOReader 與 Kobo 裝置都會在下次同步時重新下載全部進度。",
+    "resyncFailed": "無法要求重新同步。"
+  },
+  "reader": {
+    "title": "閱讀器",
+    "subtitle": "漫畫閱讀器的預設值",
+    "defaultsTitle": "閱讀器預設值",
+    "direction": "閱讀方向",
+    "scale": "縮放",
+    "scaleScreen": "符合螢幕",
+    "scaleWidth": "符合寬度",
+    "scaleShrinkWidth": "縮至寬度",
+    "scaleHeight": "符合高度",
+    "scaleOriginal": "原始大小",
+    "pageLayout": "頁面版面",
+    "layoutSingle": "單頁",
+    "layoutDouble": "雙頁",
+    "layoutDoubleNoCover": "雙頁（不含封面）",
+    "background": "背景",
+    "backgroundLabel": "背景 {{color}}",
+    "backgrounds": {
+      "black": "黑色",
+      "gray": "灰色",
+      "white": "白色"
+    }
+  }
+}

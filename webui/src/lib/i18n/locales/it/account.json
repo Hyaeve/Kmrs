@@ -1,0 +1,103 @@
+{
+  "language": {
+    "title": "Lingua",
+    "label": "Lingua dell'interfaccia"
+  },
+  "profile": {
+    "title": "Profilo",
+    "email": "Email",
+    "roles": "Ruoli",
+    "libraries": "Librerie",
+    "allLibraries": "Tutte le librerie",
+    "sharedLibraries_one": "{{count}} libreria",
+    "sharedLibraries_many": "{{count}} librerie",
+    "sharedLibraries_other": "{{count}} librerie",
+    "role": {
+      "admin": "Amministratore",
+      "user": "Utente",
+      "fileDownload": "Download file",
+      "pageStreaming": "Streaming pagine",
+      "koboSync": "Sincronizzazione Kobo",
+      "koreaderSync": "Sincronizzazione KOReader"
+    }
+  },
+  "security": {
+    "title": "Sicurezza",
+    "subtitle": "Password e attività di accesso",
+    "password": {
+      "title": "Cambia password",
+      "new": "Nuova password",
+      "confirm": "Conferma password",
+      "staySignedIn": "Resterai connesso su questo dispositivo.",
+      "mismatch": "Le password non coincidono.",
+      "updated": "Password aggiornata. Le altre sessioni sono state disconnesse.",
+      "failed": "Impossibile aggiornare la password.",
+      "submit": "Aggiorna password"
+    },
+    "activity": {
+      "title": "Attività di accesso",
+      "failed": "Impossibile caricare l'attività di accesso.",
+      "empty": "Ancora nessuna attività di accesso.",
+      "when": "Quando",
+      "ip": "IP",
+      "source": "Origine",
+      "status": "Stato",
+      "agent": "Agente",
+      "success": "Riuscito",
+      "statusFailed": "Non riuscito",
+      "page": "Pagina {{current}} di {{total}}",
+      "previous": "Precedente",
+      "next": "Successivo"
+    }
+  },
+  "apiKeys": {
+    "title": "Chiavi API",
+    "subtitle": "Chiavi per client di terze parti e sincronizzazione",
+    "failed": "Impossibile caricare le chiavi API.",
+    "empty": "Ancora nessuna chiave API.",
+    "resyncHint": "La risincronizzazione forza i dispositivi KOReader e Kobo a scaricare di nuovo tutto.",
+    "resyncAll": "Risincronizza tutti i dispositivi",
+    "untitled": "Senza titolo",
+    "createdOnly": "Creata il {{date}}",
+    "createdAndUsed": "Creata il {{date}} · Ultimo utilizzo {{time}}",
+    "resyncKey": "Forza risincronizzazione per {{name}}",
+    "delete": "Elimina chiave API",
+    "deleteFailed": "Impossibile eliminare la chiave API.",
+    "resyncDone": "Risincronizzazione richiesta per {{name}}.",
+    "allDevices": "tutti i dispositivi",
+    "new": "Nuova chiave API",
+    "commentPlaceholder": "Commento, es. KOReader su Boox",
+    "createFailed": "Impossibile creare la chiave API.",
+    "createdTitle": "Chiave API creata",
+    "shownOnce": "Questa chiave viene mostrata una sola volta.",
+    "copy": "Copia",
+    "copied": "Copiata",
+    "resyncTitle": "Forza risincronizzazione",
+    "resyncKeyBody": "Reimpostare il punto di sincronizzazione per <name>{{name}}</name>? Il prossimo dispositivo KOReader o Kobo che usa questa chiave scaricherà di nuovo tutti i progressi.",
+    "resyncAllBody": "Reimpostare i punti di sincronizzazione di tutte le chiavi API? Tutti i tuoi dispositivi KOReader e Kobo scaricheranno di nuovo tutti i progressi alla prossima sincronizzazione.",
+    "resyncFailed": "Impossibile richiedere la risincronizzazione."
+  },
+  "reader": {
+    "title": "Lettore",
+    "subtitle": "Impostazioni predefinite del lettore di fumetti",
+    "defaultsTitle": "Impostazioni predefinite del lettore",
+    "direction": "Direzione di lettura",
+    "scale": "Scala",
+    "scaleScreen": "Adatta allo schermo",
+    "scaleWidth": "Adatta alla larghezza",
+    "scaleShrinkWidth": "Riduci alla larghezza",
+    "scaleHeight": "Adatta all'altezza",
+    "scaleOriginal": "Originale",
+    "pageLayout": "Layout pagina",
+    "layoutSingle": "Singola",
+    "layoutDouble": "Doppia",
+    "layoutDoubleNoCover": "Doppia senza copertina",
+    "background": "Sfondo",
+    "backgroundLabel": "Sfondo {{color}}",
+    "backgrounds": {
+      "black": "Nero",
+      "gray": "Grigio",
+      "white": "Bianco"
+    }
+  }
+}

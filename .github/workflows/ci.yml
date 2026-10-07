@@ -6,7 +6,33 @@ on:
   pull_request:
 
 jobs:
+  changes:
+    # gate the heavy legs: rust jobs skip web-only PRs, the web job skips rust-only PRs
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      web: ${{ steps.filter.outputs.web }}
+    steps:
+      # push events diff with git commands and need the checkout; PRs go through the API
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          # some-with-excludes: a file must hit an include and no exclude —
+          # under the default 'some' the '**' would swallow the exclusion
+          predicate-quantifier: 'some-with-excludes'
+          filters: |
+            rust:
+              - '**'
+              - '!webui/**'
+            web:
+              - 'webui/**'
+
   lint:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     env:
       RUSTC_WRAPPER: sccache
@@ -27,6 +53,8 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
   test:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     env:
       RUSTC_WRAPPER: sccache
@@ -43,6 +71,8 @@ jobs:
       - run: cargo nextest run --workspace
 
   build:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     # compile-only gate on the platforms the release workflow ships;
     # tests stay on ubuntu
     strategy:
@@ -65,6 +95,27 @@ jobs:
       - uses: mozilla-actions/sccache-action@v0.0.11
       - run: cargo build --workspace --all-targets
 
+  web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: webui
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: webui/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: webui/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm build
+
   docker:
     # build glibc (2.39) must not exceed the debian:trixie-slim runtime's (2.41)
     runs-on: ubuntu-24.04
@@ -79,12 +130,12 @@ jobs:
         with:
           cache-targets: "false"
       - uses: mozilla-actions/sccache-action@v0.0.11
+      - uses: ./.github/actions/build-webui
       - run: cargo build -p komga-server
         env:
           # hermetic liblzma regardless of runner image contents
           LZMA_API_STATIC: "1"
       - run: mkdir -p dist/amd64 && cp target/debug/kmrs dist/amd64/
-      - uses: ./.github/actions/fetch-webui
       - uses: docker/setup-buildx-action@v4
       - uses: docker/build-push-action@v7
         with:

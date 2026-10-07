@@ -1116,9 +1116,7 @@ mod tests {
             webhooks: Default::default(),
             migration_placeholders: Default::default(),
             oauth2: Default::default(),
-            webui_dir: None,
-            webui_auto_update: false,
-            webui_update_interval: std::time::Duration::from_secs(24 * 3600),
+
             komf_url: None,
             komf_base_url: None,
             komf_auth_key: None,
@@ -1145,7 +1143,7 @@ mod tests {
             search_index: test_search_index(),
             kepub: crate::service::kepub::KepubConverter::new(tempfile::tempdir().unwrap().keep()),
             kobo_proxy: crate::service::kobo_proxy::KoboProxy::new(),
-            webui_dir: crate::webui::WebuiDir::default(),
+
             shutdown_tx: tokio::sync::watch::channel(false).0,
         }
     }

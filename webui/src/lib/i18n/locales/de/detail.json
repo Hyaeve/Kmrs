@@ -1,0 +1,146 @@
+{
+  "read": "Lesen",
+  "peek": "Reinlesen",
+  "peekTooltip": "Lesen, ohne den Fortschritt zu speichern",
+  "continue": "Fortsetzen",
+  "continueWithPage": "Fortsetzen · Seite {{page}}",
+  "markAsRead": "Als gelesen markieren",
+  "markAsUnread": "Als ungelesen markieren",
+  "moreActions": "Weitere Aktionen",
+  "addToReadList": "Zu Leseliste hinzufügen",
+  "addToCollection": "Zu Sammlung hinzufügen",
+  "addSeries": "Serien hinzufügen",
+  "addBooks": "Bücher hinzufügen",
+  "removeFromCollection": "Aus {{name}} entfernen",
+  "removeFromReadList": "Aus {{name}} entfernen",
+  "rename": "Umbenennen",
+  "nameLabel": "Name",
+  "summaryLabel": "Zusammenfassung",
+  "previous": "Zurück",
+  "next": "Weiter",
+  "inCollections": "In Sammlungen",
+  "inReadLists": "In Leselisten",
+  "booksHeading": "Bücher",
+  "bookCount_one": "{{count}} Buch",
+  "bookCount_other": "{{count}} Bücher",
+  "seriesCount": "{{count}} Serien",
+  "selectedCount": "{{count}} ausgewählt",
+  "menu": {
+    "editMetadata": "Metadaten bearbeiten",
+    "editBookMetadata": "Buch-Metadaten bearbeiten",
+    "managePosters": "Poster verwalten",
+    "analyze": "Analysieren",
+    "refreshMetadata": "Metadaten aktualisieren",
+    "identifyKomf": "Mit komf identifizieren",
+    "matchKomf": "Mit komf abgleichen",
+    "resetKomf": "Metadaten mit komf zurücksetzen",
+    "deleteFile": "Datei löschen",
+    "previousBook": "Vorheriges Buch",
+    "nextBook": "Nächstes Buch",
+    "editDetails": "Details bearbeiten"
+  },
+  "toast": {
+    "analysisQueued": "Analyse eingereiht",
+    "queueAnalysisFailed": "Die Analyse konnte nicht eingereiht werden",
+    "refreshQueued": "Metadaten-Aktualisierung eingereiht",
+    "queueRefreshFailed": "Die Aktualisierung konnte nicht eingereiht werden",
+    "identifyQueued": "Identifizierung eingereiht",
+    "metadataReset": "Metadaten zurückgesetzt",
+    "resetMetadataFailed": "Die Metadaten konnten nicht zurückgesetzt werden",
+    "queueMatchFailed": "Der Abgleich konnte nicht eingereiht werden",
+    "deleteFileFailed": "Die Datei konnte nicht gelöscht werden",
+    "deleteFilesFailed": "Die Dateien konnten nicht gelöscht werden",
+    "removedFromCollection": "Aus {{name}} entfernt",
+    "removedFromReadList": "Aus {{name}} entfernt",
+    "collectionDeleted": "Sammlung gelöscht",
+    "readListDeleted": "Leseliste gelöscht",
+    "removeFromCollectionFailed": "Konnte nicht aus der Sammlung entfernt werden",
+    "removeFromReadListFailed": "Konnte nicht aus der Leseliste entfernt werden"
+  },
+  "notFound": {
+    "book": "Buch nicht gefunden",
+    "series": "Serie nicht gefunden",
+    "collection": "Sammlung nicht gefunden",
+    "readList": "Leseliste nicht gefunden"
+  },
+  "field": {
+    "pages": "Seiten",
+    "size": "Größe",
+    "format": "Format",
+    "profile": "Profil",
+    "releaseDate": "Erscheinungsdatum",
+    "file": "Datei",
+    "added": "Hinzugefügt"
+  },
+  "progress": {
+    "completed": "Abgeschlossen",
+    "pageOf": "Seite {{page}} von {{total}}"
+  },
+  "stats": {
+    "books_one": "<num>{{count}}</num> Buch",
+    "books_other": "<num>{{count}}</num> Bücher",
+    "read": "<num>{{count}}</num> gelesen",
+    "unread": "<num>{{count}}</num> ungelesen"
+  },
+  "empty": {
+    "loadBooksFailed": "Bücher konnten nicht geladen werden",
+    "loadSeriesFailed": "Serien konnten nicht geladen werden",
+    "noBooks": "Keine Bücher",
+    "noBooksFiltered": "Keine Bücher passen zu den Filtern.",
+    "seriesEmpty": "Diese Serie hat keine Bücher.",
+    "noSeries": "Keine Serien",
+    "noSeriesFiltered": "Keine Serien passen zu den Filtern.",
+    "collectionEmpty": "Diese Sammlung ist leer.",
+    "readListEmpty": "Diese Leseliste ist leer.",
+    "noBook": "Kein Buch",
+    "oneshotNoBook": "Dieser Oneshot hat noch kein Buch."
+  },
+  "confirmDelete": {
+    "body": "<name>{{name}}</name> löschen? Dies kann nicht rückgängig gemacht werden."
+  },
+  "error": {
+    "title": "Etwas ist schiefgelaufen",
+    "unknown": "Unbekannter Fehler",
+    "notFoundBody": "Es wurde möglicherweise gelöscht, oder du hast keinen Zugriff darauf."
+  },
+  "addToReadListDialog": {
+    "empty": "Noch keine Leselisten"
+  },
+  "collection": {
+    "renameTitle": "Sammlung umbenennen",
+    "deleteTitle": "Sammlung löschen",
+    "editMembersEmpty": "Eine Sammlung braucht mindestens eine Serie. Lösche sie, statt sie zu leeren.",
+    "selectedSeriesCount_one": "{{count}} ausgewählt",
+    "selectedSeriesCount_other": "{{count}} ausgewählt"
+  },
+  "readList": {
+    "editTitle": "Leseliste bearbeiten",
+    "deleteTitle": "Leseliste löschen"
+  },
+  "deleteDialog": {
+    "bookFileTitle": "Buchdatei löschen",
+    "bookFileName": "die Datei von {{name}}",
+    "seriesFilesTitle": "Serien-Dateien löschen",
+    "seriesFilesName": "alle Dateien von {{name}}"
+  },
+  "picker": {
+    "searchPlaceholder": "Bücher suchen…",
+    "searchSeriesPlaceholder": "Serien suchen…",
+    "noBooksFound": "Keine Bücher gefunden",
+    "noSeriesFound": "Keine Serien gefunden",
+    "tryDifferentSearch": "Versuche eine andere Suche.",
+    "addedBadge": "Hinzugefügt",
+    "pickOne": "Ein Buch auswählen",
+    "pickOneSeries": "Eine Serie auswählen",
+    "noneSelected": "Nichts ausgewählt"
+  },
+  "editBooks": {
+    "selectAll": "Alle auswählen",
+    "clearSelection": "Auswahl aufheben",
+    "removeSelected": "Ausgewählte entfernen",
+    "manualOrdering": "Manuelle Reihenfolge",
+    "emptyNotAllowed": "Eine Leseliste braucht mindestens ein Buch. Lösche sie, statt sie zu leeren.",
+    "selectRow": "Zeile auswählen",
+    "dragToReorder": "Ziehen zum Umsortieren"
+  }
+}

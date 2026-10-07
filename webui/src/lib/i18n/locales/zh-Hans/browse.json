@@ -1,0 +1,89 @@
+{
+  "libraryFallback": "库",
+  "errorFallback": "出错了。",
+  "emptyFilterHint": "试试调整筛选条件。",
+  "tryDifferentSearch": "换个关键词试试。",
+  "tabs": {
+    "series": "系列",
+    "books": "书籍",
+    "collections": "合集",
+    "readlists": "阅读列表"
+  },
+  "namePlaceholder": "名称",
+  "bookCount_other": "{{count}} 本书",
+  "seriesCount_other": "{{count}} 个系列",
+  "books": {
+    "all": "全部图书",
+    "loadError": "无法加载图书",
+    "empty": "没有找到图书"
+  },
+  "series": {
+    "all": "全部系列",
+    "loadError": "无法加载系列",
+    "empty": "没有找到系列"
+  },
+  "collections": {
+    "title": "合集",
+    "loadError": "无法加载合集",
+    "empty": "还没有合集",
+    "count_other": "个合集"
+  },
+  "readlists": {
+    "title": "阅读列表",
+    "loadError": "无法加载阅读列表",
+    "empty": "还没有阅读列表",
+    "count_other": "个阅读列表"
+  },
+  "alphabet": {
+    "ariaLabel": "按首字母浏览"
+  },
+  "addToCollection": {
+    "title_other": "将 {{count}} 个系列添加到合集",
+    "filterPlaceholder": "筛选合集…",
+    "noMatch": "没有匹配的合集",
+    "newLabel": "新建合集",
+    "added": "已添加到「{{name}}」",
+    "created": "已创建「{{name}}」",
+    "addFailed": "无法添加到合集",
+    "createFailed": "无法创建合集"
+  },
+  "addToReadList": {
+    "title_other": "将 {{count}} 本书添加到阅读列表",
+    "filterPlaceholder": "筛选阅读列表…",
+    "noMatch": "没有匹配的阅读列表",
+    "newLabel": "新建阅读列表",
+    "added": "已添加到「{{name}}」",
+    "created": "已创建「{{name}}」",
+    "addFailed": "无法添加到阅读列表",
+    "createFailed": "无法创建阅读列表"
+  },
+  "deleteConfirm": {
+    "body_book_other": "删除 <num>{{count}}</num> 本书的文件？文件将从磁盘删除，此操作无法撤销。",
+    "body_series_other": "删除 <num>{{count}}</num> 个系列的文件？文件将从磁盘删除，此操作无法撤销。"
+  },
+  "selection": {
+    "working": "正在处理 {{done}}/{{total}}…",
+    "selected_other": "已选 <num>{{count}}</num> 项",
+    "selectAll": "全选",
+    "clear": "清空",
+    "moreActions": "更多操作",
+    "markRead": "标记为已读",
+    "markUnread": "标记为未读",
+    "addToReadList": "添加到阅读列表",
+    "addToCollection": "添加到合集",
+    "editMetadata": "编辑元数据",
+    "matchKomf": "用 komf 匹配",
+    "deleteFiles": "删除文件",
+    "markBooksAs_read_other": "已将 {{count}} 本书标记为已读",
+    "markBooksAs_unread_other": "已将 {{count}} 本书标记为未读",
+    "markSeriesAs_read_other": "已将 {{count}} 个系列标记为已读",
+    "markSeriesAs_unread_other": "已将 {{count}} 个系列标记为未读",
+    "markBooksFailed_other": "{{total}} 本书中有 {{failed}} 本失败",
+    "markSeriesFailed_other": "{{total}} 个系列中有 {{failed}} 个失败",
+    "matchKomfQueued_other": "已为 {{count}} 个系列排队 komf 匹配",
+    "matchKomfFailed_other": "{{total}} 个系列中有 {{failed}} 个失败",
+    "deleteBooksFiles_other": "已删除 {{count}} 本书的文件",
+    "deleteSeriesFiles_other": "已删除 {{count}} 个系列的文件",
+    "deleteFilesFailed": "{{total}} 项中有 {{failed}} 项失败"
+  }
+}

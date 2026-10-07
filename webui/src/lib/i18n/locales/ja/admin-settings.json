@@ -1,0 +1,198 @@
+{
+  "server": {
+    "title": "サーバー",
+    "subtitle": "kmrs {{version}}",
+    "subtitleWithCommit": "kmrs {{version}} · コミット {{commit}}"
+  },
+  "settings": {
+    "title": "設定",
+    "subtitle": "データベースに保存されるサーバー全体のオプション",
+    "loadFailed": "設定を読み込めませんでした。"
+  },
+  "ui": {
+    "title": "UI 設定",
+    "subtitle": "すべてのユーザーの Web UI に適用されるグローバルな調整",
+    "loadFailed": "UI 設定を読み込めませんでした",
+    "errorFallback": "問題が発生しました。",
+    "login": "ログイン",
+    "hidePassword": "メールアドレス・パスワードのログインフォームを隠す",
+    "hidePasswordHelper": "OAuth2 プロバイダーが少なくとも 1 つ設定されている場合のみ有効です。未設定の場合、誰もロックアウトされないようパスワードフォームは常に表示されます。",
+    "hidePasswordHelperWithCount_other": "OAuth2 プロバイダーが少なくとも 1 つ設定されている場合のみ有効です（{{count}} 件設定済み）。未設定の場合、誰もロックアウトされないようパスワードフォームは常に表示されます。",
+    "noProviderWarning": "OAuth2 プロバイダーが設定されていないため、ログインページにはパスワードフォームが引き続き表示されます。",
+    "saveFailed": "設定を保存できませんでした。"
+  },
+  "stats": {
+    "version": "バージョン",
+    "uptime": "稼働時間",
+    "cpu": "CPU",
+    "memory": "メモリ",
+    "diskFree": "ディスク空き",
+    "diskTotal": "/ {{total}}"
+  },
+  "sections": {
+    "content": "コンテンツ",
+    "security": "セキュリティ",
+    "thumbnails": "サムネイル",
+    "tasks": "タスク",
+    "server": "サーバー",
+    "kobo": "Kobo",
+    "kepubify": "Kepubify"
+  },
+  "content": {
+    "libraries": "ライブラリ",
+    "series": "シリーズ",
+    "books": "本",
+    "collections": "コレクション",
+    "readLists": "読書リスト",
+    "sidecars": "サイドカー",
+    "totalSize": "合計サイズ"
+  },
+  "duration": {
+    "ms_other": "{{count}}ms",
+    "second_other": "{{count}}s",
+    "minute_other": "{{count}}m",
+    "hour_other": "{{count}}h",
+    "day_other": "{{count}}d"
+  },
+  "interval": "{{duration}} ごと",
+  "taskType": {
+    "scanLibrary": "ライブラリをスキャン",
+    "findBooksToConvert": "変換対象の本を検索",
+    "findBooksWithMissingPageHash": "ページハッシュが未設定の本を検索",
+    "findDuplicatePagesToDelete": "削除対象の重複ページを検索",
+    "emptyTrash": "ゴミ箱を空にする",
+    "analyzeBook": "本を分析",
+    "generateBookThumbnail": "本のサムネイルを生成",
+    "refreshBookMetadata": "本のメタデータを更新",
+    "hashBook": "本のハッシュを計算",
+    "hashBookPages": "本のページのハッシュを計算",
+    "hashBookKoreader": "本の KOReader ハッシュを計算",
+    "refreshSeriesMetadata": "シリーズのメタデータを更新",
+    "aggregateSeriesMetadata": "シリーズのメタデータを集約",
+    "refreshBookLocalArtwork": "本のローカルアートワークを更新",
+    "refreshSeriesLocalArtwork": "シリーズのローカルアートワークを更新",
+    "importBook": "本をインポート",
+    "convertBook": "本を変換",
+    "repairExtension": "拡張子を修復",
+    "removeHashedPages": "ハッシュ済みページを削除",
+    "rebuildIndex": "インデックスを再構築",
+    "upgradeIndex": "インデックスをアップグレード",
+    "deleteBook": "本を削除",
+    "deleteSeries": "シリーズを削除",
+    "findBookThumbnailsToRegenerate": "再生成対象の本のサムネイルを検索"
+  },
+  "taskQueue": {
+    "title": "タスクキュー",
+    "active": "キュー動作中",
+    "clear": "キューをクリア",
+    "status_other": "{{count}} 件の待機タスク · 10 秒ごとに更新",
+    "waiting": "最初の更新を待っています… · 10 秒ごとに更新",
+    "cleared_other": "{{count}} 件の待機タスクをクリアしました。",
+    "clearFailed": "キューをクリアできませんでした。",
+    "clearTitle": "タスクキューをクリア",
+    "clearBody": "まだワーカーに拾われていない待機タスクが削除されます。実行中のタスクには影響しません。"
+  },
+  "taskExecution": {
+    "title": "タスク実行",
+    "empty": "タスクの実行記録はまだありません。",
+    "type": "種類",
+    "runs": "実行回数",
+    "totalTime": "合計時間",
+    "longest": "最長",
+    "failures_other": "{{count}} 件のタスク失敗が記録されています。"
+  },
+  "scheduled": {
+    "title": "スケジュールタスク",
+    "loadFailed": "スケジュールタスクを読み込めませんでした。",
+    "empty": "スケジュールタスクはありません。"
+  },
+  "sessions": {
+    "title": "セッション",
+    "loadFailed": "セッションを読み込めませんでした。",
+    "empty": "アクティブなセッションはありません。",
+    "session": "セッション",
+    "created": "作成日時",
+    "lastActive": "最終アクティブ",
+    "status": "ステータス",
+    "actions": "操作",
+    "expired": "期限切れ",
+    "active": "アクティブ",
+    "kick": "強制ログアウト",
+    "kickHint": "セッションを強制ログアウトするとそのデバイスはログアウトされ、ユーザーは再度ログインが必要になります。",
+    "kickFailed": "セッションを強制ログアウトできませんでした。",
+    "showAll_other": "{{count}} 件のセッションをすべて表示"
+  },
+  "danger": {
+    "title": "危険ゾーン",
+    "logfile": "ログファイルをダウンロード",
+    "logfileHelper": "現在のサーバーログをファイルとして取得します。",
+    "shutdown": "サーバーをシャットダウン",
+    "shutdownHelper": "サーバープロセスを停止します。誰かが再起動するまで停止したままになります。",
+    "shutdownButton": "シャットダウン",
+    "shutdownBody": "サーバープロセスが終了します。再起動されるまで、接続中のすべてのユーザーがアクセスできなくなります。",
+    "shutdownFailed": "サーバーをシャットダウンできませんでした。",
+    "shuttingDown": "サーバーをシャットダウンしています",
+    "shuttingDownBody": "シャットダウンリクエストが受け付けられました。プロセスが終了するとこのページは応答しなくなります。戻るにはサーバーを再起動してください。"
+  },
+  "form": {
+    "deleteEmptyCollections": "空のコレクションを削除",
+    "deleteEmptyReadLists": "空の読書リストを削除",
+    "rememberMeDuration": "ログイン保持期間",
+    "rememberMeDurationHelper": "「ログイン状態を保持する」ログインの有効期間。",
+    "rememberMeDurationDays": "ログイン保持期間（日）",
+    "days": "日",
+    "rememberMeKey": "ログイン保持キー",
+    "rememberMeKeyHelper": "「ログイン状態を保持する」ログインの署名シークレット。",
+    "thumbnailSize": "サムネイルサイズ",
+    "thumbnailSizeHelper": "大きいサムネイルほど鮮明ですが、ディスク容量を多く使います。",
+    "taskPoolSize": "タスクプールサイズ",
+    "taskPoolSizeHelper": "同時に実行できるバックグラウンドタスクの数。",
+    "serverPort": "サーバーポート",
+    "contextPath": "コンテキストパス",
+    "contextPathHelper": "サーバーが提供されるベースパス（例: /kmrs）。",
+    "koboProxy": "Kobo プロキシ",
+    "koboPort": "Kobo ポート",
+    "kepubifyPath": "Kepubify パス",
+    "kepubifyPathHelper": "kepubify バイナリへのパス。EPUB から KEPUB への変換に使用します。",
+    "unsaved_other": "{{count}} 件の未保存の変更",
+    "discard": "破棄",
+    "fixInvalid": "上の無効なフィールドを修正してから保存してください。",
+    "saveFailed": "設定を保存できませんでした。"
+  },
+  "thumbnail": {
+    "default": "デフォルト",
+    "medium": "中",
+    "large": "大",
+    "xlarge": "XL"
+  },
+  "multiSource": {
+    "notSet": "未設定",
+    "overridden": "データベースで上書き",
+    "fromConfig": "設定ファイルから",
+    "default": "デフォルト",
+    "clearOverride": "上書きをクリア",
+    "clearOverrideTooltip": "データベースの上書きをクリア",
+    "effective": "有効値: {{value}}",
+    "none": "なし"
+  },
+  "rotateKey": {
+    "button": "ログイン保持キーを再生成",
+    "confirm": "キーを再生成",
+    "done": "キーを再生成しました — すべての「ログイン状態を保持する」ログインがログアウトされました。",
+    "body": "「ログイン状態を保持する」を選択したすべてのユーザーがログアウトされ、すべてのデバイスで再ログインが必要になります。",
+    "failed": "キーを再生成できませんでした。"
+  },
+  "regenerate": {
+    "title": "サムネイルを再生成",
+    "body": "サムネイルサイズが変更されました。既存の本は再生成されるまで現在のサムネイルのままです。バックグラウンドタスクとしてキューに追加され、タスクキューパネルで確認できます。",
+    "biggerOnly": "小さいもののみ",
+    "all": "すべての本",
+    "skip": "後で",
+    "failed": "再生成タスクを開始できませんでした。"
+  },
+  "validation": {
+    "positiveDays": "正の整数の日数で指定してください。",
+    "positiveInt": "正の整数で指定してください。",
+    "contextPath": "/ で始まり、英字または数字で終わる必要があります（例: /kmrs）。"
+  }
+}
