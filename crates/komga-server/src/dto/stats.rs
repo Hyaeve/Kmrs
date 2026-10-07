@@ -71,10 +71,6 @@ pub struct LibraryStatsDto {
     pub series: i64,
     pub books: i64,
     pub file_size: i64,
-    /// Lists holding at least one visible member of this library; a list spanning
-    /// libraries counts in each of them.
-    pub readlists: i64,
-    pub collections: i64,
     /// Sidecars carry no visibility of their own, so the count is admin-only; other
     /// callers get the field omitted.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -87,9 +83,6 @@ pub struct LibraryStatsTotalDto {
     pub series: i64,
     pub books: i64,
     pub file_size: i64,
-    /// Distinct lists over all visible libraries — not the sum of the per-library counts.
-    pub readlists: i64,
-    pub collections: i64,
     /// One sidecar belongs to exactly one library, so this equals the per-library sum.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sidecars: Option<i64>,

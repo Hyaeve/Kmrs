@@ -106,16 +106,10 @@ async fn libraries_stats(
                 series: row.series,
                 books: row.books,
                 file_size: row.filesize,
-                readlists: row.readlists,
-                collections: row.collections,
                 sidecars: sidecar_count,
             }
         })
         .collect();
-    // spanning lists count once per touched library, so the total is a distinct count, not a row sum
-    let membership = dao.membership_totals(&series_visibility, &book_visibility)?;
-    total.readlists = membership.readlists;
-    total.collections = membership.collections;
     Ok(Json(LibrariesStatsDto { libraries, total }))
 }
 
@@ -993,7 +987,7 @@ mod tests {
         assert_eq!(libraries[0]["fileSize"], 100);
         assert_eq!(
             body["total"],
-            serde_json::json!({"series": 1, "books": 1, "fileSize": 100, "readlists": 0, "collections": 0})
+            serde_json::json!({"series": 1, "books": 1, "fileSize": 100})
         );
     }
 
@@ -1010,7 +1004,7 @@ mod tests {
         assert_eq!(body["libraries"], serde_json::json!([]));
         assert_eq!(
             body["total"],
-            serde_json::json!({"series": 0, "books": 0, "fileSize": 0, "readlists": 0, "collections": 0})
+            serde_json::json!({"series": 0, "books": 0, "fileSize": 0})
         );
     }
 
@@ -1032,152 +1026,7 @@ mod tests {
         assert_eq!(libraries[1]["fileSize"], 0);
         assert_eq!(
             body["total"],
-            serde_json::json!({"series": 1, "books": 1, "fileSize": 100, "readlists": 0, "collections": 0, "sidecars": 0})
-        );
-    }
-
-    fn seed_readlist(db: &Database, id: &str, book_ids: &[&str]) {
-        exec(
-            db,
-            "INSERT INTO READLIST (ID, NAME, BOOK_COUNT) VALUES (?, ?, ?)",
-            rusqlite::params![id, id, book_ids.len() as i64],
-        );
-        for (number, book_id) in book_ids.iter().enumerate() {
-            exec(
-                db,
-                "INSERT INTO READLIST_BOOK (READLIST_ID, BOOK_ID, NUMBER) VALUES (?, ?, ?)",
-                rusqlite::params![id, book_id, number as i64],
-            );
-        }
-    }
-
-    fn seed_collection(db: &Database, id: &str, series_ids: &[&str]) {
-        exec(
-            db,
-            "INSERT INTO COLLECTION (ID, NAME, SERIES_COUNT) VALUES (?, ?, ?)",
-            rusqlite::params![id, id, series_ids.len() as i64],
-        );
-        for (number, series_id) in series_ids.iter().enumerate() {
-            exec(
-                db,
-                "INSERT INTO COLLECTION_SERIES (COLLECTION_ID, SERIES_ID, NUMBER) VALUES (?, ?, ?)",
-                rusqlite::params![id, series_id, number as i64],
-            );
-        }
-    }
-
-    /// r1/c1 span l1+l2; r2/c2 hold only restricted members; r3 is empty and belongs to nothing.
-    fn seed_lists_fixture(db: &Database) {
-        seed_series(db, "s1", "l1", None);
-        seed_book_sized(db, "b1", "s1", "l1", 100);
-        seed_series(db, "s3", "l1", Some(21));
-        seed_book_sized(db, "b3", "s3", "l1", 300);
-        seed_series(db, "s2", "l2", None);
-        seed_book_sized(db, "b2", "s2", "l2", 200);
-        seed_readlist(db, "r1", &["b1", "b2"]);
-        seed_readlist(db, "r2", &["b3"]);
-        seed_readlist(db, "r3", &[]);
-        seed_collection(db, "c1", &["s1", "s2"]);
-        seed_collection(db, "c2", &["s3"]);
-    }
-
-    #[tokio::test]
-    async fn libraries_stats_lists_belong_to_every_touched_library() {
-        let app = admin_app();
-        seed_lists_fixture(&app.state.db);
-
-        let (status, body) = app.get_json("/api/v1/stats/libraries", "k").await;
-        assert_eq!(status, StatusCode::OK);
-        let libraries = body["libraries"].as_array().unwrap();
-        assert_eq!(libraries[0]["libraryId"], "l1");
-        assert_eq!(libraries[0]["readlists"], 2); // r1 via b1, r2 via b3
-        assert_eq!(libraries[0]["collections"], 2); // c1 via s1, c2 via s3
-        assert_eq!(libraries[1]["libraryId"], "l2");
-        assert_eq!(libraries[1]["readlists"], 1); // r1 via b2
-        assert_eq!(libraries[1]["collections"], 1); // c1 via s2
-
-        // r1/c1 count in both libraries, so the total is the distinct count, not the row sum
-        assert_eq!(
-            body["total"],
-            serde_json::json!({"series": 3, "books": 3, "fileSize": 600, "readlists": 2, "collections": 2, "sidecars": 0})
-        );
-    }
-
-    #[tokio::test]
-    async fn libraries_stats_lists_follow_content_restrictions() {
-        let app = TestApp::new(router());
-        // the shared library must exist before the user row references it
-        seed_library(&app.state.db, "l1");
-        crate::api::collections::tests::insert_user(
-            &app.state.db,
-            "kid@x.c",
-            &[],
-            &["l1"],
-            ContentRestrictions::new(
-                Some(AgeRestriction {
-                    age: 18,
-                    restriction: AllowExclude::Exclude,
-                }),
-                Default::default(),
-                Default::default(),
-            ),
-            "k",
-        );
-        seed_lists_fixture(&app.state.db);
-
-        let (status, body) = app.get_json("/api/v1/stats/libraries", "k").await;
-        assert_eq!(status, StatusCode::OK);
-        let libraries = body["libraries"].as_array().unwrap();
-        assert_eq!(libraries.len(), 1);
-        // r2's only book is 21+ and c2's only series is 21+: neither list counts for the kid
-        assert_eq!(libraries[0]["readlists"], 1);
-        assert_eq!(libraries[0]["collections"], 1);
-        assert_eq!(
-            body["total"],
-            serde_json::json!({"series": 1, "books": 1, "fileSize": 100, "readlists": 1, "collections": 1})
-        );
-    }
-
-    #[tokio::test]
-    async fn libraries_stats_lists_count_only_libraries_with_visible_members() {
-        let app = TestApp::new(router());
-        // the shared libraries must exist before the user row references them
-        seed_library(&app.state.db, "l1");
-        seed_library(&app.state.db, "l2");
-        crate::api::collections::tests::insert_user(
-            &app.state.db,
-            "kid@x.c",
-            &[],
-            &["l1", "l2"],
-            ContentRestrictions::new(
-                Some(AgeRestriction {
-                    age: 18,
-                    restriction: AllowExclude::Exclude,
-                }),
-                Default::default(),
-                Default::default(),
-            ),
-            "k",
-        );
-        seed_series(&app.state.db, "s1", "l1", None);
-        seed_book_sized(&app.state.db, "b1", "s1", "l1", 100);
-        seed_series(&app.state.db, "s4", "l2", Some(21));
-        seed_book_sized(&app.state.db, "b4", "s4", "l2", 400);
-        seed_readlist(&app.state.db, "r1", &["b1", "b4"]);
-        seed_collection(&app.state.db, "c1", &["s1", "s4"]);
-
-        let (status, body) = app.get_json("/api/v1/stats/libraries", "k").await;
-        assert_eq!(status, StatusCode::OK);
-        let libraries = body["libraries"].as_array().unwrap();
-        assert_eq!(libraries.len(), 2);
-        // r1/c1 count in l1 via b1/s1; their only l2 members are 21+, so l2 gets nothing
-        assert_eq!(libraries[0]["readlists"], 1);
-        assert_eq!(libraries[0]["collections"], 1);
-        assert_eq!(libraries[1]["readlists"], 0);
-        assert_eq!(libraries[1]["collections"], 0);
-        assert_eq!(
-            body["total"],
-            serde_json::json!({"series": 1, "books": 1, "fileSize": 100, "readlists": 1, "collections": 1})
+            serde_json::json!({"series": 1, "books": 1, "fileSize": 100, "sidecars": 0})
         );
     }
 

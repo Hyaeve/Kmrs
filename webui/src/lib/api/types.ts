@@ -1311,21 +1311,17 @@ export interface LibraryStatsDto {
   series: number
   books: number
   fileSize: number
-  readlists: number
-  collections: number
   /** Admin-only, absent for other callers. */
   sidecars?: number
 }
 
 export interface LibrariesStatsDto {
   libraries: LibraryStatsDto[]
-  /** readlists/collections are distinct counts over all visible libraries, not the per-library row sum; sidecars is admin-only */
+  /** sidecars is admin-only */
   total: {
     series: number
     books: number
     fileSize: number
-    readlists: number
-    collections: number
     sidecars?: number
   }
 }
