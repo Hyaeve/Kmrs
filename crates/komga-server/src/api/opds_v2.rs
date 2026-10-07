@@ -474,6 +474,15 @@ fn get_library_navigation(
             MEDIATYPE_OPDS_JSON,
         ));
     }
+    // smart lists are global, not library-scoped, so they only appear on the root catalog
+    if library_id.is_none() && crate::service::smart_list::any_visible(state, user)? {
+        nav.push(wp_link(
+            "Smart lists",
+            rel::SUBSECTION,
+            "smart-lists".to_string(),
+            MEDIATYPE_OPDS_JSON,
+        ));
+    }
     Ok(nav)
 }
 
@@ -658,6 +667,8 @@ pub fn router() -> Router<AppState> {
             get(get_libraries_readlists),
         )
         .route("/opds/v2/readlists/{id}", get(get_one_readlist))
+        .route("/opds/v2/smart-lists", get(get_smart_lists_root))
+        .route("/opds/v2/smart-lists/{id}", get(get_one_smart_list))
         .route("/opds/v2/series/{id}", get(get_one_series))
         .route("/opds/v2/search", get(get_search_results))
         .route(
@@ -1905,6 +1916,179 @@ async fn get_one_readlist(
     ))
 }
 
+async fn get_smart_lists_root(
+    state: State<AppState>,
+    auth: MaybeAuth,
+    qp: QueryPageable,
+    request: Request,
+) -> Result<Response, ApiError> {
+    let (parts, _body) = request.into_parts();
+    let auth = match require_auth(&auth, &parts, &state) {
+        Ok(a) => a,
+        Err(r) => return Ok(*r),
+    };
+    let user = &auth.user;
+    let base = base_url(&parts, &state.settings);
+    let lists = crate::service::smart_list::find_visible_lists(&state, user)?;
+
+    let size = qp.pageable.size.max(1) as usize;
+    let offset = (qp.pageable.page as usize) * size;
+    let total = lists.len() as i64;
+    let items: Vec<komga_core::model::smart_list::SmartList> =
+        lists.into_iter().skip(offset).take(size).collect();
+
+    let uri = url_builder(&base, "smart-lists");
+    let mut links = vec![
+        link_self_href(uri.clone()),
+        link_start(&base),
+        link_search(&base),
+    ];
+    links.extend(link_page(
+        &uri,
+        &PageRequest {
+            page: qp.pageable.page,
+            size: qp.pageable.size,
+            unpaged: false,
+            sort: vec![],
+        },
+        total,
+    ));
+
+    Ok(opds_json(
+        Json(FeedDto {
+            metadata: FeedMetadataDto {
+                title: "Smart lists".to_string(),
+                modified: Some(at_system_zone(komga_core::time_codec::now_utc())),
+                items_per_page: Some(qp.pageable.size),
+                current_page: Some(qp.pageable.page + 1),
+                number_of_items: Some(total),
+                ..Default::default()
+            },
+            links,
+            // same group shape as the collections/readlists feeds, so clients render
+            // every listing feed the same way
+            groups: vec![FeedGroupDto {
+                metadata: FeedMetadataDto {
+                    title: "Smart lists".to_string(),
+                    number_of_items: Some(total),
+                    ..Default::default()
+                },
+                navigation: items
+                    .iter()
+                    .map(|l| {
+                        wp_link(
+                            &l.name,
+                            rel::SUBSECTION,
+                            url_builder(&base, &format!("smart-lists/{}", l.id)),
+                            MEDIATYPE_OPDS_JSON,
+                        )
+                    })
+                    .collect(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        })
+        .into_response(),
+    ))
+}
+
+async fn get_one_smart_list(
+    state: State<AppState>,
+    auth: MaybeAuth,
+    qp: QueryPageable,
+    Path(id): Path<String>,
+    request: Request,
+) -> Result<Response, ApiError> {
+    let (parts, _body) = request.into_parts();
+    let auth = match require_auth(&auth, &parts, &state) {
+        Ok(a) => a,
+        Err(r) => return Ok(*r),
+    };
+    let user = &auth.user;
+    let base = base_url(&parts, &state.settings);
+    let Some(smart_list) = crate::service::smart_list::find_visible(&state, user, &id)? else {
+        return Err(ApiError::not_found(""));
+    };
+
+    let ctx = SearchContext::of_user(user);
+    let searcher = Some(crate::search_index::searcher(&state));
+    // the sort property is target-specific: the series DAO drops unknown keys, which
+    // would leave SERIES feeds unordered and pagination unstable
+    let page = PageRequest {
+        page: qp.pageable.page,
+        size: qp.pageable.size,
+        unpaged: false,
+        sort: vec![SortOrder {
+            property: crate::service::smart_list::opds_sort_property(smart_list.target).to_string(),
+            descending: false,
+        }],
+    };
+
+    let uri = url_builder(&base, &format!("smart-lists/{id}"));
+    let mut links = vec![
+        link_self_href(uri.clone()),
+        link_start(&base),
+        link_search(&base),
+    ];
+
+    match smart_list.target {
+        komga_core::model::smart_list::SmartListTarget::Book => {
+            let search = crate::service::smart_list::opds_book_search(&smart_list)?;
+            let entries = book_dao(&state)
+                .with_searcher(searcher)
+                .find_all(&search, &ctx, &page)?;
+            links.extend(link_page(&uri, &page, entries.total));
+            Ok(opds_json(
+                Json(FeedDto {
+                    metadata: FeedMetadataDto {
+                        title: smart_list.name.clone(),
+                        modified: Some(at_system_zone(smart_list.last_modified_date)),
+                        items_per_page: Some(page.size),
+                        current_page: Some(page.page + 1),
+                        number_of_items: Some(entries.total),
+                        ..Default::default()
+                    },
+                    links,
+                    publications: entries
+                        .items
+                        .iter()
+                        .map(|b| to_opds_publication_dto(b, &base, detect::IMAGE_JPEG))
+                        .collect(),
+                    ..Default::default()
+                })
+                .into_response(),
+            ))
+        }
+        komga_core::model::smart_list::SmartListTarget::Series => {
+            let search = crate::service::smart_list::opds_series_search(&smart_list)?;
+            let entries = series_dao(&state)
+                .with_searcher(searcher)
+                .find_all(&search, None, &ctx, &page)?;
+            links.extend(link_page(&uri, &page, entries.total));
+            Ok(opds_json(
+                Json(FeedDto {
+                    metadata: FeedMetadataDto {
+                        title: smart_list.name.clone(),
+                        modified: Some(at_system_zone(smart_list.last_modified_date)),
+                        items_per_page: Some(page.size),
+                        current_page: Some(page.page + 1),
+                        number_of_items: Some(entries.total),
+                        ..Default::default()
+                    },
+                    links,
+                    navigation: entries
+                        .items
+                        .iter()
+                        .map(|s| series_link(&base, s))
+                        .collect(),
+                    ..Default::default()
+                })
+                .into_response(),
+            ))
+        }
+    }
+}
+
 async fn get_one_series(
     state: State<AppState>,
     auth: MaybeAuth,
@@ -2444,7 +2628,7 @@ fn publication_response(dto: WPPublicationDto) -> Response {
 mod tests {
     use super::*;
     use crate::api::collections::tests::{
-        call, exec, get, seed_base, test_state, ADMIN_KEY, USER_KEY,
+        call, exec, get, insert_user, seed_base, test_state, ADMIN_KEY, USER_KEY,
     };
     use axum::body::Body;
     use axum::http::Request;
@@ -3338,6 +3522,214 @@ mod tests {
         assert_eq!(format_zoned(&offset_dt), "2020-01-01T08:00:00+08:00");
         assert!(!offset_suffix().is_empty());
     }
-}
 
-// endregion
+    #[tokio::test]
+    async fn smart_lists_navigation_and_publications() {
+        use komga_core::model::smart_list::{SmartList, SmartListTarget, SmartListVisibility};
+
+        let state = test_state();
+        seed_base(&state.db);
+        let user_id: String = state
+            .db
+            .ro()
+            .unwrap()
+            .query_row("SELECT ID FROM USER WHERE EMAIL = 'user@x.y'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        let admin_id: String = state
+            .db
+            .ro()
+            .unwrap()
+            .query_row("SELECT ID FROM USER WHERE EMAIL = 'admin@x.y'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+
+        let make_list = |owner: &str,
+                         name: &str,
+                         visibility: SmartListVisibility,
+                         target: SmartListTarget,
+                         search_json: &str| {
+            crate::service::smart_list::add_smart_list(
+                &state,
+                SmartList {
+                    id: String::new(),
+                    name: name.into(),
+                    summary: String::new(),
+                    owner_user_id: owner.into(),
+                    target,
+                    visibility,
+                    search_json: search_json.into(),
+                    created_date: komga_core::time_codec::now_utc(),
+                    last_modified_date: komga_core::time_codec::now_utc(),
+                },
+                &[],
+            )
+            .unwrap()
+        };
+        let l1_books = r#"{"condition":{"libraryId":{"operator":"is","value":"l1"}}}"#;
+        let book_list = make_list(
+            &user_id,
+            "my-books",
+            SmartListVisibility::Private,
+            SmartListTarget::Book,
+            l1_books,
+        );
+        let series_list = make_list(
+            &user_id,
+            "my-series",
+            SmartListVisibility::Private,
+            SmartListTarget::Series,
+            l1_books,
+        );
+        let admin_private = make_list(
+            &admin_id,
+            "admin-priv",
+            SmartListVisibility::Private,
+            SmartListTarget::Book,
+            l1_books,
+        );
+        // aggregated series release dates drive the SERIES ordering; seed them directly
+        exec(
+            &state.db,
+            "UPDATE BOOK_METADATA_AGGREGATION SET RELEASE_DATE = '2020-01-01' WHERE SERIES_ID = 's1'",
+            [],
+        );
+        exec(
+            &state.db,
+            "UPDATE BOOK_METADATA_AGGREGATION SET RELEASE_DATE = '2019-01-01' WHERE SERIES_ID = 's2'",
+            [],
+        );
+
+        // root catalog links to the smart lists feed
+        let (status, _, body) = call(&state, router(), get("/opds/v2/libraries", USER_KEY)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            String::from_utf8_lossy(&body).contains("smart-lists"),
+            "root catalog should link the smart lists feed"
+        );
+
+        // nav feed sits in a titled group, same shape as the collections/readlists feeds
+        let (status, _, body) = call(&state, router(), get("/opds/v2/smart-lists", USER_KEY)).await;
+        assert_eq!(status, StatusCode::OK);
+        let feed = json(&body);
+        assert_eq!(feed["metadata"]["title"], "Smart lists");
+        // entries live in the group, not at the top level
+        assert!(feed["navigation"].is_null());
+        let group = &feed["groups"][0];
+        assert_eq!(group["metadata"]["title"], "Smart lists");
+        let titles: Vec<&str> = group["navigation"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|n| n["title"].as_str().unwrap())
+            .collect();
+        assert_eq!(titles, ["my-books", "my-series"]);
+
+        // BOOK list → publications of the matched books (l1: b1, b2, b3), ordered by
+        // release date ascending: b3 (2019), b1 (2020), b2 (2021)
+        let (status, _, body) = call(
+            &state,
+            router(),
+            get(&format!("/opds/v2/smart-lists/{}", book_list.id), USER_KEY),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let feed = json(&body);
+        assert_eq!(feed["metadata"]["title"], "my-books");
+        let publication_titles: Vec<&str> = feed["publications"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["metadata"]["title"].as_str().unwrap())
+            .collect();
+        assert_eq!(publication_titles, ["b3", "b1", "b2"]);
+
+        // SERIES list → navigation into the matched series (l1: s2 before s1)
+        let (status, _, body) = call(
+            &state,
+            router(),
+            get(
+                &format!("/opds/v2/smart-lists/{}", series_list.id),
+                USER_KEY,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let feed = json(&body);
+        let nav_titles: Vec<&str> = feed["navigation"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|n| n["title"].as_str().unwrap())
+            .collect();
+        assert_eq!(nav_titles, ["beta", "Alpha"]);
+
+        // another user's private list is invisible; the nav feed hides it too
+        let (status, _, _) = call(
+            &state,
+            router(),
+            get(
+                &format!("/opds/v2/smart-lists/{}", admin_private.id),
+                USER_KEY,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (_, _, body) = call(&state, router(), get("/opds/v2/smart-lists", USER_KEY)).await;
+        let feed = json(&body);
+        let titles: Vec<&str> = feed["groups"][0]["navigation"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|n| n["title"].as_str().unwrap())
+            .collect();
+        assert_eq!(titles, ["my-books", "my-series"]);
+
+        // SHARED scope: visible to the targeted user only
+        insert_user(&state.db, "u3@x.y", &[], &[], Default::default(), "u3-key");
+        // a user with no visible lists gets no root-catalog link
+        let (_, _, body) = call(&state, router(), get("/opds/v2/libraries", "u3-key")).await;
+        assert!(!String::from_utf8_lossy(&body).contains("smart-lists"));
+        let shared_list = make_list(
+            &user_id,
+            "shared-with-user",
+            SmartListVisibility::Shared,
+            SmartListTarget::Book,
+            l1_books,
+        );
+        crate::service::smart_list::dao(&state)
+            .set_shares(&shared_list.id, std::slice::from_ref(&user_id))
+            .unwrap();
+        // the targeted user sees it and gets the root link
+        let (_, _, body) = call(&state, router(), get("/opds/v2/smart-lists", USER_KEY)).await;
+        let feed = json(&body);
+        let titles: Vec<&str> = feed["groups"][0]["navigation"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|n| n["title"].as_str().unwrap())
+            .collect();
+        assert_eq!(titles, ["my-books", "my-series", "shared-with-user"]);
+        let (_, _, body) = call(&state, router(), get("/opds/v2/libraries", USER_KEY)).await;
+        assert!(String::from_utf8_lossy(&body).contains("smart-lists"));
+        // the non-targeted user sees nothing, in the feed and in the root catalog
+        let (_, _, body) = call(&state, router(), get("/opds/v2/smart-lists", "u3-key")).await;
+        let feed = json(&body);
+        // empty navigation is omitted from the serialized group
+        assert!(feed["groups"][0]["navigation"].is_null());
+        let (status, _, _) = call(
+            &state,
+            router(),
+            get(
+                &format!("/opds/v2/smart-lists/{}", shared_list.id),
+                "u3-key",
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (_, _, body) = call(&state, router(), get("/opds/v2/libraries", "u3-key")).await;
+        assert!(!String::from_utf8_lossy(&body).contains("smart-lists"));
+    }
+}

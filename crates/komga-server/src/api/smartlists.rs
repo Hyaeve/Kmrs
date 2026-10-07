@@ -126,20 +126,8 @@ fn find_visible_smart_list(
     user: &KomgaUser,
     id: &str,
 ) -> Result<SmartList, ApiError> {
-    let dao = crate::service::smart_list::dao(state);
-    let smart_list = dao.find_by_id(id)?.ok_or_else(|| ApiError::not_found(""))?;
-    if smart_list.owner_user_id == user.id || user.is_admin() {
-        return Ok(smart_list);
-    }
-    let visible = match smart_list.visibility {
-        SmartListVisibility::Public => true,
-        SmartListVisibility::Shared => dao.is_shared_with(id, &user.id)?,
-        SmartListVisibility::Private => false,
-    };
-    if !visible {
-        return Err(ApiError::not_found(""));
-    }
-    Ok(smart_list)
+    crate::service::smart_list::find_visible(state, user, id)?
+        .ok_or_else(|| ApiError::not_found(""))
 }
 
 /// minimal user directory for picking share targets. Only admins publish or share

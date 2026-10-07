@@ -81,6 +81,23 @@ impl SmartListDao {
         Ok(rows)
     }
 
+    /// cheap existence probe for navigation links (avoids fetching every list)
+    pub fn any_visible_for_user(&self, user_id: &str) -> Result<bool> {
+        let conn = self.db.ro()?;
+        Ok(conn.query_row(
+            "SELECT COUNT(*) > 0 FROM SMART_LIST WHERE OWNER_USER_ID = ? OR VISIBILITY = 'PUBLIC' \
+             OR (VISIBILITY = 'SHARED' AND ID IN (SELECT SMART_LIST_ID FROM SMART_LIST_SHARE WHERE USER_ID = ?))",
+            [user_id, user_id],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// admin counterpart of `any_visible_for_user`
+    pub fn any(&self) -> Result<bool> {
+        let conn = self.db.ro()?;
+        Ok(conn.query_row("SELECT COUNT(*) > 0 FROM SMART_LIST", [], |r| r.get(0))?)
+    }
+
     /// whether the list is shared with (not owned by) the given user
     pub fn is_shared_with(&self, smart_list_id: &str, user_id: &str) -> Result<bool> {
         let conn = self.db.ro()?;

@@ -3,7 +3,8 @@
 
 use crate::events::DomainEvent;
 use crate::state::AppState;
-use komga_core::model::smart_list::{SmartList, SmartListTarget};
+use komga_core::model::smart_list::{SmartList, SmartListTarget, SmartListVisibility};
+use komga_core::model::user::KomgaUser;
 use komga_core::search::{
     BookSearch, SearchConditionBook, SearchConditionSeries, SearchContext, SeriesSearch,
 };
@@ -32,6 +33,117 @@ pub type Result<T> = std::result::Result<T, SmartListError>;
 
 pub fn dao(state: &AppState) -> SmartListDao {
     SmartListDao::new(state.kmrs_db.clone())
+}
+
+/// whether the list may be seen by the user: own, admin, PUBLIC, or in the SHARED scope
+pub fn is_visible_to(
+    state: &AppState,
+    user: &KomgaUser,
+    smart_list: &SmartList,
+) -> komga_db::Result<bool> {
+    if smart_list.owner_user_id == user.id || user.is_admin() {
+        return Ok(true);
+    }
+    match smart_list.visibility {
+        SmartListVisibility::Public => Ok(true),
+        SmartListVisibility::Shared => dao(state).is_shared_with(&smart_list.id, &user.id),
+        SmartListVisibility::Private => Ok(false),
+    }
+}
+
+/// the list if visible to the user, None otherwise (callers map it to a 404)
+pub fn find_visible(
+    state: &AppState,
+    user: &KomgaUser,
+    id: &str,
+) -> komga_db::Result<Option<SmartList>> {
+    let Some(smart_list) = dao(state).find_by_id(id)? else {
+        return Ok(None);
+    };
+    Ok(is_visible_to(state, user, &smart_list)?.then_some(smart_list))
+}
+
+/// everything the user may browse: admins get the full catalog, others their visible set
+pub fn find_visible_lists(state: &AppState, user: &KomgaUser) -> komga_db::Result<Vec<SmartList>> {
+    let dao = dao(state);
+    if user.is_admin() {
+        dao.find_all_admin(None)
+    } else {
+        dao.find_visible_for_user(&user.id)
+    }
+}
+
+/// cheap existence probe for navigation links (feeds and catalogs)
+pub fn any_visible(state: &AppState, user: &KomgaUser) -> komga_db::Result<bool> {
+    let dao = dao(state);
+    if user.is_admin() {
+        dao.any()
+    } else {
+        dao.any_visible_for_user(&user.id)
+    }
+}
+
+/// stored filter plus the OPDS constraints: only books a reader can actually open
+/// (ready media, nothing in the trash)
+pub fn opds_book_search(smart_list: &SmartList) -> komga_db::Result<BookSearch> {
+    if smart_list.target != SmartListTarget::Book {
+        return Err(komga_db::Error::EnumValue(
+            "not a BOOK smart list".to_string(),
+        ));
+    }
+    let stored: BookSearch = serde_json::from_str(&smart_list.search_json)
+        .map_err(|e| komga_db::Error::EnumValue(format!("corrupt smart list search: {e}")))?;
+    Ok(BookSearch {
+        condition: Some(SearchConditionBook::AllOf {
+            conditions: vec![
+                stored
+                    .condition
+                    .unwrap_or(SearchConditionBook::AnyOf { conditions: vec![] }),
+                SearchConditionBook::MediaStatus {
+                    operator: komga_core::search::Equality::Is {
+                        value: komga_core::model::media::MediaStatus::Ready,
+                    },
+                },
+                SearchConditionBook::Deleted {
+                    deleted: komga_core::search::BooleanOp::IsFalse,
+                },
+            ],
+        }),
+        full_text_search: stored.full_text_search,
+    })
+}
+
+/// stored filter plus the OPDS constraints for series feeds (nothing in the trash)
+pub fn opds_series_search(smart_list: &SmartList) -> komga_db::Result<SeriesSearch> {
+    if smart_list.target != SmartListTarget::Series {
+        return Err(komga_db::Error::EnumValue(
+            "not a SERIES smart list".to_string(),
+        ));
+    }
+    let stored: SeriesSearch = serde_json::from_str(&smart_list.search_json)
+        .map_err(|e| komga_db::Error::EnumValue(format!("corrupt smart list search: {e}")))?;
+    Ok(SeriesSearch {
+        condition: Some(SearchConditionSeries::AllOf {
+            conditions: vec![
+                stored
+                    .condition
+                    .unwrap_or(SearchConditionSeries::AnyOf { conditions: vec![] }),
+                SearchConditionSeries::Deleted {
+                    deleted: komga_core::search::BooleanOp::IsFalse,
+                },
+            ],
+        }),
+        full_text_search: stored.full_text_search,
+    })
+}
+
+/// the OPDS default ordering per target: `SeriesDtoDao` drops unknown sort keys, so
+/// each side must use its own release-date property or the feed ends up unordered
+pub fn opds_sort_property(target: SmartListTarget) -> &'static str {
+    match target {
+        SmartListTarget::Book => "metadata.releaseDate",
+        SmartListTarget::Series => "booksMetadata.releaseDate",
+    }
 }
 
 /// Combines the stored filter with an overlay sent by the client (page-side
