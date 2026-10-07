@@ -38,6 +38,18 @@ pub struct MembershipTotals {
     pub collections: i64,
 }
 
+/// Global content counts with no visibility scoping, for the admin server snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ContentTotals {
+    pub libraries: i64,
+    pub series: i64,
+    pub books: i64,
+    pub filesize: i64,
+    pub collections: i64,
+    pub readlists: i64,
+    pub sidecars: i64,
+}
+
 /// SERIES_METADATA joins on its primary key (1:1), so when the visibility fragment does
 /// not reference it the join cannot change the result and is skipped.
 fn series_metadata_join(visibility: &SqlWhere, series_id_column: &str) -> String {
@@ -216,6 +228,29 @@ impl LibraryStatsDtoDao {
         });
 
         Ok(rows)
+    }
+
+    pub fn content_totals(&self) -> Result<ContentTotals> {
+        let conn = self.db.ro()?;
+        let count = |table: &str| {
+            conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| {
+                r.get::<_, i64>(0)
+            })
+        };
+        let (books, filesize) = conn.query_row(
+            "SELECT COUNT(*), COALESCE(SUM(FILE_SIZE), 0) FROM BOOK",
+            [],
+            |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)),
+        )?;
+        Ok(ContentTotals {
+            libraries: count("LIBRARY")?,
+            series: count("SERIES")?,
+            books,
+            filesize,
+            collections: count("COLLECTION")?,
+            readlists: count("READLIST")?,
+            sidecars: count("SIDECAR")?,
+        })
     }
 
     /// Distinct list counts over all visible libraries: the total row's read lists and

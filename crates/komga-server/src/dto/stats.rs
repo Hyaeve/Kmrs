@@ -140,6 +140,9 @@ pub struct ServerProcessStatsDto {
 #[serde(rename_all = "camelCase")]
 pub struct ServerTotalsDto {
     pub libraries: i64,
+    pub series: i64,
+    pub books: i64,
+    pub file_size: i64,
     pub collections: i64,
     pub readlists: i64,
     pub sidecars: i64,

@@ -162,11 +162,15 @@ async fn server_stats(
         memory_bytes: crate::service::metrics::rss_bytes(),
     };
 
+    let content = LibraryStatsDtoDao::new(state.db.clone()).content_totals()?;
     let totals = ServerTotalsDto {
-        libraries: crate::service::metrics::count_of(&state, "LIBRARY"),
-        collections: crate::service::metrics::count_of(&state, "COLLECTION"),
-        readlists: crate::service::metrics::count_of(&state, "READLIST"),
-        sidecars: crate::service::metrics::count_of(&state, "SIDECAR"),
+        libraries: content.libraries,
+        series: content.series,
+        books: content.books,
+        file_size: content.filesize,
+        collections: content.collections,
+        readlists: content.readlists,
+        sidecars: content.sidecars,
     };
 
     Ok(Json(ServerStatsDto {
@@ -1275,6 +1279,9 @@ mod tests {
         assert!(body["process"]["memoryBytes"].as_i64().unwrap() > 0);
 
         assert_eq!(body["totals"]["libraries"], 2);
+        assert_eq!(body["totals"]["series"], 1);
+        assert_eq!(body["totals"]["books"], 1);
+        assert_eq!(body["totals"]["fileSize"], 100);
         assert_eq!(body["totals"]["collections"], 0);
         assert_eq!(body["totals"]["readlists"], 0);
         assert_eq!(body["totals"]["sidecars"], 1);
