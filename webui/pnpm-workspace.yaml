@@ -1,2 +1,6 @@
 allowBuilds:
   esbuild: true
+overrides:
+  # navigator pins shared to an exact version; keep a single copy at the direct dependency's
+  # version or Publication's private fields make the two class types mutually unassignable
+  '@readium/shared': '$@readium/shared'
