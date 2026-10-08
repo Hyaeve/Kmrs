@@ -19,12 +19,19 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 /// jemalloc picks this weak-symbol override up as its boot config (source #1 in
-/// `obtain_malloc_conf`), so profiling needs no MALLOC_CONF fiddling. Both our target
-/// configs keep jemalloc's `_rjem_` prefix: Linux prefixed outright, macOS prefixed
-/// with the malloc zone overridden behind it.
+/// `obtain_malloc_conf`), so profiling needs no MALLOC_CONF fiddling. The symbol's
+/// name carries the jemalloc prefix: unprefixed (linux-gnu override) reads
+/// `malloc_conf`, `_rjem_`-prefixed (macOS override behind the zone) reads
+/// `_rjem_malloc_conf`, so both are exported; the wrong one is ignored.
+const PROF_CONF: &std::ffi::CStr = c"prof:true,prof_active:true";
+
 #[used]
 #[no_mangle]
-static _rjem_malloc_conf: MallocConf = MallocConf(c"prof:true,prof_active:true".as_ptr());
+static malloc_conf: MallocConf = MallocConf(PROF_CONF.as_ptr());
+
+#[used]
+#[no_mangle]
+static _rjem_malloc_conf: MallocConf = MallocConf(PROF_CONF.as_ptr());
 
 /// `const char *` payload: repr(transparent) keeps the symbol's layout a bare pointer.
 #[repr(transparent)]

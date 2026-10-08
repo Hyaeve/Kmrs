@@ -28,11 +28,12 @@ use state::AppState;
 use std::sync::Arc;
 use tower_http::trace::TraceLayer;
 
-/// SQLite and other C code allocate through glibc malloc, whose per-thread
-/// arenas (8×cores by default) only ever return the heap top to the OS:
-/// transient allocations during scans and queries linger as touched-but-free
-/// pages scattered across dozens of heaps. Two arenas bound that retention;
-/// MALLOC_ARENA_MAX remains the override channel.
+/// C libraries allocate through glibc malloc only in builds without the profiling
+/// feature (profiling overrides the allocator process-wide). glibc's per-thread
+/// arenas (8×cores by default) only ever return the heap top to the OS: transient
+/// allocations during scans and queries linger as touched-but-free pages scattered
+/// across dozens of heaps. Two arenas bound that retention; MALLOC_ARENA_MAX remains
+/// the override channel.
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 fn cap_glibc_arenas() {
     if std::env::var_os("MALLOC_ARENA_MAX").is_none() {

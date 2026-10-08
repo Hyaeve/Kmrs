@@ -1,2 +1,11 @@
 [alias]
 xtask = "run --package xtask --"
+
+# Export the executable's malloc family so dlopen'd libpdfium binds to jemalloc
+# instead of glibc malloc; without --export-dynamic the dynamic loader skips the
+# executable's definitions. No-op for builds without the profiling feature.
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-args=-rdynamic"]
+
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["-C", "link-args=-rdynamic"]

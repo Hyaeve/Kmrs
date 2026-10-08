@@ -60,15 +60,14 @@ sysinfo.workspace = true
 # so release builds can pass --features profiling to every target
 [target.'cfg(unix)'.dependencies]
 tikv-jemalloc-ctl = { workspace = true, optional = true }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-# macOS needs the whole-process override (zone_register): a prefixed jemalloc would sit
-# next to the system allocator, and one cross-boundary free corrupts the heap
+# The whole process must share one allocator: a prefixed jemalloc would sit next to
+# the system allocator, and one cross-boundary free corrupts the heap. Bundled SQLite
+# binds the unprefixed symbols at static link time, dlopen'd libpdfium via the
+# exported dynamic symbols (.cargo/config.toml adds -rdynamic on linux-gnu).
+# Overriding also routes C-side churn (SQLite, pdfium) through jemalloc's decay —
+# glibc never returns arena-interior free pages, so that churn ratchets RSS.
+# macOS overrides via zone_register, linux-gnu via unprefixed symbols.
 tikv-jemallocator = { workspace = true, optional = true, features = ["override_allocator_on_supported_platforms"] }
-
-[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
-# Linux stays prefixed (`_rjem_`): C libraries keep glibc malloc, no interposition
-tikv-jemallocator = { workspace = true, optional = true }
 
 [dev-dependencies]
 tower = { workspace = true, features = ["util"] }
