@@ -1828,7 +1828,7 @@ dependencies = [
 
 [[package]]
 name = "komga-core"
-version = "0.19.0"
+version = "0.19.1"
 dependencies = [
  "icu_collator",
  "icu_locale",
@@ -1843,7 +1843,7 @@ dependencies = [
 
 [[package]]
 name = "komga-db"
-version = "0.19.0"
+version = "0.19.1"
 dependencies = [
  "crc32fast",
  "flate2",
@@ -1866,7 +1866,7 @@ dependencies = [
 
 [[package]]
 name = "komga-media"
-version = "0.19.0"
+version = "0.19.1"
 dependencies = [
  "anyhow",
  "flate2",
@@ -1893,7 +1893,7 @@ dependencies = [
 
 [[package]]
 name = "komga-search"
-version = "0.19.0"
+version = "0.19.1"
 dependencies = [
  "komga-core",
  "serde",
@@ -1907,7 +1907,7 @@ dependencies = [
 
 [[package]]
 name = "komga-server"
-version = "0.19.0"
+version = "0.19.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -5025,7 +5025,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "xtask"
-version = "0.19.0"
+version = "0.19.1"
 dependencies = [
  "anyhow",
  "crc32fast",
