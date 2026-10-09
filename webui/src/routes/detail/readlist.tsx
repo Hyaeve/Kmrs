@@ -115,7 +115,7 @@ export function ReadListDetailPage() {
   const [addBooksOpen, setAddBooksOpen] = useState(false)
   const [postersOpen, setPostersOpen] = useState(false)
 
-  const filters = useBrowseFilters(DISABLED_FILTERS)
+  const filters = useBrowseFilters('books:readlist', DISABLED_FILTERS)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const hasFilters = activeFilterCount(filters.state) > 0 || !!filters.state.q.trim()
 

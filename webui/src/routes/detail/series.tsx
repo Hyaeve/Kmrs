@@ -90,7 +90,7 @@ export function SeriesDetailPage() {
   const [deleteOpen, setDeleteOpen] = useState(false)
   const komfReady = useKomfIntegration()
 
-  const filters = useBrowseFilters(DISABLED_FILTERS)
+  const filters = useBrowseFilters('books:series', DISABLED_FILTERS)
   const sort = useSortState('books:series', SERIES_BOOK_DEFAULT_SORT)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const hasFilters = activeFilterCount(filters.state) > 0 || !!filters.state.q.trim()

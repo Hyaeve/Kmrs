@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import i18n from '@/lib/i18n'
+import { useLibraryPrefs } from '@/lib/store/libraryPrefs'
 import { AGE_RATING_UNSET, type AuthorFilter, type FilterGroupDef, type FilterState, type GroupKey, type GroupMode } from './types'
 
 /** multi-value URL params, one key per filter group (values repeat the key) */
@@ -26,6 +27,19 @@ const MULTI_KEYS: GroupKey[] = [
   'readlists',
   'collections',
 ]
+
+/** the persistable slice of a browse URL: q stays out so a remembered filter never brings back an old search text */
+const PERSISTED_KEYS = [...MULTI_KEYS, 'ma', 'not']
+
+function hasFilterParams(params: URLSearchParams): boolean {
+  return PERSISTED_KEYS.some((k) => params.has(k))
+}
+
+function extractFilterParams(params: URLSearchParams): string {
+  const out = new URLSearchParams()
+  for (const k of PERSISTED_KEYS) for (const v of params.getAll(k)) out.append(k, v)
+  return out.toString()
+}
 
 // names may contain commas, so the role is split off at the last comma
 export function parseAuthor(raw: string): AuthorFilter {
@@ -159,8 +173,10 @@ function dropParamValue(params: URLSearchParams, key: string, value: string) {
   for (const v of rest) params.append(key, v)
 }
 
-export function useBrowseFilters(disabledKeys: readonly GroupKey[] = []) {
+export function useBrowseFilters(scope?: string, disabledKeys: readonly GroupKey[] = []) {
   const [searchParams, setSearchParams] = useSearchParams()
+  const remembered = useLibraryPrefs((s) => (scope ? s.filters[scope] : undefined))
+  const setFilters = useLibraryPrefs((s) => s.setFilters)
 
   // stale links may carry params for groups this page doesn't offer; drop them once so they
   // can't silently filter (there is no UI to see or clear them)
@@ -175,19 +191,30 @@ export function useBrowseFilters(disabledKeys: readonly GroupKey[] = []) {
     setSearchParams(next, { replace: true })
   }, [searchParams, disabledKeys, setSearchParams])
 
+  // a URL without filter params falls back to the remembered ones (mirroring the remembered
+  // sort); a URL that already carries any — deep links from metadata chips — is used as-is
+  // and never persisted
+  const effectiveParams = useMemo(() => {
+    if (!remembered || hasFilterParams(searchParams)) return searchParams
+    const merged = new URLSearchParams(searchParams)
+    for (const [k, v] of new URLSearchParams(remembered)) merged.append(k, v)
+    return merged
+  }, [searchParams, remembered])
+
   const state = useMemo(() => {
-    const parsed = parseFilterState(searchParams)
+    const parsed = parseFilterState(effectiveParams)
     for (const k of disabledKeys) parsed[k] = []
     return parsed
-  }, [searchParams, disabledKeys])
+  }, [effectiveParams, disabledKeys])
 
   const update = useCallback(
     (mutate: (params: URLSearchParams) => void, replace = false) => {
-      const next = new URLSearchParams(searchParams)
+      const next = new URLSearchParams(effectiveParams)
       mutate(next)
+      if (scope) setFilters(scope, extractFilterParams(next))
       setSearchParams(next, { replace })
     },
-    [searchParams, setSearchParams],
+    [effectiveParams, scope, setFilters, setSearchParams],
   )
 
   const toggleValue = useCallback(

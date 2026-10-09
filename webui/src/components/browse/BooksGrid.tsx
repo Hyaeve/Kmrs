@@ -21,7 +21,7 @@ import { BooksSelectionBar } from '@/components/browse/BooksSelectionBar'
 /** Book filter bar and card grid with selection, shared by the global books page and the library tab. */
 export function BooksGrid({ libraryId }: { libraryId?: string }) {
   const { t } = useTranslation('browse')
-  const filters = useBrowseFilters()
+  const filters = useBrowseFilters(`books:${libraryId ?? 'all'}`)
   const sort = useSortState(`books:${libraryId ?? 'all'}`, BOOK_DEFAULT_SORT)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const selection = useSelection()

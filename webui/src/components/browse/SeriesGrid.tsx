@@ -24,7 +24,7 @@ import { SeriesSelectionBar } from '@/components/browse/SeriesSelectionBar'
     global series page and the library tab. */
 export function SeriesGrid({ libraryId }: { libraryId?: string }) {
   const { t } = useTranslation('browse')
-  const filters = useBrowseFilters()
+  const filters = useBrowseFilters(`series:${libraryId ?? 'all'}`)
   const sort = useSortState(`series:${libraryId ?? 'all'}`, SERIES_DEFAULT_SORT)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const admin = isAdmin(useAuthStore((s) => s.user))

@@ -40,9 +40,6 @@ import { SmartListDialog } from '@/components/smartlists/SmartListDialog'
 
 const PAGE_SIZE = 48
 
-// module-level so the hook's memo/effect deps stay stable across renders
-const NO_DISABLED_FILTERS = [] as const
-
 function SmartListContent({ list, isBook }: { list: SmartListDto; isBook: boolean }) {
   const { t } = useTranslation('smartlists')
   const queryClient = useQueryClient()
@@ -52,7 +49,7 @@ function SmartListContent({ list, isBook }: { list: SmartListDto; isBook: boolea
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [postersOpen, setPostersOpen] = useState(false)
 
-  const filters = useBrowseFilters(NO_DISABLED_FILTERS)
+  const filters = useBrowseFilters(isBook ? 'books:smartlist' : 'series:smartlist')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const hasFilters = activeFilterCount(filters.state) > 0 || !!filters.state.q.trim()
 
