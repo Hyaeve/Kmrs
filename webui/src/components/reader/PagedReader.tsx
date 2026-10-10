@@ -132,6 +132,35 @@ export function PagedReader({
     }
   }, [spreadIndex, spreads])
 
+  const wheelRef = useRef<{ delta: number; locked: boolean; timer?: number }>({ delta: 0, locked: false })
+  useEffect(() => {
+    const wheel = wheelRef.current
+    return () => window.clearTimeout(wheel.timer)
+  }, [])
+  const onWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    if (scrollable || zoomed || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return
+    if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return
+
+    const wheel = wheelRef.current
+    window.clearTimeout(wheel.timer)
+    // trackpads emit long inertial streams, so a turn stays locked until the wheel goes quiet
+    wheel.timer = window.setTimeout(() => {
+      wheel.delta = 0
+      wheel.locked = false
+    }, 200)
+    if (wheel.locked) return
+
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? e.currentTarget.clientHeight : 1
+    const delta = e.deltaY * unit
+    if (wheel.delta * delta < 0) wheel.delta = 0
+    wheel.delta += delta
+    if (Math.abs(wheel.delta) < 48) return
+
+    wheel.delta = 0
+    wheel.locked = true
+    ;(delta > 0 ? next : prev)()
+  }
+
   // a swipe consumes the click that the browser fires after pointerup
   const pointerRef = useRef<{ x: number; y: number } | null>(null)
   const swipedRef = useRef(false)
@@ -191,6 +220,7 @@ export function PagedReader({
       className="h-full w-full overflow-hidden"
       style={{ touchAction }}
       onClick={onClick}
+      onWheel={onWheel}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
