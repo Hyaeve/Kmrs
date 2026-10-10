@@ -602,8 +602,11 @@ fn cleanup_empty_sets(state: &AppState) -> Result<()> {
 }
 
 /// A moved/renamed series is matched against soft-deleted series by book count and by every
-/// book's size and hash; on a match, metadata (locked fields win), user thumbnails, and
-/// collection memberships are transferred, and books go through `try_restore_books`.
+/// book's size and hash; on a match, metadata, user thumbnails, and collection memberships
+/// are transferred, and books go through `try_restore_books`. Unlike Java, a customized
+/// (≠ series name) or locked title/titleSort is restored instead of the directory-derived
+/// one; a value that still echoes the old directory name follows the new one, and the
+/// queued series metadata refresh may overwrite unlocked fields afterwards.
 fn try_restore_series(
     state: &AppState,
     new_series: &Series,
@@ -656,7 +659,6 @@ fn try_restore_series(
         return Ok(());
     };
 
-    // copy metadata; locked fields win over the fresh ones
     let metadata_dao = SeriesMetadataDao::new(state.db.clone());
     let deleted_metadata = metadata_dao
         .find_by_id(&deleted_series.id)?
@@ -666,12 +668,16 @@ fn try_restore_series(
         .expect("new series has metadata");
     metadata_dao.update(&SeriesMetadata {
         series_id: new_series.id.clone(),
-        title: if deleted_metadata.title_lock {
+        title: if deleted_metadata.title_lock
+            || deleted_metadata.title != deleted_series.name.trim()
+        {
             deleted_metadata.title.clone()
         } else {
             new_metadata.title.clone()
         },
-        title_sort: if deleted_metadata.title_sort_lock {
+        title_sort: if deleted_metadata.title_sort_lock
+            || deleted_metadata.title_sort != deleted_series.name.trim()
+        {
             deleted_metadata.title_sort.clone()
         } else {
             new_metadata.title_sort.clone()
@@ -714,8 +720,10 @@ fn try_restore_series(
 }
 
 /// A moved/renamed book is matched against soft-deleted books by size, then hash; on a match,
-/// media, thumbnails, metadata (locked title wins), read progress, and readlist memberships are
-/// transferred, and the deleted book is removed.
+/// media, thumbnails, metadata, read progress, and readlist memberships are transferred, and
+/// the deleted book is removed. Unlike Java, a customized (≠ file name) or locked title is
+/// restored instead of the file-name-derived one; a title that still echoes the old file
+/// name follows the new one, and a Title-capable refresh is still queued for unlocked titles.
 fn try_restore_books(state: &AppState, new_books: &[Book]) -> ScanRootResult<()> {
     let book_dao = BookDao::new(state.db.clone());
     for book_to_add in new_books {
@@ -767,7 +775,6 @@ fn try_restore_books(state: &AppState, new_books: &[Book]) -> ScanRootResult<()>
             }
         }
 
-        // copy metadata; a locked title wins over the fresh one
         let metadata_dao = BookMetadataDao::new(state.db.clone());
         let deleted_metadata = metadata_dao
             .find_by_id(&matched.id)?
@@ -777,7 +784,7 @@ fn try_restore_books(state: &AppState, new_books: &[Book]) -> ScanRootResult<()>
             .expect("new book has metadata");
         metadata_dao.update(&BookMetadata {
             book_id: book_to_add.id.clone(),
-            title: if deleted_metadata.title_lock {
+            title: if deleted_metadata.title_lock || deleted_metadata.title != matched.name.trim() {
                 deleted_metadata.title.clone()
             } else {
                 new_metadata.title.clone()
@@ -1507,24 +1514,36 @@ mod tests {
         let state = test_state();
         let tmp = tempfile::tempdir().unwrap();
         let root = scan_root(&tmp);
-        let book_path = write_file(&root.join("s1"), "v01.cbz", b"content-bytes");
+        write_file(&root.join("s1"), "v01.cbz", b"content-bytes");
+        write_file(&root.join("s1"), "v02.cbz", b"other-content");
         let lib = library(&state.db, "lib1", &root);
         let user = seed_user(&state.db, "a@b.c");
         scan(&state, &lib);
 
-        // hash the book (HashBook is a later task; set it directly)
-        let book = all_books(&state).into_iter().next().unwrap();
-        let hash = compute_hash(&book_path).unwrap();
-        state
-            .db
-            .rw()
-            .unwrap()
-            .execute(
-                "UPDATE BOOK SET FILE_HASH = ? WHERE ID = ?",
-                rusqlite::params![hash, book.id],
-            )
+        // hash the books (HashBook is a later task; set it directly)
+        let books = all_books(&state);
+        let book = books.iter().find(|b| b.name == "v01").unwrap();
+        for b in &books {
+            let hash = compute_hash(std::path::Path::new(&komga_core::dto::url_to_file_path(
+                &b.url,
+            )))
             .unwrap();
-        // give it READY media with a page, read progress, and a readlist
+            state
+                .db
+                .rw()
+                .unwrap()
+                .execute(
+                    "UPDATE BOOK SET FILE_HASH = ? WHERE ID = ?",
+                    rusqlite::params![hash, b.id],
+                )
+                .unwrap();
+        }
+        // v01 gets a customized (unlocked) title, v02 keeps the default file-name echo
+        let metadata_dao = BookMetadataDao::new(state.db.clone());
+        let mut metadata = metadata_dao.find_by_id(&book.id).unwrap().unwrap();
+        metadata.title = "自定义标题".into();
+        metadata_dao.update(&metadata).unwrap();
+        // give v01 READY media with a page, read progress, and a readlist
         let media_dao = MediaDao::new(state.db.clone());
         let mut media = media_dao.find_by_id(&book.id).unwrap().unwrap();
         media.status = MediaStatus::Ready;
@@ -1570,13 +1589,26 @@ mod tests {
             .is_some());
 
         write_file(&root.join("s2"), "v01-renamed.cbz", b"content-bytes");
+        write_file(&root.join("s2"), "v02-renamed.cbz", b"other-content");
         scan(&state, &lib);
 
-        let restored = all_books(&state)
+        let alive: Vec<Book> = all_books(&state)
             .into_iter()
-            .find(|b| b.deleted_date.is_none())
-            .unwrap();
+            .filter(|b| b.deleted_date.is_none())
+            .collect();
+        assert_eq!(alive.len(), 2);
+        let restored = alive.iter().find(|b| b.name == "v01-renamed").unwrap();
         assert_eq!(restored.name, "v01-renamed");
+        // a customized title is restored from the deleted book
+        let restored_metadata = BookMetadataDao::new(state.db.clone())
+            .find_by_id(&restored.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(restored_metadata.title, "自定义标题");
+        // a default title that only echoed the old file name follows the new file name
+        let restored2 = alive.iter().find(|b| b.name == "v02-renamed").unwrap();
+        let restored2_metadata = metadata_dao.find_by_id(&restored2.id).unwrap().unwrap();
+        assert_eq!(restored2_metadata.title, "v02-renamed");
         // media copied
         let media = media_dao.find_by_id(&restored.id).unwrap().unwrap();
         assert_eq!(media.status, MediaStatus::Ready);
@@ -1619,15 +1651,20 @@ mod tests {
         let root = scan_root(&tmp);
         write_file(&root.join("s1"), "v01.cbz", b"aaa");
         write_file(&root.join("s1"), "v02.cbz", b"bbbb");
+        // a second series keeps default metadata, to pin the follow-new-name branch
+        write_file(&root.join("t1"), "v01.cbz", b"ccc");
         let lib = library(&state.db, "lib1", &root);
         scan(&state, &lib);
 
-        let s1 = all_series(&state).into_iter().next().unwrap();
-        // lock a custom title on the series metadata
+        let seeded = all_series(&state);
+        let s1 = seeded.iter().find(|s| s.name == "s1").unwrap();
+        let t1 = seeded.iter().find(|s| s.name == "t1").unwrap();
+        // lock a custom title, and set a customized (unlocked) titleSort
         let metadata_dao = SeriesMetadataDao::new(state.db.clone());
         let mut metadata = metadata_dao.find_by_id(&s1.id).unwrap().unwrap();
         metadata.title = "Custom Title".into();
         metadata.title_lock = true;
+        metadata.title_sort = "Custom Sort".into();
         metadata_dao.update(&metadata).unwrap();
         // hash the books and put the series in a collection
         for book in all_books(&state) {
@@ -1665,8 +1702,9 @@ mod tests {
             media_dao.update(&media).unwrap();
         }
 
-        // series "moves" to a new directory
+        // both series "move" to new directories
         std::fs::remove_dir_all(root.join("s1")).unwrap();
+        std::fs::remove_dir_all(root.join("t1")).unwrap();
         scan(&state, &lib);
         assert!(SeriesDao::new(state.db.clone())
             .find_by_id(&s1.id)
@@ -1677,24 +1715,27 @@ mod tests {
 
         write_file(&root.join("s2"), "v01.cbz", b"aaa");
         write_file(&root.join("s2"), "v02.cbz", b"bbbb");
+        write_file(&root.join("t2"), "v01.cbz", b"ccc");
         scan(&state, &lib);
 
-        let alive = all_series(&state)
+        let alive: Vec<_> = all_series(&state)
             .into_iter()
-            .find(|s| s.deleted_date.is_none())
-            .unwrap();
-        assert_eq!(alive.name, "s2");
+            .filter(|s| s.deleted_date.is_none())
+            .collect();
+        assert_eq!(alive.len(), 2);
+        let s2 = alive.iter().find(|s| s.name == "s2").unwrap();
+        let t2 = alive.iter().find(|s| s.name == "t2").unwrap();
         // locked title wins over the directory name
-        let metadata = metadata_dao.find_by_id(&alive.id).unwrap().unwrap();
+        let metadata = metadata_dao.find_by_id(&s2.id).unwrap().unwrap();
         assert_eq!(metadata.title, "Custom Title");
-        // unlocked titleSort follows the new series
-        assert_eq!(metadata.title_sort, "s2");
+        // customized (unlocked) titleSort is restored from the deleted series
+        assert_eq!(metadata.title_sort, "Custom Sort");
         // collection points at the restored series
         let collection = collection_dao.find_by_id(&collection_id).unwrap().unwrap();
-        assert_eq!(collection.series_ids, vec![alive.id.clone()]);
+        assert_eq!(collection.series_ids, vec![s2.id.clone()]);
         // books have their READY media back
         for book in BookDao::new(state.db.clone())
-            .find_by_series_id(&alive.id)
+            .find_by_series_id(&s2.id)
             .unwrap()
         {
             let media = media_dao.find_by_id(&book.id).unwrap().unwrap();
@@ -1703,6 +1744,16 @@ mod tests {
         // the deleted series is gone for good
         assert!(SeriesDao::new(state.db.clone())
             .find_by_id(&s1.id)
+            .unwrap()
+            .is_none());
+
+        // the default-metadata series was restored too (its deleted row is consumed),
+        // and its echo values follow the new directory name
+        let t2_metadata = metadata_dao.find_by_id(&t2.id).unwrap().unwrap();
+        assert_eq!(t2_metadata.title, "t2");
+        assert_eq!(t2_metadata.title_sort, "t2");
+        assert!(SeriesDao::new(state.db.clone())
+            .find_by_id(&t1.id)
             .unwrap()
             .is_none());
     }
