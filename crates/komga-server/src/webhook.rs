@@ -171,7 +171,7 @@ fn event_name(event: &DomainEvent) -> Option<&'static str> {
         DomainEvent::SmartListAdded(_)
         | DomainEvent::SmartListUpdated(_)
         | DomainEvent::SmartListDeleted(_)
-        | DomainEvent::SmartListThumbnailChanged { .. } => return None,
+        | DomainEvent::SmartListThumbnailChanged(_) => return None,
     };
     Some(name)
 }
@@ -629,7 +629,7 @@ async fn event_payload(
         DomainEvent::SmartListAdded(_)
         | DomainEvent::SmartListUpdated(_)
         | DomainEvent::SmartListDeleted(_)
-        | DomainEvent::SmartListThumbnailChanged { .. } => return None,
+        | DomainEvent::SmartListThumbnailChanged(_) => return None,
     };
     let (name, data) = value;
     data.ok().map(|data| (name, data))

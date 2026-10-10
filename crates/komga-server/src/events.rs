@@ -68,13 +68,19 @@ pub enum DomainEvent {
     },
     UserDeleted(KomgaUser),
 
-    SmartListAdded(SmartList),
-    SmartListUpdated(SmartList),
-    SmartListDeleted(SmartList),
-    SmartListThumbnailChanged {
-        smart_list_id: String,
-        user_id: String,
-    },
+    SmartListAdded(SmartListEvent),
+    SmartListUpdated(SmartListEvent),
+    SmartListDeleted(SmartListEvent),
+    SmartListThumbnailChanged(SmartListEvent),
+}
+
+/// A smart list with its share scope resolved at publish time: consumers see a deletion
+/// only after `SMART_LIST_SHARE` is already emptied, so the audience cannot be
+/// reconstructed at consume time.
+#[derive(Debug, Clone)]
+pub struct SmartListEvent {
+    pub smart_list: SmartList,
+    pub shared_with_user_ids: Vec<String>,
 }
 
 /// Process-wide event bus. Broadcast receivers skip ahead when they lag, which the

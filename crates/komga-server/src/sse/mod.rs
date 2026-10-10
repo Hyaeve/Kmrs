@@ -3,7 +3,7 @@
 pub mod dto;
 
 use crate::auth::RequireAuth;
-use crate::events::DomainEvent;
+use crate::events::{DomainEvent, SmartListEvent};
 #[cfg(test)]
 use crate::state::test_search_index;
 use crate::state::AppState;
@@ -11,6 +11,7 @@ use axum::body::Body;
 use axum::extract::State;
 use axum::response::Response;
 use axum::{routing::get, Extension, Router};
+use komga_core::model::smart_list::SmartListVisibility;
 use komga_core::model::user::KomgaUser;
 use komga_db::dao::book::BookDao;
 use komga_db::dao::tasks::TasksDao;
@@ -53,6 +54,8 @@ enum Scope {
     All,
     AdminOnly,
     UserOnly(String),
+    /// an explicit audience plus admins, mirroring read access that grants admins everything
+    UsersOrAdmins(Vec<String>),
 }
 
 impl Scope {
@@ -61,6 +64,7 @@ impl Scope {
             Scope::All => true,
             Scope::AdminOnly => user.is_admin(),
             Scope::UserOnly(id) => user.id == *id,
+            Scope::UsersOrAdmins(ids) => user.is_admin() || ids.contains(&user.id),
         }
     }
 }
@@ -180,6 +184,13 @@ async fn map_event(state: &AppState, user: &KomgaUser, event: DomainEvent) -> Op
                 name: $name,
                 data: serde_json::to_value($dto).unwrap(),
                 scope: Scope::UserOnly($id),
+            })
+        };
+        ($name:expr, $dto:expr, scope $scope:expr) => {
+            Some(Outgoing {
+                name: $name,
+                data: serde_json::to_value($dto).unwrap(),
+                scope: $scope,
             })
         };
     }
@@ -302,23 +313,24 @@ async fn map_event(state: &AppState, user: &KomgaUser, event: DomainEvent) -> Op
             }
         ),
 
-        DomainEvent::SmartListAdded(l) => {
-            out!("SmartListAdded", dto::SmartListSseDto { smart_list_id: l.id }, user l.owner_user_id)
+        DomainEvent::SmartListAdded(e) => {
+            let scope = smart_list_scope(&e);
+            out!("SmartListAdded", dto::SmartListSseDto { smart_list_id: e.smart_list.id }, scope scope)
         }
-        DomainEvent::SmartListUpdated(l) => {
-            out!("SmartListChanged", dto::SmartListSseDto { smart_list_id: l.id }, user l.owner_user_id)
+        DomainEvent::SmartListUpdated(e) => {
+            let scope = smart_list_scope(&e);
+            out!("SmartListChanged", dto::SmartListSseDto { smart_list_id: e.smart_list.id }, scope scope)
         }
-        DomainEvent::SmartListDeleted(l) => {
-            out!("SmartListDeleted", dto::SmartListSseDto { smart_list_id: l.id }, user l.owner_user_id)
+        DomainEvent::SmartListDeleted(e) => {
+            let scope = smart_list_scope(&e);
+            out!("SmartListDeleted", dto::SmartListSseDto { smart_list_id: e.smart_list.id }, scope scope)
         }
-        DomainEvent::SmartListThumbnailChanged {
-            smart_list_id,
-            user_id,
-        } => {
+        DomainEvent::SmartListThumbnailChanged(e) => {
+            let scope = smart_list_scope(&e);
             out!(
                 "SmartListThumbnailChanged",
-                dto::SmartListThumbnailSseDto { smart_list_id },
-                user user_id
+                dto::SmartListThumbnailSseDto { smart_list_id: e.smart_list.id },
+                scope scope
             )
         }
 
@@ -421,6 +433,23 @@ async fn map_event(state: &AppState, user: &KomgaUser, event: DomainEvent) -> Op
     }
 }
 
+/// Live updates mirror read access (`is_visible_to`): PUBLIC lists reach every user,
+/// PRIVATE the owner, SHARED the owner and the share scope; admins see every list.
+fn smart_list_scope(event: &SmartListEvent) -> Scope {
+    let smart_list = &event.smart_list;
+    match smart_list.visibility {
+        SmartListVisibility::Public => Scope::All,
+        SmartListVisibility::Private => {
+            Scope::UsersOrAdmins(vec![smart_list.owner_user_id.clone()])
+        }
+        SmartListVisibility::Shared => Scope::UsersOrAdmins(
+            std::iter::once(smart_list.owner_user_id.clone())
+                .chain(event.shared_with_user_ids.iter().cloned())
+                .collect(),
+        ),
+    }
+}
+
 /// `ThumbnailBookSseDto.seriesId`: unresolved book ids become an empty string
 async fn book_series_id(state: &AppState, book_id: &str) -> String {
     let db = state.db.clone();
@@ -451,7 +480,8 @@ mod tests {
     use komga_core::model::library::Library;
     use komga_core::model::read_progress::ReadProgress;
     use komga_core::model::series::Series;
-    use komga_core::model::thumbnail::{ThumbnailBook, ThumbnailType};
+    use komga_core::model::smart_list::{SmartList, SmartListTarget, SmartListVisibility};
+    use komga_core::model::thumbnail::{ThumbnailBook, ThumbnailSmartList, ThumbnailType};
     use komga_core::model::user::{KomgaUser, UserRole};
     use komga_core::time_codec::now_utc;
     use komga_db::dao::user::UserDao;
@@ -613,13 +643,18 @@ mod tests {
 
     /// Waits until the per-connection task has subscribed to the bus
     async fn wait_subscribed(state: &AppState) {
+        wait_subscribed_count(state, 1).await
+    }
+
+    /// Waits until every one of the `n` connections has subscribed to the bus
+    async fn wait_subscribed_count(state: &AppState, n: usize) {
         for _ in 0..100 {
-            if state.events.receiver_count() > 0 {
+            if state.events.receiver_count() >= n {
                 return;
             }
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
-        panic!("SSE task did not subscribe in time");
+        panic!("SSE tasks did not subscribe in time");
     }
 
     async fn read_until(body: &mut Body, needle: &str, timeout: Duration) -> String {
@@ -890,5 +925,213 @@ mod tests {
             acc.contains("event:ThumbnailBookAdded\ndata:{\"bookId\":\"b1\",\"seriesId\":\"s1\",\"selected\":true}"),
             "unexpected payload in: {acc:?}"
         );
+    }
+
+    fn sample_smart_list(owner: &str, name: &str, visibility: SmartListVisibility) -> SmartList {
+        SmartList {
+            id: String::new(),
+            name: name.into(),
+            summary: String::new(),
+            owner_user_id: owner.into(),
+            target: SmartListTarget::Book,
+            visibility,
+            search_json: "{}".into(),
+            created_date: now_utc(),
+            last_modified_date: now_utc(),
+        }
+    }
+
+    struct Audience {
+        owner_id: String,
+        sharee_id: String,
+        other_id: String,
+        owner: Body,
+        admin: Body,
+        sharee: Body,
+        other: Body,
+    }
+
+    /// Four subscribed connections: the list owner, an admin, a sharee, and an outsider
+    async fn connect_audience(state: &AppState) -> Audience {
+        let owner_id = insert_user(&state.db, "owner@komga.org", false);
+        insert_api_key(&state.db, &owner_id, "owner-key");
+        let admin_id = insert_user(&state.db, "admin@komga.org", true);
+        insert_api_key(&state.db, &admin_id, "admin-key");
+        let sharee_id = insert_user(&state.db, "sharee@komga.org", false);
+        insert_api_key(&state.db, &sharee_id, "sharee-key");
+        let other_id = insert_user(&state.db, "other@komga.org", false);
+        insert_api_key(&state.db, &other_id, "other-key");
+        let audience = Audience {
+            owner_id,
+            sharee_id,
+            other_id,
+            owner: connect(state, "owner-key").await,
+            admin: connect(state, "admin-key").await,
+            sharee: connect(state, "sharee-key").await,
+            other: connect(state, "other-key").await,
+        };
+        wait_subscribed_count(state, 4).await;
+        audience
+    }
+
+    async fn assert_smart_list_event(body: &mut Body, name: &str, smart_list_id: &str) {
+        let needle = format!("event:{name}\ndata:{{\"smartListId\":\"{smart_list_id}\"}}");
+        let acc = read_until(body, &needle, Duration::from_secs(2)).await;
+        assert!(acc.contains(&needle), "missing {needle:?} in: {acc:?}");
+    }
+
+    async fn assert_no_smart_list_event(body: &mut Body) {
+        let acc = read_for(body, Duration::from_millis(150)).await;
+        assert!(
+            !acc.contains("SmartList"),
+            "unexpected smart list event in: {acc:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn smart_list_added_follows_the_visibility_scope() {
+        let state = test_state();
+        let mut audience = connect_audience(&state).await;
+        let owner_id = audience.owner_id.clone();
+        let add = |name: &str, visibility: SmartListVisibility, shares: &[String]| {
+            crate::service::smart_list::add_smart_list(
+                &state,
+                sample_smart_list(&owner_id, name, visibility),
+                shares,
+            )
+            .unwrap()
+        };
+
+        // PRIVATE reaches the owner and admins
+        let private = add("priv", SmartListVisibility::Private, &[]);
+        assert_smart_list_event(&mut audience.owner, "SmartListAdded", &private.id).await;
+        assert_smart_list_event(&mut audience.admin, "SmartListAdded", &private.id).await;
+        assert_no_smart_list_event(&mut audience.sharee).await;
+        assert_no_smart_list_event(&mut audience.other).await;
+
+        // PUBLIC reaches every authenticated user
+        let public = add("pub", SmartListVisibility::Public, &[]);
+        for body in [
+            &mut audience.owner,
+            &mut audience.admin,
+            &mut audience.sharee,
+            &mut audience.other,
+        ] {
+            assert_smart_list_event(body, "SmartListAdded", &public.id).await;
+        }
+
+        // SHARED reaches the owner, admins, and the share scope — nobody else
+        let shared = add(
+            "shrd",
+            SmartListVisibility::Shared,
+            std::slice::from_ref(&audience.sharee_id),
+        );
+        assert_smart_list_event(&mut audience.owner, "SmartListAdded", &shared.id).await;
+        assert_smart_list_event(&mut audience.admin, "SmartListAdded", &shared.id).await;
+        assert_smart_list_event(&mut audience.sharee, "SmartListAdded", &shared.id).await;
+        assert_no_smart_list_event(&mut audience.other).await;
+    }
+
+    #[tokio::test]
+    async fn smart_list_changed_and_deleted_reach_the_share_scope() {
+        let state = test_state();
+        let mut audience = connect_audience(&state).await;
+        let list = crate::service::smart_list::add_smart_list(
+            &state,
+            sample_smart_list(&audience.owner_id, "shrd", SmartListVisibility::Shared),
+            std::slice::from_ref(&audience.sharee_id),
+        )
+        .unwrap();
+
+        let mut updated = list.clone();
+        updated.summary = "v2".into();
+        crate::service::smart_list::update_smart_list(&state, &updated, None).unwrap();
+        assert_smart_list_event(&mut audience.owner, "SmartListChanged", &list.id).await;
+        assert_smart_list_event(&mut audience.admin, "SmartListChanged", &list.id).await;
+        assert_smart_list_event(&mut audience.sharee, "SmartListChanged", &list.id).await;
+        assert_no_smart_list_event(&mut audience.other).await;
+
+        crate::service::smart_list::delete_smart_list(&state, &updated).unwrap();
+        assert_smart_list_event(&mut audience.owner, "SmartListDeleted", &list.id).await;
+        assert_smart_list_event(&mut audience.admin, "SmartListDeleted", &list.id).await;
+        assert_smart_list_event(&mut audience.sharee, "SmartListDeleted", &list.id).await;
+        assert_no_smart_list_event(&mut audience.other).await;
+    }
+
+    /// The audience follows the list's state after the update: users entering the scope
+    /// start receiving events, users leaving it stop without further notice.
+    #[tokio::test]
+    async fn smart_list_scope_changes_retarget_events() {
+        let state = test_state();
+        let mut audience = connect_audience(&state).await;
+        let list = crate::service::smart_list::add_smart_list(
+            &state,
+            sample_smart_list(&audience.owner_id, "shrd", SmartListVisibility::Shared),
+            std::slice::from_ref(&audience.sharee_id),
+        )
+        .unwrap();
+        assert_smart_list_event(&mut audience.sharee, "SmartListAdded", &list.id).await;
+
+        // replacing the share scope: the new sharee receives, the old one does not
+        let mut updated = list.clone();
+        updated.summary = "v2".into();
+        crate::service::smart_list::update_smart_list(
+            &state,
+            &updated,
+            Some(std::slice::from_ref(&audience.other_id)),
+        )
+        .unwrap();
+        assert_smart_list_event(&mut audience.owner, "SmartListChanged", &list.id).await;
+        assert_smart_list_event(&mut audience.admin, "SmartListChanged", &list.id).await;
+        assert_smart_list_event(&mut audience.other, "SmartListChanged", &list.id).await;
+        assert_no_smart_list_event(&mut audience.sharee).await;
+
+        // narrowing the visibility stops events for everyone outside owner and admins
+        let mut updated = updated.clone();
+        updated.visibility = SmartListVisibility::Private;
+        crate::service::smart_list::update_smart_list(&state, &updated, Some(&[])).unwrap();
+        assert_smart_list_event(&mut audience.owner, "SmartListChanged", &list.id).await;
+        assert_smart_list_event(&mut audience.admin, "SmartListChanged", &list.id).await;
+        assert_no_smart_list_event(&mut audience.sharee).await;
+        assert_no_smart_list_event(&mut audience.other).await;
+    }
+
+    #[tokio::test]
+    async fn smart_list_thumbnail_changed_reaches_the_share_scope() {
+        let state = test_state();
+        let mut audience = connect_audience(&state).await;
+        let list = crate::service::smart_list::add_smart_list(
+            &state,
+            sample_smart_list(&audience.owner_id, "shrd", SmartListVisibility::Shared),
+            std::slice::from_ref(&audience.sharee_id),
+        )
+        .unwrap();
+
+        crate::service::smart_list::add_thumbnail(
+            &state,
+            &list,
+            ThumbnailSmartList {
+                id: String::new(),
+                smart_list_id: list.id.clone(),
+                thumbnail: vec![1, 2, 3],
+                fingerprint: String::new(),
+                selected: false,
+                type_: ThumbnailType::UserUploaded,
+                media_type: "image/jpeg".into(),
+                file_size: 3,
+                dimension: komga_core::model::thumbnail::Dimension {
+                    width: 1,
+                    height: 1,
+                },
+                created_date: now_utc(),
+                last_modified_date: now_utc(),
+            },
+        )
+        .unwrap();
+
+        assert_smart_list_event(&mut audience.owner, "SmartListThumbnailChanged", &list.id).await;
+        assert_smart_list_event(&mut audience.admin, "SmartListThumbnailChanged", &list.id).await;
+        assert_smart_list_event(&mut audience.sharee, "SmartListThumbnailChanged", &list.id).await;
+        assert_no_smart_list_event(&mut audience.other).await;
     }
 }

@@ -1,7 +1,7 @@
 //! Smart list lifecycle (kmrs-only enhancement with no Java equivalent): CRUD for
 //! user-owned persisted search filters living in `kmrs.sqlite`.
 
-use crate::events::DomainEvent;
+use crate::events::{DomainEvent, SmartListEvent};
 use crate::state::AppState;
 use komga_core::model::smart_list::{SmartList, SmartListTarget, SmartListVisibility};
 use komga_core::model::user::KomgaUser;
@@ -217,7 +217,10 @@ pub fn add_smart_list(
         .expect("smart list not found after insert");
     let _ = state
         .events
-        .send(DomainEvent::SmartListAdded(created.clone()));
+        .send(DomainEvent::SmartListAdded(SmartListEvent {
+            smart_list: created.clone(),
+            shared_with_user_ids: shared_with.to_vec(),
+        }));
     Ok(created)
 }
 
@@ -236,6 +239,12 @@ pub fn update_smart_list(
     {
         return Err(SmartListError::DuplicateName);
     }
+    // resolved before the writes: a lookup failure then aborts the update instead of
+    // failing after it already landed
+    let shared_with_user_ids = match shared_with {
+        Some(ids) => ids.to_vec(),
+        None => dao.find_share_targets(&to_update.id)?,
+    };
     dao.update(to_update)?;
     // None keeps the current scope (PATCH semantics), Some replaces it
     if let Some(shared_with) = shared_with {
@@ -243,25 +252,40 @@ pub fn update_smart_list(
     }
     let _ = state
         .events
-        .send(DomainEvent::SmartListUpdated(to_update.clone()));
+        .send(DomainEvent::SmartListUpdated(SmartListEvent {
+            smart_list: to_update.clone(),
+            shared_with_user_ids,
+        }));
     Ok(())
 }
 
 pub fn delete_smart_list(state: &AppState, smart_list: &SmartList) -> komga_db::Result<()> {
     let dao = dao(state);
+    let shared_with_user_ids = dao.find_share_targets(&smart_list.id)?;
     dao.delete(&smart_list.id)?;
     SmartListThumbnailDao::new(state.kmrs_db.clone()).delete_by_smart_list_id(&smart_list.id)?;
     let _ = state
         .events
-        .send(DomainEvent::SmartListDeleted(smart_list.clone()));
+        .send(DomainEvent::SmartListDeleted(SmartListEvent {
+            smart_list: smart_list.clone(),
+            shared_with_user_ids,
+        }));
     Ok(())
 }
 
 fn notify_thumbnail_changed(state: &AppState, smart_list: &SmartList) {
-    let _ = state.events.send(DomainEvent::SmartListThumbnailChanged {
-        smart_list_id: smart_list.id.clone(),
-        user_id: smart_list.owner_user_id.clone(),
-    });
+    let shared_with_user_ids = dao(state)
+        .find_share_targets(&smart_list.id)
+        .unwrap_or_else(|e| {
+            tracing::warn!("could not resolve smart list share scope: {e}");
+            Vec::new()
+        });
+    let _ = state
+        .events
+        .send(DomainEvent::SmartListThumbnailChanged(SmartListEvent {
+            smart_list: smart_list.clone(),
+            shared_with_user_ids,
+        }));
 }
 
 pub fn add_thumbnail(
