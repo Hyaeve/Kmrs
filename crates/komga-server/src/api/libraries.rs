@@ -423,7 +423,7 @@ pub(crate) mod test_support {
                 sessions: auth::SessionStore::new(std::time::Duration::from_secs(3600)),
                 settings: Arc::new(SettingsProvider::load(db.clone())),
                 tsid: Arc::new(komga_core::tsid::TsidFactory::new_random_node()),
-                events: crate::events::event_bus().0,
+                events: crate::events::event_bus(),
                 task_emitter: Arc::new(crate::service::TaskEmitter::new(
                     db,
                     tasks_db,

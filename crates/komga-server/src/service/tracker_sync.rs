@@ -111,61 +111,75 @@ async fn run_serialized<R>(key: &SyncKey, fut: impl std::future::Future<Output =
     result
 }
 
-/// Subscribes to the domain event bus and syncs series with tracker bindings
-/// when their read progress changes (same consumer shape as
-/// `reading_stats::consume_events`). `ReadProgressDeleted`/series-deleted
-/// events intentionally do nothing: platform progress never regresses.
-pub fn consume_events(state: AppState) -> tokio::task::JoinHandle<()> {
+/// Feeds on a lossless tap of the event bus and syncs series with tracker bindings
+/// when their read progress changes. A drained burst is coalesced to one sync per
+/// (series, user): a sync re-reads the current progress from the database anyway,
+/// so intermediate events of the same pair would only repeat the same komf round
+/// trip. `ReadProgressDeleted`/series-deleted events intentionally do nothing:
+/// platform progress never regresses.
+pub fn consume_events(
+    state: AppState,
+    mut events: tokio::sync::mpsc::UnboundedReceiver<DomainEvent>,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let mut receiver = state.events.subscribe();
         loop {
-            match receiver.recv().await {
-                Ok(DomainEvent::ReadProgressChanged(progress)) if progress.completed => {
-                    let state = state.clone();
-                    tokio::spawn(async move {
-                        let Some(series_id) = book_series_id(&state, &progress.book_id).await
-                        else {
-                            return;
-                        };
-                        run_serialized(
-                            &(series_id.clone(), progress.user_id.clone()),
-                            sync_series(&state, series_id, progress.user_id),
-                        )
-                        .await;
-                    });
-                }
-                Ok(DomainEvent::ReadProgressSeriesChanged { series_id, user_id }) => {
-                    let state = state.clone();
-                    tokio::spawn(async move {
-                        run_serialized(
-                            &(series_id.clone(), user_id.clone()),
-                            sync_series(&state, series_id, user_id),
-                        )
-                        .await;
-                    });
-                }
-                Ok(_) => {}
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                    tracing::warn!("tracker sync event consumer lagged by {n} events");
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            // all senders are gone (shutdown)
+            let Some(event) = events.recv().await else {
+                break;
+            };
+            let mut batch = vec![event];
+            while let Ok(event) = events.try_recv() {
+                batch.push(event);
+            }
+            for (series_id, user_id) in sync_pairs(&state, batch).await {
+                let state = state.clone();
+                tokio::spawn(async move {
+                    run_serialized(
+                        &(series_id.clone(), user_id.clone()),
+                        sync_series(&state, series_id, user_id),
+                    )
+                    .await;
+                });
             }
         }
     })
 }
 
-async fn book_series_id(state: &AppState, book_id: &str) -> Option<String> {
-    let book_id = book_id.to_string();
+/// A drained burst resolved to the distinct (series, user) pairs worth syncing.
+async fn sync_pairs(state: &AppState, batch: Vec<DomainEvent>) -> Vec<(String, String)> {
     let state = state.clone();
     tokio::task::spawn_blocking(move || {
-        BookDao::new(state.db.clone())
-            .get_series_id_or_null(&book_id)
-            .ok()
-            .flatten()
+        let book_dao = BookDao::new(state.db.clone());
+        let mut pairs = std::collections::BTreeSet::new();
+        for event in batch {
+            match event {
+                DomainEvent::ReadProgressChanged(progress) if progress.completed => {
+                    // a book already gone here (deleted between the progress write
+                    // and the event) leaves nothing to sync
+                    match book_dao.get_series_id_or_null(&progress.book_id) {
+                        Ok(Some(series_id)) => {
+                            pairs.insert((series_id, progress.user_id));
+                        }
+                        Ok(None) => {}
+                        Err(e) => tracing::warn!(
+                            "tracker sync: failed to resolve book {}: {e}",
+                            progress.book_id
+                        ),
+                    }
+                }
+                DomainEvent::ReadProgressSeriesChanged { series_id, user_id } => {
+                    pairs.insert((series_id, user_id));
+                }
+                _ => {}
+            }
+        }
+        pairs.into_iter().collect()
     })
     .await
-    .ok()
-    .flatten()
+    .unwrap_or_else(|e| {
+        tracing::error!("tracker sync: event task failed: {e}");
+        vec![]
+    })
 }
 
 /// Everything the decision needs, gathered in one blocking pass over the main
@@ -348,6 +362,8 @@ fn urlencoding_encode(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::api::collections::tests as shared;
+    use komga_core::model::read_progress::ReadProgress;
     use std::sync::{Arc, Mutex as StdMutex};
 
     /// Two pushes racing on the same (series, user) must stay ordered: each
@@ -490,5 +506,53 @@ mod tests {
     fn url_encoding_encodes_only_the_value() {
         assert_eq!(urlencoding_encode("12345"), "12345");
         assert_eq!(urlencoding_encode("a b/c"), "a%20b%2Fc");
+    }
+
+    fn progress_event(book_id: &str, user_id: &str, completed: bool) -> DomainEvent {
+        DomainEvent::ReadProgressChanged(ReadProgress {
+            book_id: book_id.into(),
+            user_id: user_id.into(),
+            page: 1,
+            completed,
+            read_date: komga_core::time_codec::now_utc(),
+            device_id: String::new(),
+            device_name: String::new(),
+            locator: None,
+            created_date: komga_core::time_codec::now_utc(),
+            last_modified_date: komga_core::time_codec::now_utc(),
+        })
+    }
+
+    #[tokio::test]
+    async fn sync_pairs_coalesce_to_one_per_series_and_user() {
+        let state = shared::test_state();
+        shared::seed_base(&state.db);
+        let batch = vec![
+            progress_event("b1", "u1", true),
+            progress_event("b1", "u1", true),
+            // b2 belongs to the same series as b1
+            progress_event("b2", "u1", true),
+            progress_event("b3", "u2", true),
+            progress_event("b1", "u3", false),
+            // deleted between the progress write and the event
+            progress_event("gone", "u4", true),
+            DomainEvent::ReadProgressSeriesChanged {
+                series_id: "s9".into(),
+                user_id: "u1".into(),
+            },
+            DomainEvent::ReadProgressSeriesChanged {
+                series_id: "s9".into(),
+                user_id: "u1".into(),
+            },
+        ];
+        let pairs = sync_pairs(&state, batch).await;
+        assert_eq!(
+            pairs,
+            vec![
+                ("s1".to_string(), "u1".to_string()),
+                ("s2".to_string(), "u2".to_string()),
+                ("s9".to_string(), "u1".to_string()),
+            ]
+        );
     }
 }

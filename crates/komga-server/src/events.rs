@@ -78,14 +78,14 @@ pub enum DomainEvent {
 }
 
 /// Process-wide event bus. Broadcast receivers skip ahead when they lag, which the
-/// SSE/webhook/stats consumers tolerate; the search indexer cannot, so every publish
-/// is additionally queued on a dedicated lossless channel handed to it at startup.
-/// That channel is unbounded because publishers are synchronous code that cannot
-/// await backpressure.
+/// SSE/webhook consumers and the one-shot event waiters tolerate. Consumers that must
+/// not miss events (the search indexer, reading stats, tracker sync) instead register
+/// a `tap`: an unbounded queue fed on every publish — unbounded because publishers
+/// are synchronous code that cannot await backpressure.
 #[derive(Clone)]
 pub struct EventBus {
     fanout: tokio::sync::broadcast::Sender<DomainEvent>,
-    index: tokio::sync::mpsc::UnboundedSender<DomainEvent>,
+    taps: std::sync::Arc<std::sync::Mutex<Vec<tokio::sync::mpsc::UnboundedSender<DomainEvent>>>>,
 }
 
 impl EventBus {
@@ -95,14 +95,24 @@ impl EventBus {
         &self,
         event: DomainEvent,
     ) -> Result<usize, Box<tokio::sync::broadcast::error::SendError<DomainEvent>>> {
-        // indexing is the one consumer that must not miss anything, so it is fed
-        // even when the broadcast side has no receivers (or errors)
-        let _ = self.index.send(event.clone());
+        // taps are fed even when the broadcast side has no receivers (or errors):
+        // their consumers must not miss anything
+        for tap in self.taps.lock().unwrap().iter() {
+            let _ = tap.send(event.clone());
+        }
         self.fanout.send(event).map_err(Box::new)
     }
 
     pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<DomainEvent> {
         self.fanout.subscribe()
+    }
+
+    /// Registers a lossless queue; every event published after this call is queued
+    /// for the returned receiver.
+    pub fn tap(&self) -> tokio::sync::mpsc::UnboundedReceiver<DomainEvent> {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        self.taps.lock().unwrap().push(tx);
+        rx
     }
 
     pub fn receiver_count(&self) -> usize {
@@ -112,13 +122,61 @@ impl EventBus {
 
 const EVENT_BUS_CAPACITY: usize = 1024;
 
-pub fn event_bus() -> (EventBus, tokio::sync::mpsc::UnboundedReceiver<DomainEvent>) {
-    let (index, index_rx) = tokio::sync::mpsc::unbounded_channel();
-    (
-        EventBus {
-            fanout: tokio::sync::broadcast::channel(EVENT_BUS_CAPACITY).0,
-            index,
-        },
-        index_rx,
-    )
+pub fn event_bus() -> EventBus {
+    EventBus {
+        fanout: tokio::sync::broadcast::channel(EVENT_BUS_CAPACITY).0,
+        taps: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn event(i: usize) -> DomainEvent {
+        DomainEvent::ReadProgressSeriesChanged {
+            series_id: format!("s{i}"),
+            user_id: "u1".into(),
+        }
+    }
+
+    fn assert_series_id(event: &DomainEvent, expected: String) {
+        match event {
+            DomainEvent::ReadProgressSeriesChanged { series_id, .. } => {
+                assert_eq!(*series_id, expected)
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn taps_receive_every_event_even_past_broadcast_capacity() {
+        let bus = event_bus();
+        let mut tap_a = bus.tap();
+        let mut tap_b = bus.tap();
+        for i in 0..EVENT_BUS_CAPACITY * 3 {
+            let _ = bus.send(event(i));
+        }
+        // bounded so a broken delivery fails instead of hanging on recv
+        let drained = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            for i in 0..EVENT_BUS_CAPACITY * 3 {
+                assert_series_id(&tap_a.recv().await.unwrap(), format!("s{i}"));
+                assert_series_id(&tap_b.recv().await.unwrap(), format!("s{i}"));
+            }
+        });
+        assert!(drained.await.is_ok(), "every event must reach both taps");
+    }
+
+    #[tokio::test]
+    async fn broadcast_still_skips_ahead_when_lagging() {
+        let bus = event_bus();
+        let mut fanout = bus.subscribe();
+        for i in 0..EVENT_BUS_CAPACITY * 2 {
+            let _ = bus.send(event(i));
+        }
+        assert!(matches!(
+            fanout.recv().await,
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(_))
+        ));
+    }
 }

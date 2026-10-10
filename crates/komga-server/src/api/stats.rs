@@ -1153,21 +1153,14 @@ mod tests {
         }
     }
 
-    /// The consumer subscribes inside its task; retry the send until a receiver exists.
-    async fn send_progress(state: &AppState, user_id: &str, book_id: &str, page: i32) {
-        for _ in 0..200 {
-            if state
-                .events
-                .send(crate::events::DomainEvent::ReadProgressChanged(progress(
-                    user_id, book_id, page,
-                )))
-                .is_ok()
-            {
-                return;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-        panic!("consumer did not subscribe in time");
+    /// The tap is registered in the test before the consumer task starts, so every
+    /// send is queued even though the broadcast side has no receivers.
+    fn send_progress(state: &AppState, user_id: &str, book_id: &str, page: i32) {
+        let _ = state
+            .events
+            .send(crate::events::DomainEvent::ReadProgressChanged(progress(
+                user_id, book_id, page,
+            )));
     }
 
     async fn wait_for_events(
@@ -1191,9 +1184,10 @@ mod tests {
         let (app, user) = user_app();
         seed_series(&app.state.db, "s1", "l1", None);
         seed_book(&app.state.db, "b1", "s1", "l1", 100);
-        let handle = reading_stats::consume_events(app.state.clone());
+        let events = app.state.events.tap();
+        let handle = reading_stats::consume_events(app.state.clone(), events);
 
-        send_progress(&app.state, &user, "b1", 42).await;
+        send_progress(&app.state, &user, "b1", 42);
         let rows = wait_for_events(&app.state.kmrs_db, &user, 1).await;
         assert_eq!(rows[0].series_id, "s1");
         assert_eq!(rows[0].page, 42);
@@ -1204,8 +1198,8 @@ mod tests {
 
         // the consumer is serial: once the follow-up b1 event lands, the missing-book
         // event has already been processed (and skipped), so the total stays 2
-        send_progress(&app.state, &user, "b-missing", 10).await;
-        send_progress(&app.state, &user, "b1", 50).await;
+        send_progress(&app.state, &user, "b-missing", 10);
+        send_progress(&app.state, &user, "b1", 50);
         let rows = wait_for_events(&app.state.kmrs_db, &user, 2).await;
         assert_eq!(rows.len(), 2);
         assert!(rows.iter().all(|e| e.book_id == "b1"));

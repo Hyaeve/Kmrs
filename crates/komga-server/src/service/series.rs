@@ -717,7 +717,7 @@ pub(crate) mod tests {
             sessions: crate::auth::SessionStore::new(config.session_timeout),
             settings: Arc::new(SettingsProvider::load(db.clone())),
             tsid: Arc::new(TsidFactory::new_random_node()),
-            events: crate::events::event_bus().0,
+            events: crate::events::event_bus(),
             task_emitter: Arc::new(crate::service::TaskEmitter::new(
                 db.clone(),
                 tasks_db.clone(),

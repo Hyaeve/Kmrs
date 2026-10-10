@@ -549,12 +549,12 @@ const COMMIT_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
 /// remainder is picked up as the next batch.
 const MAX_BATCH_EVENTS: usize = 4096;
 
-/// Feeds on the bus's lossless index channel and keeps the index in sync
-/// (`consumeEvents`; the Java side consumes events synchronously, so neither side
-/// drops any). Pending events are drained and applied per batch — a scan emits
-/// several events per book, and one DB round-trip plus writer lock per event could
-/// never keep up — while commits stay debounced to one per 2s window (each commit is
-/// a segment fsync). DTO reads use the task pools, not the API pools.
+/// Feeds on a lossless tap of the bus and keeps the index in sync (`consumeEvents`;
+/// the Java side consumes events synchronously, so neither side drops any). Pending
+/// events are drained and applied per batch — a scan emits several events per book,
+/// and one DB round-trip plus writer lock per event could never keep up — while
+/// commits stay debounced to one per 2s window (each commit is a segment fsync).
+/// DTO reads use the task pools, not the API pools.
 pub fn consume_events(
     state: AppState,
     mut events_rx: tokio::sync::mpsc::UnboundedReceiver<DomainEvent>,
@@ -1103,16 +1103,13 @@ mod tests {
 
     #[tokio::test]
     async fn consumer_indexes_every_event_of_an_overflow_burst() {
-        let (bus, index_events) = crate::events::event_bus();
-        let state = AppState {
-            events: bus,
-            ..shared::test_state()
-        };
+        let state = shared::test_state();
+        let events = state.events.tap();
         shared::seed_base(&state.db);
-        let handle = consume_events(state.clone(), index_events);
-        // the three real events sit at the front of a burst far beyond the old
-        // broadcast capacity: a lossy consumer would skip ahead past them, the
-        // index channel queues every one of them
+        let handle = consume_events(state.clone(), events);
+        // the three real events sit at the front of a burst far beyond the
+        // broadcast capacity: a broadcast receiver would skip ahead past them,
+        // the tap queues every one of them
         for id in ["b1", "b2", "b3"] {
             let _ = state
                 .events

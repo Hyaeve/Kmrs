@@ -11,15 +11,19 @@ use komga_db::dao::reading_event::{NewReadingEvent, ReadingEvent, ReadingEventDa
 use std::collections::BTreeMap;
 use time::Date;
 
-/// Subscribes to the domain event bus and appends one READING_EVENT per progress change
-/// (same consumer shape as `webhook::consume_events`). `ReadProgressDeleted` records
-/// nothing: the pages of a deleted book were already counted on the days they were read.
-pub fn consume_events(state: AppState) -> tokio::task::JoinHandle<()> {
+/// Feeds on a lossless tap of the event bus and appends one READING_EVENT per
+/// progress change: the log is append-only with no rebuild path, so a dropped
+/// event would undercount the day's pages forever. `ReadProgressDeleted` records
+/// nothing: the pages of a deleted book were already counted on the days they
+/// were read.
+pub fn consume_events(
+    state: AppState,
+    mut events: tokio::sync::mpsc::UnboundedReceiver<DomainEvent>,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let mut receiver = state.events.subscribe();
         loop {
-            match receiver.recv().await {
-                Ok(DomainEvent::ReadProgressChanged(progress)) => {
+            match events.recv().await {
+                Some(DomainEvent::ReadProgressChanged(progress)) => {
                     let state = state.clone();
                     let result =
                         tokio::task::spawn_blocking(move || record(&state, &progress)).await;
@@ -29,11 +33,9 @@ pub fn consume_events(state: AppState) -> tokio::task::JoinHandle<()> {
                         Err(e) => tracing::error!("reading stats event task failed: {e}"),
                     }
                 }
-                Ok(_) => {}
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                    tracing::warn!("reading stats event consumer lagged by {n} events");
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                Some(_) => {}
+                // all senders are gone (shutdown)
+                None => break,
             }
         }
     })
@@ -115,6 +117,7 @@ pub(crate) fn pages_by_day(events: &[ReadingEvent]) -> BTreeMap<Date, i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::api::collections::tests as shared;
     use komga_core::time_codec::{parse_date, parse_datetime_utc};
 
     fn day(s: &str) -> Date {
@@ -208,5 +211,60 @@ mod tests {
             pages.into_iter().collect::<Vec<_>>(),
             [(day("2026-10-01"), 15)]
         );
+    }
+
+    fn progress(book_id: &str, page: i32) -> ReadProgress {
+        ReadProgress {
+            book_id: book_id.into(),
+            user_id: "u1".into(),
+            page,
+            completed: false,
+            read_date: parse_datetime_utc("2026-10-01 10:00:00").unwrap(),
+            device_id: String::new(),
+            device_name: String::new(),
+            locator: None,
+            created_date: parse_datetime_utc("2026-10-01 10:00:00").unwrap(),
+            last_modified_date: parse_datetime_utc("2026-10-01 10:00:00").unwrap(),
+        }
+    }
+
+    #[tokio::test]
+    async fn consumer_records_every_progress_event_of_an_overflow_burst() {
+        let state = shared::test_state();
+        let events = state.events.tap();
+        shared::seed_base(&state.db);
+        let handle = consume_events(state.clone(), events);
+        // the three real events sit at the front of a burst far beyond the
+        // broadcast capacity: a broadcast receiver would skip ahead past them,
+        // the tap queues every one of them
+        for page in [10, 20, 30] {
+            let _ = state
+                .events
+                .send(DomainEvent::ReadProgressChanged(progress("b1", page)));
+        }
+        for i in 0..3000 {
+            let _ = state.events.send(DomainEvent::ReadProgressSeriesChanged {
+                series_id: format!("s{i}"),
+                user_id: "u1".into(),
+            });
+        }
+        let recorded = || {
+            ReadingEventDao::new(state.kmrs_db.clone())
+                .find_all_by_user("u1")
+                .unwrap()
+                .len()
+        };
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let found = loop {
+            if recorded() == 3 {
+                break true;
+            }
+            if std::time::Instant::now() > deadline {
+                break false;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        };
+        handle.abort();
+        assert!(found, "every progress event of the burst must be recorded");
     }
 }
