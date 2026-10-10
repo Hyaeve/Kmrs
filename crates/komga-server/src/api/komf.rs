@@ -4,7 +4,8 @@
 use crate::auth::RequireAuth;
 use crate::dto::komf::{
     KomfIdentifyRequestDto, KomfIntegrationDto, KomfIntegrationUpdateDto, KomfJobDto,
-    KomfJobPageDto, KomfMetadataJobResponseDto, KomfSeriesSearchResultDto,
+    KomfJobPageDto, KomfMetadataJobResponseDto, KomfSeriesSearchResultDto, TrackerLinkDto,
+    TrackerLinkUpsertDto, TrackerPreferencesDto,
 };
 use crate::error::{ApiError, Violation};
 use crate::service::komf;
@@ -14,7 +15,10 @@ use axum::extract::{Path, RawQuery, State};
 use axum::http::{HeaderMap, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::{routing, Json, Router};
+use komga_core::tracker::TrackMode;
 use komga_db::dao::komf_integration::{KomfIntegration, KomfIntegrationDao, KomfIntegrationState};
+use komga_db::dao::tracker_link::{NewTrackerLink, TrackerLinkDao};
+use komga_db::dao::tracker_preferences::TrackerPreferencesDao;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::time::Duration;
@@ -76,6 +80,51 @@ pub fn router() -> Router<AppState> {
         .route(
             "/api/v1/komf/api/oauth/{provider}/callback",
             routing::get(oauth_callback),
+        )
+        // per-user tracker sync: any authenticated user manages their own
+        // bindings and platform logins; the kmrs user id is forwarded as
+        // komf's X-Tracker-User so every user gets an independent tracker
+        // account per platform
+        .route(
+            "/api/v1/komf/trackers/links",
+            routing::get(list_all_tracker_links),
+        )
+        .route(
+            "/api/v1/komf/trackers/links/{seriesId}",
+            routing::get(list_tracker_links).put(put_tracker_link),
+        )
+        .route(
+            "/api/v1/komf/trackers/links/{seriesId}/{provider}",
+            routing::delete(delete_tracker_link),
+        )
+        .route(
+            "/api/v1/komf/trackers/preferences",
+            routing::get(get_tracker_preferences).put(put_tracker_preferences),
+        )
+        .route("/api/v1/komf/trackers/ledger", routing::get(tracker_ledger))
+        .route(
+            "/api/v1/komf/trackers/{provider}/search",
+            routing::get(tracker_search),
+        )
+        .route(
+            "/api/v1/komf/trackers/{provider}/state",
+            routing::get(tracker_state),
+        )
+        .route(
+            "/api/v1/komf/trackers/{provider}/update",
+            routing::post(tracker_update),
+        )
+        .route(
+            "/api/v1/komf/trackers/oauth/{provider}/start",
+            routing::get(tracker_oauth_start),
+        )
+        .route(
+            "/api/v1/komf/trackers/oauth/{provider}/status",
+            routing::get(tracker_oauth_status),
+        )
+        .route(
+            "/api/v1/komf/trackers/oauth/{provider}/logout",
+            routing::post(tracker_oauth_logout),
         )
 }
 
@@ -418,6 +467,20 @@ fn check_oauth_provider(provider: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
+/// Tracker bindings only accept the four providers komf implements. Unlike
+/// the OAuth proxies (where unknown-but-legal names reach komf and get its
+/// own 404), a binding would fail the TRACKER_LINK provider CHECK and
+/// surface as a 500, so reject up front.
+fn check_tracker_provider(provider: &str) -> Result<(), ApiError> {
+    if TRACKER_PROVIDERS.contains(&provider) {
+        Ok(())
+    } else {
+        Err(ApiError::not_found(format!(
+            "Tracker provider '{provider}' is not supported"
+        )))
+    }
+}
+
 async fn oauth_start(
     State(state): State<AppState>,
     auth: RequireAuth,
@@ -436,6 +499,7 @@ async fn oauth_start(
             )),
             &headers,
             Duration::from_secs(10),
+            None,
         )
         .await
         .map_err(komf_unreachable)?;
@@ -453,6 +517,14 @@ async fn oauth_callback(
 ) -> Result<Response, ApiError> {
     check_oauth_provider(&provider)?;
     let row = connected_integration(&state)?;
+    // a user-flow start recorded this state's nonce: land the browser back on
+    // the trackers page instead of komf's default root (which the webui
+    // forwards to the admin komf settings)
+    let return_path = query.as_deref().and_then(|q| {
+        form_urlencoded::parse(q.as_bytes())
+            .find(|(k, _)| k == "state")
+            .and_then(|(_, v)| take_oauth_return_path(&v))
+    });
     let response = komf::client(&state, &row)
         .proxy_oauth(
             Method::GET,
@@ -460,9 +532,32 @@ async fn oauth_callback(
             query.as_deref(),
             &headers,
             komf::METADATA_PROXY_TIMEOUT,
+            None,
         )
         .await
         .map_err(komf_unreachable)?;
+    if let (Some(path), Some(location)) = (
+        return_path,
+        response.headers().get(axum::http::header::LOCATION),
+    ) {
+        if response.status().is_redirection() {
+            // komf's Location is root-relative ("/?oauth=..."): keep the query,
+            // swap the path for the page that started this login
+            let suffix = location
+                .to_str()
+                .ok()
+                .and_then(|l| l.split_once('?').map(|(_, query)| query))
+                .unwrap_or_default();
+            let target = if suffix.is_empty() {
+                path.to_string()
+            } else {
+                format!("{path}?{suffix}")
+            };
+            return Ok(
+                (response.status(), [(axum::http::header::LOCATION, target)]).into_response(),
+            );
+        }
+    }
     Ok(redirect_or_passthrough(response).await)
 }
 
@@ -484,6 +579,7 @@ async fn oauth_status(
             None,
             &headers,
             Duration::from_secs(10),
+            None,
         )
         .await
         .map_err(komf_unreachable)?;
@@ -506,6 +602,361 @@ async fn oauth_logout(
             None,
             &headers,
             Duration::from_secs(10),
+            None,
+        )
+        .await
+        .map_err(komf_unreachable)?;
+    Ok(empty_or_passthrough(response).await)
+}
+
+/// Per-user tracker bindings live in kmrs.sqlite (not komf): any authenticated
+/// user lists, creates, or replaces the bindings of one series for themselves.
+/// Listing still requires a connected integration so the webui can rely on
+/// 409 to render its not-connected state.
+async fn list_all_tracker_links(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+) -> Result<Json<Vec<TrackerLinkDto>>, ApiError> {
+    connected_integration(&state)?;
+    let links = TrackerLinkDao::new(state.kmrs_db.clone()).list_by_user(&auth.0.user.id)?;
+    Ok(Json(links.into_iter().map(TrackerLinkDto::from).collect()))
+}
+
+async fn list_tracker_links(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(series_id): Path<String>,
+) -> Result<Json<Vec<TrackerLinkDto>>, ApiError> {
+    connected_integration(&state)?;
+    let links = TrackerLinkDao::new(state.kmrs_db.clone())
+        .list_by_series_and_user(&series_id, &auth.0.user.id)?;
+    Ok(Json(links.into_iter().map(TrackerLinkDto::from).collect()))
+}
+
+async fn put_tracker_link(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(series_id): Path<String>,
+    Json(body): Json<TrackerLinkUpsertDto>,
+) -> Result<Json<TrackerLinkDto>, ApiError> {
+    check_tracker_provider(&body.provider)?;
+    let track_id = body.track_id.trim();
+    if track_id.is_empty() {
+        return Err(ApiError::Violations(vec![Violation {
+            field_name: "trackId".into(),
+            message: "must not be blank".into(),
+        }]));
+    }
+    let track_mode = match body.track_mode.as_deref() {
+        None | Some("auto") => TrackMode::Auto,
+        Some("chapter") => TrackMode::Chapter,
+        Some("volume") => TrackMode::Volume,
+        Some(other) => {
+            return Err(ApiError::Violations(vec![Violation {
+                field_name: "trackMode".into(),
+                message: format!("'{other}' is not a valid track mode"),
+            }]))
+        }
+    };
+    let chapter_offset = body.chapter_offset.unwrap_or(0);
+    if !(-10000..=10000).contains(&chapter_offset) {
+        return Err(ApiError::Violations(vec![Violation {
+            field_name: "chapterOffset".into(),
+            message: "must be between -10000 and 10000".into(),
+        }]));
+    }
+    let dao = TrackerLinkDao::new(state.kmrs_db.clone());
+    dao.upsert(&NewTrackerLink {
+        series_id: &series_id,
+        user_id: &auth.0.user.id,
+        provider: &body.provider,
+        track_id,
+        title: body
+            .title
+            .as_deref()
+            .map(str::trim)
+            .filter(|t| !t.is_empty()),
+        track_mode,
+        chapter_offset,
+    })?;
+    let links = dao.list_by_series_and_user(&series_id, &auth.0.user.id)?;
+    let link = links
+        .into_iter()
+        .find(|l| l.provider == body.provider)
+        .expect("upserted binding is readable");
+    Ok(Json(TrackerLinkDto::from(link)))
+}
+
+async fn delete_tracker_link(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path((series_id, provider)): Path<(String, String)>,
+) -> Result<StatusCode, ApiError> {
+    check_tracker_provider(&provider)?;
+    TrackerLinkDao::new(state.kmrs_db.clone()).delete(&series_id, &auth.0.user.id, &provider)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Per-user display preferences: which libraries show the series-detail
+/// tracker module (empty = every library), and the provider preselected
+/// in the bind dialog.
+async fn get_tracker_preferences(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+) -> Result<Json<TrackerPreferencesDto>, ApiError> {
+    let prefs = TrackerPreferencesDao::new(state.kmrs_db.clone()).get(&auth.0.user.id)?;
+    Ok(Json(TrackerPreferencesDto {
+        libraries: prefs.libraries,
+        default_tracker: prefs.default_tracker,
+    }))
+}
+
+const TRACKER_PROVIDERS: &[&str] = &["anilist", "bangumi", "mal", "mangabaka"];
+
+async fn put_tracker_preferences(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Json(body): Json<TrackerPreferencesDto>,
+) -> Result<Json<TrackerPreferencesDto>, ApiError> {
+    // provider names are komf's own vocabulary; reject anything it would 404
+    let default_tracker = body
+        .default_tracker
+        .as_deref()
+        .filter(|d| !d.is_empty())
+        .map(str::to_string);
+    if let Some(default) = default_tracker.as_deref() {
+        if !TRACKER_PROVIDERS.contains(&default) {
+            return Err(ApiError::Violations(vec![Violation {
+                field_name: "defaultTracker".into(),
+                message: format!("'{default}' is not a supported tracker"),
+            }]));
+        }
+    }
+    let dao = TrackerPreferencesDao::new(state.kmrs_db.clone());
+    dao.set(
+        &auth.0.user.id,
+        &komga_db::dao::tracker_preferences::TrackerPreferences {
+            libraries: body.libraries.clone(),
+            default_tracker,
+        },
+    )?;
+    let prefs = dao.get(&auth.0.user.id)?;
+    Ok(Json(TrackerPreferencesDto {
+        libraries: prefs.libraries,
+        default_tracker: prefs.default_tracker,
+    }))
+}
+
+const KOMF_TRACKER: &str = "/api/tracker";
+
+/// The user's own linked-entry ledger in komf (scoped by X-Tracker-User).
+async fn tracker_ledger(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+) -> Result<Response, ApiError> {
+    let row = connected_integration(&state)?;
+    let response = komf::client(&state, &row)
+        .proxy_tracker(
+            Method::GET,
+            &format!("{KOMF_TRACKER}/links"),
+            None,
+            None,
+            &auth.0.user.id,
+        )
+        .await
+        .map_err(komf_unreachable)?;
+    json_or_passthrough::<serde_json::Value>(response).await
+}
+
+/// komf owns the search result schema, so the proxy relays the raw JSON.
+async fn tracker_search(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(provider): Path<String>,
+    RawQuery(query): RawQuery,
+) -> Result<Response, ApiError> {
+    check_oauth_provider(&provider)?;
+    let row = connected_integration(&state)?;
+    let response = komf::client(&state, &row)
+        .proxy_tracker(
+            Method::GET,
+            &format!("{KOMF_TRACKER}/{provider}/search"),
+            query.as_deref(),
+            None,
+            &auth.0.user.id,
+        )
+        .await
+        .map_err(komf_unreachable)?;
+    json_or_passthrough::<serde_json::Value>(response).await
+}
+
+/// komf owns the state schema, so the proxy relays the raw JSON.
+async fn tracker_state(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(provider): Path<String>,
+    RawQuery(query): RawQuery,
+) -> Result<Response, ApiError> {
+    check_oauth_provider(&provider)?;
+    let row = connected_integration(&state)?;
+    let response = komf::client(&state, &row)
+        .proxy_tracker(
+            Method::GET,
+            &format!("{KOMF_TRACKER}/{provider}/state"),
+            query.as_deref(),
+            None,
+            &auth.0.user.id,
+        )
+        .await
+        .map_err(komf_unreachable)?;
+    json_or_passthrough::<serde_json::Value>(response).await
+}
+
+async fn tracker_update(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(provider): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Response, ApiError> {
+    check_oauth_provider(&provider)?;
+    let row = connected_integration(&state)?;
+    let response = komf::client(&state, &row)
+        .proxy_tracker(
+            Method::POST,
+            &format!("{KOMF_TRACKER}/{provider}/update"),
+            None,
+            Some(&body),
+            &auth.0.user.id,
+        )
+        .await
+        .map_err(komf_unreachable)?;
+    Ok(empty_or_passthrough(response).await)
+}
+
+/// Per-user OAuth: komf attributes the login to the kmrs user id carried in
+/// `?user=` (recorded server-side in komf's pending table and recovered by
+/// nonce on callback), so the shared anonymous callback route below serves
+/// both the admin flow and every user flow.
+/// The kmrs-side landing page for a per-user tracker OAuth login. komf's
+/// callback always 302s to its own root (`/?oauth=...`), which the webui
+/// forwards to the admin komf page — the nonce recorded at start lets the
+/// callback route the browser back here instead.
+const TRACKER_OAUTH_RETURN_PATH: &str = "/account/trackers";
+const OAUTH_RETURN_PATH_TTL: std::time::Duration = std::time::Duration::from_secs(600);
+
+fn oauth_return_paths(
+) -> &'static std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, &'static str)>>
+{
+    static MAP: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, &'static str)>>,
+    > = std::sync::OnceLock::new();
+    MAP.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Records which kmrs page a login flow belongs to, keyed by the OAuth nonce
+/// komf put into the authorize URL's state. Best-effort: an unparsable
+/// location simply falls back to the default landing.
+fn record_oauth_return_path(location: &axum::http::HeaderValue, path: &'static str) {
+    let Ok(location) = location.to_str() else {
+        return;
+    };
+    let Some((_, query)) = location.split_once('?') else {
+        return;
+    };
+    let Some(state) = form_urlencoded::parse(query.as_bytes())
+        .find(|(k, _)| k == "state")
+        .map(|(_, v)| v.into_owned())
+    else {
+        return;
+    };
+    let Ok(state) = serde_json::from_str::<serde_json::Value>(&state) else {
+        return;
+    };
+    let Some(nonce) = state.get("nonce").and_then(|v| v.as_str()) else {
+        return;
+    };
+    let mut map = oauth_return_paths()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    map.retain(|_, (at, _)| at.elapsed() < OAUTH_RETURN_PATH_TTL);
+    map.insert(nonce.to_string(), (std::time::Instant::now(), path));
+}
+
+/// Consumes the recorded return path for one OAuth state (single use).
+fn take_oauth_return_path(state_raw: &str) -> Option<&'static str> {
+    let Ok(state) = serde_json::from_str::<serde_json::Value>(state_raw) else {
+        return None;
+    };
+    let nonce = state.get("nonce").and_then(|v| v.as_str())?;
+    oauth_return_paths()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(nonce)
+        .map(|(_, path)| path)
+}
+
+async fn tracker_oauth_start(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(provider): Path<String>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    check_oauth_provider(&provider)?;
+    let row = connected_integration(&state)?;
+    let response = komf::client(&state, &row)
+        .proxy_oauth(
+            Method::GET,
+            &format!("{KOMF_OAUTH}/{provider}/start"),
+            Some(&format!(
+                "redirect_path_prefix={KOMF_OAUTH_CALLBACK_PREFIX}&user={}",
+                auth.0.user.id
+            )),
+            &headers,
+            Duration::from_secs(10),
+            Some(&auth.0.user.id),
+        )
+        .await
+        .map_err(komf_unreachable)?;
+    if let Some(location) = response.headers().get(axum::http::header::LOCATION) {
+        record_oauth_return_path(location, TRACKER_OAUTH_RETURN_PATH);
+    }
+    Ok(redirect_or_passthrough(response).await)
+}
+
+async fn tracker_oauth_status(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(provider): Path<String>,
+) -> Result<Response, ApiError> {
+    check_oauth_provider(&provider)?;
+    let row = connected_integration(&state)?;
+    let response = komf::client(&state, &row)
+        .proxy_tracker(
+            Method::GET,
+            &format!("{KOMF_OAUTH}/{provider}/status"),
+            None,
+            None,
+            &auth.0.user.id,
+        )
+        .await
+        .map_err(komf_unreachable)?;
+    json_or_passthrough::<serde_json::Value>(response).await
+}
+
+async fn tracker_oauth_logout(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(provider): Path<String>,
+) -> Result<Response, ApiError> {
+    check_oauth_provider(&provider)?;
+    let row = connected_integration(&state)?;
+    let response = komf::client(&state, &row)
+        .proxy_tracker(
+            Method::POST,
+            &format!("{KOMF_OAUTH}/{provider}/logout"),
+            None,
+            None,
+            &auth.0.user.id,
         )
         .await
         .map_err(komf_unreachable)?;
@@ -526,7 +977,6 @@ fn connected_integration(state: &AppState) -> Result<KomfIntegration, ApiError> 
         Some(row) => Ok(row),
     }
 }
-
 async fn send_metadata(
     state: &AppState,
     method: Method,
@@ -992,12 +1442,48 @@ mod tests {
                         _ if method == "POST" && path.starts_with("/api/komga/metadata/reset/") => {
                             StatusCode::NO_CONTENT.into_response()
                         }
+                        // per-user tracker API
+                        ("GET", "/api/tracker/links") => {
+                            Json(serde_json::json!([{
+                                "provider": "anilist",
+                                "trackId": "42",
+                                "title": "Linked",
+                                "url": null,
+                                "coverUrl": null,
+                                "updatedAt": 1700000000
+                            }]))
+                            .into_response()
+                        }
+                        _ if method == "GET" && path.starts_with("/api/tracker/") && path.ends_with("/search") => {
+                            Json(serde_json::json!([{
+                                "id": "42",
+                                "title": "Candidate",
+                                "coverUrl": null,
+                                "description": null,
+                                "tracked": false,
+                                "url": null
+                            }]))
+                            .into_response()
+                        }
+                        _ if method == "GET" && path.starts_with("/api/tracker/") && path.ends_with("/state") => {
+                            Json(serde_json::json!({
+                                "status": "reading",
+                                "lastReadChapter": 1.0,
+                                "totalChapters": 20
+                            }))
+                            .into_response()
+                        }
+                        _ if method == "POST" && path.starts_with("/api/tracker/") && path.ends_with("/update") => {
+                            StatusCode::NO_CONTENT.into_response()
+                        }
                         _ if method == "GET" && oauth_known && path.ends_with("/start") => {
+                            // komf's real authorize redirect: state is JSON with the nonce
+                            let state = "state=%7B%22redirectUrl%22%3A%22https%3A%2F%2Fkmrs.example%2Fcallback%22%2C%22nonce%22%3A%22test-nonce%22%7D";
                             (
                                 StatusCode::FOUND,
                                 [(
                                     axum::http::header::LOCATION,
-                                    "https://provider.example/authorize?client_id=x&state=y",
+                                    format!("https://provider.example/authorize?client_id=x&{state}"),
                                 )],
                             )
                                 .into_response()
@@ -1597,7 +2083,7 @@ mod tests {
         assert_eq!(status, StatusCode::FOUND);
         assert_eq!(
             headers[axum::http::header::LOCATION],
-            "https://provider.example/authorize?client_id=x&state=y"
+            "https://provider.example/authorize?client_id=x&state=%7B%22redirectUrl%22%3A%22https%3A%2F%2Fkmrs.example%2Fcallback%22%2C%22nonce%22%3A%22test-nonce%22%7D"
         );
 
         let captured = komf.captured();
@@ -1820,5 +2306,415 @@ mod tests {
             assert_eq!(violations[0]["fieldName"], format!("komga.{key}"));
         }
         assert!(komf.captured().is_empty());
+    }
+
+    fn user_app() -> (TestApp, String) {
+        let app = TestApp::new(router());
+        let user_id = insert_user(&app.state.db, "user@x.c", false, true, &[]);
+        insert_api_key(&app.state.db, &user_id, "k-user");
+        (app, user_id)
+    }
+
+    #[tokio::test]
+    async fn tracker_links_crud_is_per_user() {
+        let (app, _user_id) = user_app();
+        let komf = serve_komf_proxy().await;
+        seed_connected(&app.state, &komf.url);
+        // empty list initially
+        let (status, body) = app
+            .get_json("/api/v1/komf/trackers/links/ser-1", "k-user")
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, serde_json::json!([]));
+
+        // create two bindings on different providers
+        for (provider, track_id) in [("anilist", "42"), ("mal", "99")] {
+            let (status, body) = app
+                .request_json(
+                    "PUT",
+                    "/api/v1/komf/trackers/links/ser-1",
+                    "k-user",
+                    Some(serde_json::json!({
+                        "provider": provider,
+                        "trackId": track_id,
+                        "title": "Series",
+                        "trackMode": "auto",
+                        "chapterOffset": 2
+                    })),
+                )
+                .await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(body["provider"], provider);
+            assert_eq!(body["trackId"], track_id);
+            assert_eq!(body["trackMode"], "auto");
+            assert_eq!(body["chapterOffset"], 2);
+        }
+
+        // replace one binding: still one row per provider
+        let (status, body) = app
+            .request_json(
+                "PUT",
+                "/api/v1/komf/trackers/links/ser-1",
+                "k-user",
+                Some(serde_json::json!({
+                    "provider": "anilist",
+                    "trackId": "43",
+                    "trackMode": "volume",
+                    "chapterOffset": 0
+                })),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["trackId"], "43");
+        assert_eq!(body["trackMode"], "volume");
+
+        let (status, body) = app
+            .get_json("/api/v1/komf/trackers/links/ser-1", "k-user")
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        let links = body.as_array().unwrap();
+        assert_eq!(links.len(), 2);
+        assert_eq!(links[0]["provider"], "anilist");
+        assert_eq!(links[0]["trackId"], "43");
+
+        // another user does not see these bindings
+        let other = insert_user(&app.state.db, "other@x.c", false, true, &[]);
+        insert_api_key(&app.state.db, &other, "k-other");
+        let (status, body) = app
+            .get_json("/api/v1/komf/trackers/links/ser-1", "k-other")
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, serde_json::json!([]));
+
+        // the user-wide listing spans series
+        app.request_json(
+            "PUT",
+            "/api/v1/komf/trackers/links/ser-2",
+            "k-user",
+            Some(serde_json::json!({"provider": "bangumi", "trackId": "7"})),
+        )
+        .await;
+        let (status, body) = app.get_json("/api/v1/komf/trackers/links", "k-user").await;
+        assert_eq!(status, StatusCode::OK);
+        let links = body.as_array().unwrap();
+        assert_eq!(links.len(), 3);
+        let (_, body) = app.get_json("/api/v1/komf/trackers/links", "k-other").await;
+        assert_eq!(body, serde_json::json!([]));
+
+        // delete only removes the target binding
+        let (status, _) = app
+            .request_json(
+                "DELETE",
+                "/api/v1/komf/trackers/links/ser-1/anilist",
+                "k-user",
+                None,
+            )
+            .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let (_, body) = app
+            .get_json("/api/v1/komf/trackers/links/ser-1", "k-user")
+            .await;
+        let links = body.as_array().unwrap();
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0]["provider"], "mal");
+    }
+
+    #[tokio::test]
+    async fn tracker_link_upsert_validates_input() {
+        let (app, user_id) = user_app();
+
+        let (status, body) = app
+            .request_json(
+                "PUT",
+                "/api/v1/komf/trackers/links/ser-1",
+                "k-user",
+                Some(serde_json::json!({"provider": "anilist", "trackId": "  "})),
+            )
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["violations"][0]["fieldName"], "trackId");
+
+        let (status, body) = app
+            .request_json(
+                "PUT",
+                "/api/v1/komf/trackers/links/ser-1",
+                "k-user",
+                Some(serde_json::json!({"provider": "anilist", "trackId": "1", "trackMode": "issues"})),
+            )
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["violations"][0]["fieldName"], "trackMode");
+
+        let (status, _) = app
+            .request_json(
+                "PUT",
+                "/api/v1/komf/trackers/links/ser-1",
+                "k-user",
+                Some(serde_json::json!({"provider": "AniList", "trackId": "1"})),
+            )
+            .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        // an unknown provider never reaches the DAO: no 500 from the CHECK
+        let (status, _) = app
+            .request_json(
+                "PUT",
+                "/api/v1/komf/trackers/links/ser-1",
+                "k-user",
+                Some(serde_json::json!({"provider": "foo", "trackId": "1"})),
+            )
+            .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        let (status, _) = app
+            .request_json(
+                "DELETE",
+                "/api/v1/komf/trackers/links/ser-1/foo",
+                "k-user",
+                None,
+            )
+            .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        assert!(TrackerLinkDao::new(app.state.kmrs_db.clone())
+            .list_by_series_and_user("ser-1", &user_id)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn tracker_routes_need_a_connected_integration() {
+        let (app, _) = user_app();
+        let endpoints: [(&str, &str, Option<serde_json::Value>); 7] = [
+            ("GET", "/api/v1/komf/trackers/links", None),
+            ("GET", "/api/v1/komf/trackers/links/ser-1", None),
+            ("GET", "/api/v1/komf/trackers/anilist/search?name=x", None),
+            ("GET", "/api/v1/komf/trackers/anilist/state?trackId=1", None),
+            (
+                "POST",
+                "/api/v1/komf/trackers/anilist/update",
+                Some(serde_json::json!({"trackId": "1"})),
+            ),
+            ("GET", "/api/v1/komf/trackers/ledger", None),
+            ("GET", "/api/v1/komf/trackers/oauth/anilist/status", None),
+        ];
+        for (method, path, body) in endpoints {
+            let (status, _) = app.request_json(method, path, "k-user", body).await;
+            assert_eq!(status, StatusCode::CONFLICT, "{method} {path}");
+        }
+    }
+
+    #[tokio::test]
+    async fn tracker_proxy_forwards_the_user_identity() {
+        let (app, user_id) = user_app();
+        let komf = serve_komf_proxy().await;
+        seed_connected(&app.state, &komf.url);
+
+        let (status, body) = app
+            .get_json("/api/v1/komf/trackers/anilist/search?name=x", "k-user")
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body[0]["title"], "Candidate");
+
+        let (status, body) = app
+            .get_json("/api/v1/komf/trackers/anilist/state?trackId=1", "k-user")
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["status"], "reading");
+
+        let (status, _) = app
+            .request_json(
+                "POST",
+                "/api/v1/komf/trackers/anilist/update",
+                "k-user",
+                Some(serde_json::json!({"trackId": "1", "lastReadChapter": 3})),
+            )
+            .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+
+        let (status, body) = app.get_json("/api/v1/komf/trackers/ledger", "k-user").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body[0]["trackId"], "42");
+
+        let (status, body) = app
+            .get_json("/api/v1/komf/trackers/oauth/anilist/status", "k-user")
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["logged_in"], true);
+
+        let (status, _) = app
+            .request_json(
+                "POST",
+                "/api/v1/komf/trackers/oauth/anilist/logout",
+                "k-user",
+                None,
+            )
+            .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+
+        // every proxied request carries the kmrs user id as komf's tracker
+        // identity; the guard must drop before the next request or the mock's
+        // recording handler deadlocks on the same std mutex
+        {
+            let captured = komf.captured();
+            assert_eq!(captured.len(), 6);
+            for request in captured.iter() {
+                assert_eq!(
+                    request
+                        .headers
+                        .get("x-tracker-user")
+                        .and_then(|v| v.to_str().ok()),
+                    Some(user_id.as_str()),
+                    "{} {}",
+                    request.method,
+                    request.path
+                );
+            }
+        }
+
+        // the user OAuth start additionally attributes the login via ?user= so
+        // komf binds the granted token to this kmrs user on callback
+        let (status, _) = app
+            .get_json("/api/v1/komf/trackers/oauth/anilist/start", "k-user")
+            .await;
+        assert_eq!(status, StatusCode::FOUND);
+        let captured = komf.captured();
+        let start = captured.last().unwrap();
+        assert_eq!(start.path, "/api/oauth/anilist/start");
+        let query = start.query.as_deref().unwrap_or_default();
+        assert!(query.contains("redirect_path_prefix=/api/v1/komf"));
+        assert!(query.contains(&format!("user={user_id}")));
+        assert_eq!(
+            start
+                .headers
+                .get("x-tracker-user")
+                .and_then(|v| v.to_str().ok()),
+            Some(user_id.as_str())
+        );
+    }
+
+    /// After a user-flow login the browser must land back on the trackers
+    /// page; komf's own redirect always targets its root, so kmrs rewrites the
+    /// Location using the nonce recorded at start.
+    #[tokio::test]
+    async fn tracker_preferences_roundtrip_is_per_user() {
+        let (app, _user_id) = user_app();
+
+        // default: unrestricted, no default tracker
+        let (status, body) = app
+            .get_json("/api/v1/komf/trackers/preferences", "k-user")
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, serde_json::json!({ "libraries": [] }));
+
+        let (status, body) = app
+            .request_json(
+                "PUT",
+                "/api/v1/komf/trackers/preferences",
+                "k-user",
+                Some(serde_json::json!({
+                    "libraries": ["lib-1"],
+                    "defaultTracker": "bangumi"
+                })),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            body,
+            serde_json::json!({
+                "libraries": ["lib-1"],
+                "defaultTracker": "bangumi"
+            })
+        );
+
+        // other users are unaffected
+        let other = insert_user(&app.state.db, "other@x.c", false, true, &[]);
+        insert_api_key(&app.state.db, &other, "k-other");
+        let (_, body) = app
+            .get_json("/api/v1/komf/trackers/preferences", "k-other")
+            .await;
+        assert_eq!(body, serde_json::json!({ "libraries": [] }));
+    }
+
+    #[tokio::test]
+    async fn tracker_preferences_rejects_unknown_default_tracker() {
+        let (app, _) = user_app();
+
+        let (status, body) = app
+            .request_json(
+                "PUT",
+                "/api/v1/komf/trackers/preferences",
+                "k-user",
+                Some(serde_json::json!({ "defaultTracker": "shikimori" })),
+            )
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["violations"][0]["fieldName"], "defaultTracker");
+
+        // the rejected write left nothing behind
+        let (_, body) = app
+            .get_json("/api/v1/komf/trackers/preferences", "k-user")
+            .await;
+        assert_eq!(body, serde_json::json!({ "libraries": [] }));
+    }
+
+    #[tokio::test]
+    async fn user_oauth_callback_lands_on_the_trackers_page() {
+        let (app, _) = user_app();
+        let komf = serve_komf_proxy().await;
+        seed_connected(&app.state, &komf.url);
+
+        let (status, _, _) = app
+            .get_response("/api/v1/komf/trackers/oauth/anilist/start", "k-user")
+            .await;
+        assert_eq!(status, StatusCode::FOUND);
+
+        // the relay page returns through the anonymous callback with komf's state
+        let (status, headers, _) = app
+            .get_response(
+                "/api/v1/komf/api/oauth/anilist/callback?code=abc&state=%7B%22redirectUrl%22%3A%22https%3A%2F%2Fkmrs.example%2Fcallback%22%2C%22nonce%22%3A%22test-nonce%22%7D",
+                "k-user",
+            )
+            .await;
+        assert_eq!(status, StatusCode::FOUND);
+        assert_eq!(
+            headers
+                .get(axum::http::header::LOCATION)
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "/account/trackers?oauth=success"
+        );
+    }
+
+    /// The admin flow records no return path, so its callback relays komf's
+    /// Location verbatim and the webui forwards it to the komf settings page.
+    #[tokio::test]
+    async fn admin_oauth_callback_keeps_the_default_landing() {
+        let app = admin_app();
+        let komf = serve_komf_proxy().await;
+        seed_connected(&app.state, &komf.url);
+
+        let (status, _, _) = app
+            .get_response("/api/v1/komf/oauth/anilist/start", "k-admin")
+            .await;
+        assert_eq!(status, StatusCode::FOUND);
+
+        // a nonce kmrs never recorded: no rewrite
+        let (status, headers, _) = app
+            .get_response(
+                "/api/v1/komf/api/oauth/anilist/callback?code=abc&state=%7B%22nonce%22%3A%22admin-nonce%22%7D",
+                "k-admin",
+            )
+            .await;
+        assert_eq!(status, StatusCode::FOUND);
+        assert_eq!(
+            headers
+                .get(axum::http::header::LOCATION)
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "/?oauth=success"
+        );
     }
 }

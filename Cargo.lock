@@ -1833,6 +1833,7 @@ dependencies = [
  "icu_collator",
  "icu_locale",
  "jiff",
+ "regex",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

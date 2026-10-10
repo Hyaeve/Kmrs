@@ -157,6 +157,7 @@ async fn main() -> anyhow::Result<()> {
     search_index::consume_events(state.clone());
     webhook::consume_events(state.clone());
     service::reading_stats::consume_events(state.clone());
+    service::tracker_sync::consume_events(state.clone());
 
     let app = build_router(state.clone());
 

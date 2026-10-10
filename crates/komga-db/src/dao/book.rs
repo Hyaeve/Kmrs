@@ -458,6 +458,23 @@ impl BookMetadataDao {
         Ok(metadata)
     }
 
+    /// Minimal (BOOK_ID, NUMBER_SORT) lookup for a set of books; used by the
+    /// tracker sync where only the sort number matters.
+    pub fn find_number_sort_by_book_ids(&self, book_ids: &[String]) -> Result<Vec<(String, f32)>> {
+        if book_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let placeholders = book_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let conn = self.db.ro()?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT BOOK_ID, NUMBER_SORT FROM BOOK_METADATA WHERE BOOK_ID IN ({placeholders})"
+        ))?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(book_ids), |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
     pub fn insert(&self, metadata: &BookMetadata) -> Result<()> {
         let mut conn = self.db.rw()?;
         let tx = conn.transaction()?;

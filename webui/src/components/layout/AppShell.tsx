@@ -14,6 +14,7 @@ import {
   Copy,
   Database,
   FileMagnifyingGlass,
+  ChartLineUp,
   Funnel,
   Gauge,
   GearSix,
@@ -321,6 +322,9 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             </NavItem>
             <NavItem to="/account/stats" icon={<ChartBar />} onClick={onNavigate}>
               {t('nav.statistics')}
+            </NavItem>
+            <NavItem to="/account/trackers" icon={<ChartLineUp />} onClick={onNavigate}>
+              {t('nav.trackers')}
             </NavItem>
           </NavGroup>
         </div>

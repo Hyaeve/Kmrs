@@ -1,0 +1,93 @@
+{
+  "section": {
+    "title": "追踪",
+    "add": "添加追踪",
+    "empty": "尚未关联追踪器。关联后可同步阅读进度。"
+  },
+  "row": {
+    "edit": "编辑",
+    "unlink": "解除关联"
+  },
+  "state": {
+    "loading": "加载中…",
+    "loginRequired": "需要登录 — 请到「追踪」页连接账户",
+    "unavailable": "无法获取状态",
+    "chapterProgress": "第 {{read}} / {{total}} 话",
+    "volumeProgress": "第 {{read}} / {{total}} 卷",
+    "score": "评分 {{score}}"
+  },
+  "status": {
+    "none": "不在列表中",
+    "reading": "在读",
+    "planning": "想看",
+    "completed": "看过",
+    "paused": "搁置",
+    "dropped": "抛弃",
+    "rereading": "重看"
+  },
+  "provider": {
+    "anilist": "AniList",
+    "mal": "MyAnimeList",
+    "bangumi": "Bangumi",
+    "mangabaka": "MangaBaka"
+  },
+  "mode": {
+    "auto": "自动",
+    "chapter": "按话",
+    "volume": "按卷"
+  },
+  "mediaType": {
+    "manga": "漫画",
+    "novel": "小说"
+  },
+  "bindDialog": {
+    "title": "关联追踪条目",
+    "searchLabel": "搜索",
+    "searchPlaceholder": "标题或条目链接",
+    "noResults": "没有结果",
+    "fromLinks": "来自系列链接",
+    "tracked": "已在你的列表中",
+    "bind": "关联"
+  },
+  "editDialog": {
+    "title": "追踪选项",
+    "chapterOffset": "章节偏移",
+    "chapterOffsetHelper": "推送的章节号会加上该偏移；卷进度不受偏移影响。",
+    "remoteHeading": "远端条目",
+    "score": "评分",
+    "chapter": "话数",
+    "volume": "卷数"
+  },
+  "unlinkDialog": {
+    "title": "解除追踪关联",
+    "name": "本系列在 {{provider}} 上的关联"
+  },
+  "toast": {
+    "linked": "已关联追踪器",
+    "linkFailed": "关联追踪器失败",
+    "unlinked": "已解除关联",
+    "unlinkFailed": "解除关联失败",
+    "saved": "追踪选项已保存",
+    "saveFailed": "保存追踪选项失败",
+    "loggedOut": "已退出 {{provider}}",
+    "logoutFailed": "退出登录失败",
+    "loginSuccess": "追踪账户已连接",
+    "loginError": "追踪登录失败",
+    "visibilityFailed": "保存显示范围失败"
+  },
+  "page": {
+    "title": "追踪",
+    "notConnected": "komf 未连接",
+    "notConnectedBody": "需要管理员先连接 komf 实例才能使用追踪功能。",
+    "bindingsHeading": "已关联的系列",
+    "visibilityHeading": "追踪模块显示范围",
+    "visibilityHint": "系列详情页的追踪模块仅在选中的库中显示；不选择任何库时全部显示。",
+    "defaultHeading": "默认 Tracker",
+    "defaultHint": "添加追踪时预选该平台。",
+    "defaultNone": "无",
+    "offset": "偏移 {{offset}}",
+    "notLoggedIn": "未登录",
+    "login": "登录",
+    "logout": "退出登录"
+  }
+}

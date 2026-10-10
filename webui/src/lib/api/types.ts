@@ -888,6 +888,78 @@ export interface KomfOAuthStatus {
   username: string | null
 }
 
+// ---- Per-user tracker sync (komf-backed) ----
+
+export type TrackerTrackMode = 'auto' | 'chapter' | 'volume'
+
+export interface TrackerLink {
+  seriesId: string
+  provider: KomfOAuthProvider
+  trackId: string
+  title?: string
+  trackMode: TrackerTrackMode
+  chapterOffset: number
+  createdDate: string
+  lastModifiedDate: string
+}
+
+/** The subset of a binding the edit dialog works on; a freshly bound entry
+ * (before any reload) satisfies it too. */
+export type TrackerLinkRef = Pick<
+  TrackerLink,
+  'seriesId' | 'provider' | 'trackId' | 'title' | 'trackMode' | 'chapterOffset'
+>
+
+/** Per-user display preferences: the series-detail tracker module only
+ * renders in these libraries; empty means every library. */
+export interface TrackerPreferences {
+  libraries: string[]
+  defaultTracker?: KomfOAuthProvider
+}
+
+export interface TrackerLinkUpsert {
+  provider: KomfOAuthProvider
+  trackId: string
+  title?: string
+  trackMode?: TrackerTrackMode
+  chapterOffset?: number
+}
+
+// komf's TrackSearchItem schema, passed through verbatim
+export interface TrackerSearchItem {
+  id: string
+  title: string
+  coverUrl?: string
+  description?: string
+  tracked: boolean
+  /** manga/novel distinction when the platform provides it */
+  mediaType?: 'manga' | 'novel'
+  url?: string
+}
+
+// komf's TrackState schema, passed through verbatim; totals are null while the
+// platform entry carries no total (e.g. publishing)
+export interface TrackerState {
+  score?: number | null
+  status?: string | null
+  lastReadChapter?: number | null
+  lastReadVolume?: number | null
+  totalChapters?: number | null
+  totalVolumes?: number | null
+  startReadDate?: string | null
+  finishReadDate?: string | null
+}
+
+export interface TrackerUpdatePayload {
+  trackId: string
+  score?: number
+  status?: string
+  lastReadChapter?: number
+  lastReadVolume?: number
+  startReadDate?: string | null
+  finishReadDate?: string | null
+}
+
 // ---- Komf configuration ----
 
 export type KomfLibraryType = 'MANGA' | 'NOVEL' | 'COMIC' | 'WEBTOON'

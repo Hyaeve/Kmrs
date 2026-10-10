@@ -178,7 +178,8 @@ impl KomfClient {
     /// `proxy_metadata`. komf builds the OAuth callback URL from the request's host
     /// headers, so they are copied from the incoming browser request: komf's own
     /// instance address is internal and must not end up in the redirect the browser
-    /// follows.
+    /// follows. `user_key` selects the caller's tracker account in komf (multi-user
+    /// tracker sync); `None` targets komf's built-in `default` account.
     pub async fn proxy_oauth(
         &self,
         method: reqwest::Method,
@@ -186,6 +187,7 @@ impl KomfClient {
         query: Option<&str>,
         headers: &axum::http::HeaderMap,
         timeout: Duration,
+        user_key: Option<&str>,
     ) -> anyhow::Result<reqwest::Response> {
         let url = self.url(path, query);
         let mut request = self
@@ -195,6 +197,31 @@ impl KomfClient {
             if let Some(value) = headers.get(name) {
                 request = request.header(name, value.clone());
             }
+        }
+        if let Some(user_key) = user_key {
+            request = request.header("x-tracker-user", user_key);
+        }
+        Ok(request.send().await?)
+    }
+
+    /// Forwards to komf's tracker API (`/api/tracker`), always scoped to one
+    /// caller identity via komf's `X-Tracker-User` header. Same error split as
+    /// `proxy_metadata`.
+    pub async fn proxy_tracker(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        query: Option<&str>,
+        body: Option<&serde_json::Value>,
+        user_key: &str,
+    ) -> anyhow::Result<reqwest::Response> {
+        let url = self.url(path, query);
+        let mut request = self
+            .authorize(self.http.request(method, url))
+            .header("x-tracker-user", user_key)
+            .timeout(METADATA_PROXY_TIMEOUT);
+        if let Some(body) = body {
+            request = request.json(body);
         }
         Ok(request.send().await?)
     }

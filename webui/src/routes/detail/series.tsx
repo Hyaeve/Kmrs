@@ -61,6 +61,7 @@ import { EditSeriesDialog } from '@/components/metadata/EditSeriesDialog'
 import { PosterManager } from '@/components/metadata/PosterManager'
 import { KomfIdentifyDialog } from '@/components/metadata/KomfIdentifyDialog'
 import { KomfResetDialog } from '@/components/metadata/KomfResetDialog'
+import { TrackerSection } from '@/components/trackers/TrackerSection'
 import { FilterBar } from '@/components/filters/FilterBar'
 import { FilterDrawer } from '@/components/filters/FilterDrawer'
 import { Sentinel } from '@/components/filters/Sentinel'
@@ -386,6 +387,8 @@ export function SeriesDetailPage() {
           ))}
         </HorizontalRow>
       )}
+
+      <TrackerSection seriesId={series.id} seriesTitle={title} libraryId={series.libraryId} metadataLinks={md.links} />
 
       <section className="mt-10">
         <h2 className="mb-4 font-display text-xl font-semibold text-ink">{t('booksHeading')}</h2>

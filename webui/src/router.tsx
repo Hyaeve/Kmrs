@@ -13,6 +13,7 @@ import { BrowseBooksPage } from '@/routes/browse/books'
 import { BrowseCollectionsPage } from '@/routes/browse/collections'
 import { BrowseReadListsPage } from '@/routes/browse/readlists'
 import { BrowseSmartListsPage } from '@/routes/browse/smartlists'
+import { TrackersPage } from '@/routes/trackers'
 import { LibrarySeriesPage } from '@/routes/library/series'
 import { LibraryBooksPage } from '@/routes/library/books'
 import { SeriesDetailPage } from '@/routes/detail/series'
@@ -88,6 +89,7 @@ export const router = createBrowserRouter([
           { path: '/account/api-keys', element: <AccountApiKeysPage /> },
           { path: '/account/reader', element: <AccountReaderPage /> },
           { path: '/account/stats', element: <AccountStatsPage /> },
+          { path: '/account/trackers', element: <TrackersPage /> },
           {
             element: <RequireAdmin />,
             children: [
