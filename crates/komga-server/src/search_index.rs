@@ -18,8 +18,8 @@ use komga_db::dto_dao::collection::CollectionDtoDao;
 use komga_db::dto_dao::readlist::ReadListDtoDao;
 use komga_db::dto_dao::series::SeriesDtoDao;
 use komga_db::dto_dao::{EntitySearcher, PageRequest};
-use komga_search::EntityDoc;
-use std::collections::BTreeSet;
+use komga_search::{EntityDoc, IndexOp};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
 /// Adapts the crate-local `komga_search::EntitySearcher` to the dto_dao-facing one.
@@ -363,31 +363,6 @@ pub fn upgrade_index(state: &AppState) {
     }
 }
 
-fn lookup_book_doc(state: &AppState, book_id: &str) -> Option<EntityDoc> {
-    let book = BookDtoDao::new(state.db.clone())
-        .find_by_id(book_id, "unused")
-        .ok()
-        .flatten()?;
-    let series = book
-        .oneshot
-        .then(|| {
-            SeriesDtoDao::new(state.db.clone())
-                .find_by_id(&book.series_id, "unused")
-                .ok()
-                .flatten()
-        })
-        .flatten();
-    Some(book_to_document(&book, series.as_ref()))
-}
-
-fn lookup_series_doc(state: &AppState, series_id: &str) -> Option<EntityDoc> {
-    let series = SeriesDtoDao::new(state.db.clone())
-        .find_by_id(series_id, "unused")
-        .ok()
-        .flatten()?;
-    Some(series_to_document(&series))
-}
-
 fn lookup_collection_doc(state: &AppState, collection_id: &str) -> Option<EntityDoc> {
     let collection = CollectionDtoDao::new(state.db.clone())
         .find_by_id(collection_id, None, &ContentRestrictions::default())
@@ -404,83 +379,164 @@ fn lookup_readlist_doc(state: &AppState, readlist_id: &str) -> Option<EntityDoc>
     Some(readlist_to_document(&ReadListDto::from(&readlist)))
 }
 
-fn handle_event(state: &AppState, event: &DomainEvent) -> bool {
-    match event {
-        DomainEvent::SeriesAdded(_)
-        | DomainEvent::SeriesUpdated(_)
-        | DomainEvent::SeriesDeleted(_)
-        | DomainEvent::BookAdded(_)
-        | DomainEvent::BookUpdated(_)
-        | DomainEvent::BookDeleted(_)
-        | DomainEvent::CollectionAdded(_)
-        | DomainEvent::CollectionUpdated(_)
-        | DomainEvent::CollectionDeleted(_)
-        | DomainEvent::ReadListAdded(_)
-        | DomainEvent::ReadListUpdated(_)
-        | DomainEvent::ReadListDeleted(_) => {}
-        _ => return false,
-    }
-    let index = &state.search_index;
-    let result: komga_search::Result<()> = (|| {
-        match event {
-            DomainEvent::SeriesAdded(series) => {
-                if let Some(doc) = lookup_series_doc(state, &series.id) {
-                    index.add_documents(vec![doc])?;
-                }
-            }
-            DomainEvent::SeriesUpdated(series) => {
-                if let Some(doc) = lookup_series_doc(state, &series.id) {
-                    index.update_document(LuceneEntity::Series, &series.id, doc)?;
-                }
-            }
-            DomainEvent::SeriesDeleted(series) => {
-                index.delete_documents(LuceneEntity::Series, &series.id)?;
-            }
-            DomainEvent::BookAdded(book) => {
-                if let Some(doc) = lookup_book_doc(state, &book.id) {
-                    index.add_documents(vec![doc])?;
-                }
-            }
-            DomainEvent::BookUpdated(book) => {
-                if let Some(doc) = lookup_book_doc(state, &book.id) {
-                    index.update_document(LuceneEntity::Book, &book.id, doc)?;
-                }
-            }
-            DomainEvent::BookDeleted(book) => {
-                index.delete_documents(LuceneEntity::Book, &book.id)?;
-            }
-            DomainEvent::CollectionAdded(collection) => {
-                if let Some(doc) = lookup_collection_doc(state, &collection.id) {
-                    index.add_documents(vec![doc])?;
-                }
-            }
-            DomainEvent::CollectionUpdated(collection) => {
-                if let Some(doc) = lookup_collection_doc(state, &collection.id) {
-                    index.update_document(LuceneEntity::Collection, &collection.id, doc)?;
-                }
-            }
-            DomainEvent::CollectionDeleted(collection) => {
-                index.delete_documents(LuceneEntity::Collection, &collection.id)?;
-            }
-            DomainEvent::ReadListAdded(readlist) => {
-                if let Some(doc) = lookup_readlist_doc(state, &readlist.id) {
-                    index.add_documents(vec![doc])?;
-                }
-            }
-            DomainEvent::ReadListUpdated(readlist) => {
-                if let Some(doc) = lookup_readlist_doc(state, &readlist.id) {
-                    index.update_document(LuceneEntity::ReadList, &readlist.id, doc)?;
-                }
-            }
-            DomainEvent::ReadListDeleted(readlist) => {
-                index.delete_documents(LuceneEntity::ReadList, &readlist.id)?;
-            }
-            _ => {}
+/// The index-relevant change carried by an event: entity, id, and whether it was deleted.
+fn event_op(event: &DomainEvent) -> Option<(LuceneEntity, String, bool)> {
+    Some(match event {
+        DomainEvent::SeriesAdded(s) | DomainEvent::SeriesUpdated(s) => {
+            (LuceneEntity::Series, s.id.clone(), false)
         }
-        Ok(())
-    })();
-    if let Err(e) = result {
-        tracing::error!("search index update failed: {e}");
+        DomainEvent::SeriesDeleted(s) => (LuceneEntity::Series, s.id.clone(), true),
+        DomainEvent::BookAdded(b) | DomainEvent::BookUpdated(b) => {
+            (LuceneEntity::Book, b.id.clone(), false)
+        }
+        DomainEvent::BookDeleted(b) => (LuceneEntity::Book, b.id.clone(), true),
+        DomainEvent::CollectionAdded(c) | DomainEvent::CollectionUpdated(c) => {
+            (LuceneEntity::Collection, c.id.clone(), false)
+        }
+        DomainEvent::CollectionDeleted(c) => (LuceneEntity::Collection, c.id.clone(), true),
+        DomainEvent::ReadListAdded(r) | DomainEvent::ReadListUpdated(r) => {
+            (LuceneEntity::ReadList, r.id.clone(), false)
+        }
+        DomainEvent::ReadListDeleted(r) => (LuceneEntity::ReadList, r.id.clone(), true),
+        _ => return None,
+    })
+}
+
+/// A drained burst resolved to one change per (entity, id): only the last event
+/// counts, because an upsert re-reads the DTO from the DB at apply time anyway, so
+/// intermediate states of the same entity are never indexed.
+#[derive(Default)]
+struct EventBatch {
+    book_upserts: Vec<String>,
+    series_upserts: Vec<String>,
+    collection_upserts: Vec<String>,
+    readlist_upserts: Vec<String>,
+    deletes: Vec<IndexOp>,
+}
+
+impl EventBatch {
+    fn is_empty(&self) -> bool {
+        self.book_upserts.is_empty()
+            && self.series_upserts.is_empty()
+            && self.collection_upserts.is_empty()
+            && self.readlist_upserts.is_empty()
+            && self.deletes.is_empty()
+    }
+}
+
+fn coalesce(events: &[DomainEvent]) -> EventBatch {
+    let mut latest: BTreeMap<(LuceneEntity, String), bool> = BTreeMap::new();
+    for event in events {
+        if let Some((entity, id, deleted)) = event_op(event) {
+            latest.insert((entity, id), deleted);
+        }
+    }
+    let mut batch = EventBatch::default();
+    for ((entity, id), deleted) in latest {
+        if deleted {
+            batch.deletes.push(IndexOp::Delete { entity, id });
+        } else {
+            match entity {
+                LuceneEntity::Book => batch.book_upserts.push(id),
+                LuceneEntity::Series => batch.series_upserts.push(id),
+                LuceneEntity::Collection => batch.collection_upserts.push(id),
+                LuceneEntity::ReadList => batch.readlist_upserts.push(id),
+            }
+        }
+    }
+    batch
+}
+
+fn book_upsert_docs(state: &AppState, book_ids: &[String]) -> Vec<EntityDoc> {
+    if book_ids.is_empty() {
+        return vec![];
+    }
+    let books = match BookDtoDao::new(state.db.clone()).find_all_by_ids(book_ids, "unused") {
+        Ok(books) => books,
+        Err(e) => {
+            tracing::error!("search index batch update: could not fetch books: {e}");
+            return vec![];
+        }
+    };
+    let oneshot_series_ids: Vec<String> = books
+        .iter()
+        .filter(|book| book.oneshot)
+        .map(|book| book.series_id.clone())
+        .collect();
+    let oneshot_series: HashMap<String, SeriesDto> =
+        match SeriesDtoDao::new(state.db.clone()).find_all_by_ids(&oneshot_series_ids, "unused") {
+            Ok(series) => series.into_iter().map(|s| (s.id.clone(), s)).collect(),
+            Err(e) => {
+                tracing::error!("search index batch update: could not fetch oneshot series: {e}");
+                HashMap::new()
+            }
+        };
+    books
+        .iter()
+        .filter_map(|book| {
+            let series = oneshot_series.get(&book.series_id);
+            if book.oneshot && series.is_none() {
+                // a missing series means broken data; skipping keeps the rest of the
+                // batch applied instead of failing it wholesale
+                tracing::error!(
+                    "search index batch update: oneshot book {} has no series {}",
+                    book.id,
+                    book.series_id
+                );
+                return None;
+            }
+            Some(book_to_document(book, series))
+        })
+        .collect()
+}
+
+fn series_upsert_docs(state: &AppState, series_ids: &[String]) -> Vec<EntityDoc> {
+    if series_ids.is_empty() {
+        return vec![];
+    }
+    match SeriesDtoDao::new(state.db.clone()).find_all_by_ids(series_ids, "unused") {
+        Ok(series) => series.iter().map(series_to_document).collect(),
+        Err(e) => {
+            tracing::error!("search index batch update: could not fetch series: {e}");
+            vec![]
+        }
+    }
+}
+
+/// Applies one drained burst as a single writer-lock batch; returns true when the
+/// index changed (so the caller schedules a commit).
+fn handle_batch(state: &AppState, events: &[DomainEvent]) -> bool {
+    let batch = coalesce(events);
+    if batch.is_empty() {
+        return false;
+    }
+    let mut ops = batch.deletes;
+    ops.extend(
+        book_upsert_docs(state, &batch.book_upserts)
+            .into_iter()
+            .map(IndexOp::Upsert),
+    );
+    ops.extend(
+        series_upsert_docs(state, &batch.series_upserts)
+            .into_iter()
+            .map(IndexOp::Upsert),
+    );
+    // collection/readlist events are user-driven and rare, so per-id fetches suffice
+    for id in &batch.collection_upserts {
+        if let Some(doc) = lookup_collection_doc(state, id) {
+            ops.push(IndexOp::Upsert(doc));
+        }
+    }
+    for id in &batch.readlist_upserts {
+        if let Some(doc) = lookup_readlist_doc(state, id) {
+            ops.push(IndexOp::Upsert(doc));
+        }
+    }
+    if ops.is_empty() {
+        return false;
+    }
+    if let Err(e) = state.search_index.apply_ops(ops) {
+        tracing::error!("search index batch update failed: {e}");
     }
     true
 }
@@ -488,19 +544,27 @@ fn handle_event(state: &AppState, event: &DomainEvent) -> bool {
 /// `LuceneAsyncCommitter` debounces commits to one per 2s window (`komgaProperties.lucene.commitDelay`).
 const COMMIT_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
 
-/// Subscribes to the domain event bus and keeps the index in sync (`consumeEvents`).
-/// Events are handled serially and commits debounced: a scan emits several events
-/// per book, and each commit is a segment fsync, so batching keeps the shared
-/// blocking pool (which also serves HTTP requests) and disk from being saturated.
-/// DTO reads use the task pools, not the API pools.
-pub fn consume_events(state: AppState) -> tokio::task::JoinHandle<()> {
+/// Upper bound of one drain. A scan burst can refill the queue while a batch is being
+/// processed, so the drain is capped to keep one batch's DTO fetches bounded; the
+/// remainder is picked up as the next batch.
+const MAX_BATCH_EVENTS: usize = 4096;
+
+/// Feeds on the bus's lossless index channel and keeps the index in sync
+/// (`consumeEvents`; the Java side consumes events synchronously, so neither side
+/// drops any). Pending events are drained and applied per batch — a scan emits
+/// several events per book, and one DB round-trip plus writer lock per event could
+/// never keep up — while commits stay debounced to one per 2s window (each commit is
+/// a segment fsync). DTO reads use the task pools, not the API pools.
+pub fn consume_events(
+    state: AppState,
+    mut events_rx: tokio::sync::mpsc::UnboundedReceiver<DomainEvent>,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let state = state.task_context();
-        let mut receiver = state.events.subscribe();
         let mut commit_at: Option<tokio::time::Instant> = None;
         loop {
             let event = match commit_at {
-                Some(deadline) => match tokio::time::timeout_at(deadline, receiver.recv()).await {
+                Some(deadline) => match tokio::time::timeout_at(deadline, events_rx.recv()).await {
                     Ok(received) => received,
                     Err(_) => {
                         let index = state.search_index.clone();
@@ -518,25 +582,29 @@ pub fn consume_events(state: AppState) -> tokio::task::JoinHandle<()> {
                         continue;
                     }
                 },
-                None => receiver.recv().await,
+                None => events_rx.recv().await,
             };
-            match event {
-                Ok(event) => {
-                    let state = state.clone();
-                    let touched = tokio::task::spawn_blocking(move || handle_event(&state, &event))
-                        .await
-                        .unwrap_or_else(|e| {
-                            tracing::error!("search index event task failed: {e}");
-                            false
-                        });
-                    if touched && commit_at.is_none() {
-                        commit_at = Some(tokio::time::Instant::now() + COMMIT_DELAY);
-                    }
+            // all senders are gone (shutdown)
+            let Some(event) = event else { break };
+            let mut events = vec![event];
+            while events.len() < MAX_BATCH_EVENTS {
+                match events_rx.try_recv() {
+                    Ok(event) => events.push(event),
+                    Err(
+                        tokio::sync::mpsc::error::TryRecvError::Empty
+                        | tokio::sync::mpsc::error::TryRecvError::Disconnected,
+                    ) => break,
                 }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                    tracing::warn!("search index event consumer lagged by {n} events");
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+            let state = state.clone();
+            let touched = tokio::task::spawn_blocking(move || handle_batch(&state, &events))
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::error!("search index event task failed: {e}");
+                    false
+                });
+            if touched && commit_at.is_none() {
+                commit_at = Some(tokio::time::Instant::now() + COMMIT_DELAY);
             }
         }
     })
@@ -576,10 +644,17 @@ pub fn check_on_startup(state: &AppState, rebuild_required: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::api::collections::tests as shared;
     use komga_core::dto::book::{BookMetadataDto, MediaDto};
     use komga_core::dto::common::{AlternateTitleDto, AuthorDto};
     use komga_core::dto::series::{BookMetadataAggregationDto, SeriesMetadataDto};
+    use komga_core::model::book::Book;
+    use komga_core::model::collection::SeriesCollection;
+    use komga_core::model::readlist::ReadList;
+    use komga_core::model::series::Series;
+    use komga_core::time_codec::now_utc;
     use std::collections::BTreeSet;
+    use std::time::Duration;
 
     fn dt() -> time::OffsetDateTime {
         komga_core::time_codec::parse_datetime_utc("2024-01-02 03:04:05").unwrap()
@@ -818,5 +893,253 @@ mod tests {
         });
         assert_eq!(r.entity, LuceneEntity::ReadList);
         assert_eq!(fields(&r), vec![("name", "Marvel")]);
+    }
+
+    fn model_book(id: &str, series_id: &str) -> Book {
+        Book {
+            id: id.into(),
+            name: id.into(),
+            url: "file:/l/s/b.cbz".into(),
+            file_last_modified: now_utc(),
+            series_id: series_id.into(),
+            library_id: "l1".into(),
+            file_size: 100,
+            number: 0,
+            file_hash: String::new(),
+            file_hash_koreader: String::new(),
+            deleted_date: None,
+            oneshot: false,
+            created_date: now_utc(),
+            last_modified_date: now_utc(),
+        }
+    }
+
+    fn model_series(id: &str) -> Series {
+        Series {
+            id: id.into(),
+            name: id.into(),
+            url: "file:/l/s/".into(),
+            file_last_modified: now_utc(),
+            library_id: "l1".into(),
+            book_count: 0,
+            deleted_date: None,
+            oneshot: false,
+            created_date: now_utc(),
+            last_modified_date: now_utc(),
+        }
+    }
+
+    fn model_collection(id: &str) -> SeriesCollection {
+        SeriesCollection {
+            id: id.into(),
+            name: id.into(),
+            ordered: true,
+            series_ids: vec![],
+            filtered: false,
+            created_date: now_utc(),
+            last_modified_date: now_utc(),
+        }
+    }
+
+    fn model_readlist(id: &str) -> ReadList {
+        ReadList {
+            id: id.into(),
+            name: id.into(),
+            summary: String::new(),
+            ordered: true,
+            book_ids: std::collections::BTreeMap::new(),
+            filtered: false,
+            created_date: now_utc(),
+            last_modified_date: now_utc(),
+        }
+    }
+
+    #[test]
+    fn coalesce_keeps_only_the_last_event_per_entity() {
+        let events = vec![
+            DomainEvent::BookAdded(model_book("b1", "s1")),
+            DomainEvent::BookUpdated(model_book("b1", "s1")),
+            DomainEvent::BookAdded(model_book("b2", "s1")),
+            DomainEvent::BookDeleted(model_book("b2", "s1")),
+            DomainEvent::SeriesDeleted(model_series("s1")),
+            DomainEvent::SeriesAdded(model_series("s1")),
+            DomainEvent::CollectionUpdated(model_collection("c1")),
+            DomainEvent::ReadProgressSeriesChanged {
+                series_id: "s1".into(),
+                user_id: "u1".into(),
+            },
+        ];
+        let batch = coalesce(&events);
+        assert_eq!(batch.book_upserts, vec!["b1".to_string()]);
+        assert_eq!(batch.series_upserts, vec!["s1".to_string()]);
+        assert_eq!(batch.collection_upserts, vec!["c1".to_string()]);
+        assert!(batch.readlist_upserts.is_empty());
+        assert_eq!(batch.deletes.len(), 1);
+        assert!(matches!(
+            &batch.deletes[0],
+            IndexOp::Delete {
+                entity: LuceneEntity::Book,
+                id,
+            } if id == "b2"
+        ));
+    }
+
+    #[test]
+    fn handle_batch_indexes_coalesced_changes() {
+        let state = shared::test_state();
+        shared::seed_base(&state.db);
+        let exec = |sql: &str| shared::exec(&state.db, sql, []);
+        exec(
+            "INSERT INTO SERIES (ID, NAME, URL, FILE_LAST_MODIFIED, LIBRARY_ID, ONESHOT) \
+             VALUES ('s4', 's4', 'file:/l/s4/', '2020-01-01 00:00:00.0', 'l1', 1)",
+        );
+        exec(
+            "INSERT INTO SERIES_METADATA (SERIES_ID, STATUS, TITLE, TITLE_SORT, PUBLISHER) \
+             VALUES ('s4', 'ONGOING', 'Shot', 'Shot', 'shotpub')",
+        );
+        exec(
+            "INSERT INTO BOOK_METADATA_AGGREGATION (SERIES_ID, SUMMARY, SUMMARY_NUMBER) \
+             VALUES ('s4', '', '')",
+        );
+        exec(
+            "INSERT INTO BOOK (ID, NAME, URL, FILE_LAST_MODIFIED, SERIES_ID, LIBRARY_ID, ONESHOT) \
+             VALUES ('b5', 'b5', 'file:/l/s4/b.cbz', '2020-01-01 00:00:00.0', 's4', 'l1', 1)",
+        );
+        exec(
+            "INSERT INTO BOOK_METADATA (BOOK_ID, TITLE, NUMBER, NUMBER_SORT) \
+             VALUES ('b5', 'One Shot', '1', 1)",
+        );
+        exec(
+            "INSERT INTO MEDIA (BOOK_ID, STATUS, MEDIA_TYPE, PAGE_COUNT) \
+             VALUES ('b5', 'READY', 'application/zip', 10)",
+        );
+        exec(
+            "INSERT INTO READLIST (ID, NAME, SUMMARY, ORDERED, BOOK_COUNT) \
+             VALUES ('r1', 'Marvel', '', 1, 1)",
+        );
+        exec("INSERT INTO READLIST_BOOK (READLIST_ID, BOOK_ID, NUMBER) VALUES ('r1', 'b1', 0)");
+        // pre-existing documents the batch must replace (b1) and remove (s3)
+        state
+            .search_index
+            .add_documents(vec![
+                EntityDoc {
+                    entity: LuceneEntity::Book,
+                    id: "b1".into(),
+                    fields: vec![("title".into(), "stale".into())],
+                },
+                EntityDoc {
+                    entity: LuceneEntity::Series,
+                    id: "s3".into(),
+                    fields: vec![("title".into(), "Gamma".into())],
+                },
+            ])
+            .unwrap();
+        state.search_index.commit().unwrap();
+
+        let events = vec![
+            DomainEvent::BookUpdated(model_book("b1", "s1")),
+            DomainEvent::BookAdded(model_book("b2", "s1")),
+            DomainEvent::BookDeleted(model_book("b2", "s1")),
+            DomainEvent::BookDeleted(model_book("b3", "s2")),
+            DomainEvent::BookAdded(model_book("b3", "s2")),
+            DomainEvent::BookAdded(model_book("b5", "s4")),
+            DomainEvent::SeriesUpdated(model_series("s1")),
+            DomainEvent::SeriesAdded(model_series("s2")),
+            DomainEvent::SeriesDeleted(model_series("s2")),
+            DomainEvent::SeriesDeleted(model_series("s3")),
+            DomainEvent::CollectionAdded(model_collection("c1")),
+            DomainEvent::CollectionUpdated(model_collection("c2")),
+            DomainEvent::ReadListAdded(model_readlist("r1")),
+        ];
+        assert!(handle_batch(&state, &events));
+        state.search_index.commit().unwrap();
+
+        let index = &state.search_index;
+        let book = |term: &str| {
+            index
+                .search_entity_ids(Some(term), LuceneEntity::Book)
+                .unwrap()
+        };
+        let series = |term: &str| {
+            index
+                .search_entity_ids(Some(term), LuceneEntity::Series)
+                .unwrap()
+        };
+        assert_eq!(book("b1"), vec!["b1"]);
+        assert!(
+            book("stale").is_empty(),
+            "upsert replaces the stale document"
+        );
+        assert!(book("b2").is_empty(), "add then delete indexes nothing");
+        assert_eq!(book("b3"), vec!["b3"], "delete then add re-indexes");
+        assert_eq!(book("shot"), vec!["b5"]);
+        assert_eq!(
+            book("publisher:shotpub"),
+            vec!["b5"],
+            "oneshot book merges the series metadata"
+        );
+        assert_eq!(series("alpha"), vec!["s1"]);
+        assert!(series("beta").is_empty(), "add then delete indexes nothing");
+        assert!(series("gamma").is_empty(), "delete removes the document");
+        assert_eq!(
+            index
+                .search_entity_ids(Some("best"), LuceneEntity::Collection)
+                .unwrap(),
+            vec!["c1"]
+        );
+        assert_eq!(
+            index
+                .search_entity_ids(Some("another"), LuceneEntity::Collection)
+                .unwrap(),
+            vec!["c2"]
+        );
+        assert_eq!(
+            index
+                .search_entity_ids(Some("marvel"), LuceneEntity::ReadList)
+                .unwrap(),
+            vec!["r1"]
+        );
+    }
+
+    #[tokio::test]
+    async fn consumer_indexes_every_event_of_an_overflow_burst() {
+        let (bus, index_events) = crate::events::event_bus();
+        let state = AppState {
+            events: bus,
+            ..shared::test_state()
+        };
+        shared::seed_base(&state.db);
+        let handle = consume_events(state.clone(), index_events);
+        // the three real events sit at the front of a burst far beyond the old
+        // broadcast capacity: a lossy consumer would skip ahead past them, the
+        // index channel queues every one of them
+        for id in ["b1", "b2", "b3"] {
+            let _ = state
+                .events
+                .send(DomainEvent::BookAdded(model_book(id, "s1")));
+        }
+        for i in 0..3000 {
+            let _ = state
+                .events
+                .send(DomainEvent::BookAdded(model_book(&format!("x{i}"), "s1")));
+        }
+        let indexed = |id: &str| {
+            state
+                .search_index
+                .search_entity_ids(Some(id), LuceneEntity::Book)
+                .unwrap()
+        };
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        let found = loop {
+            if indexed("b1") == ["b1"] && indexed("b2") == ["b2"] && indexed("b3") == ["b3"] {
+                break true;
+            }
+            if std::time::Instant::now() > deadline {
+                break false;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        };
+        handle.abort();
+        assert!(found, "every event of the burst must reach the index");
     }
 }

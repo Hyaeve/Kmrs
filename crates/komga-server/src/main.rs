@@ -107,11 +107,12 @@ async fn main() -> anyhow::Result<()> {
     let search_index =
         Arc::new(komga_search::SearchIndex::open(&config.lucene_dir).context("open search index")?);
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let (events, index_events) = events::event_bus();
     let state = AppState {
         sessions: auth::SessionStore::new(config.session_timeout),
         settings: Arc::new(settings::SettingsProvider::load(db.clone())),
         tsid: Arc::new(komga_core::tsid::TsidFactory::new_random_node()),
-        events: events::event_bus(),
+        events,
         task_emitter: Arc::new(service::TaskEmitter::new(
             db.clone(),
             tasks_db.clone(),
@@ -154,7 +155,7 @@ async fn main() -> anyhow::Result<()> {
     });
     service::komf::KomfProvisioner::start(state.clone());
     search_index::check_on_startup(&state, search_rebuild);
-    search_index::consume_events(state.clone());
+    search_index::consume_events(state.clone(), index_events);
     webhook::consume_events(state.clone());
     service::reading_stats::consume_events(state.clone());
     service::tracker_sync::consume_events(state.clone());

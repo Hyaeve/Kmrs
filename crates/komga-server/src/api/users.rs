@@ -472,7 +472,7 @@ mod tests {
             kmrs_db: test_kmrs_db(),
             sessions: crate::auth::SessionStore::new(config.session_timeout),
             tsid: Arc::new(komga_core::tsid::TsidFactory::new_random_node()),
-            events: crate::events::event_bus(),
+            events: crate::events::event_bus().0,
             search_index: crate::state::test_search_index(),
             kepub: crate::service::kepub::KepubConverter::new(tempfile::tempdir().unwrap().keep()),
             kobo_proxy: crate::service::kobo_proxy::KoboProxy::new(),

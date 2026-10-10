@@ -193,6 +193,23 @@ impl BookDtoDao {
         Ok(fetch_and_map(&conn, &sql, params)?.into_iter().next())
     }
 
+    /// Batch variant of `find_by_id` for the search-index event consumer, which
+    /// resolves a scan burst to one upsert per book and fetches them together.
+    pub fn find_all_by_ids(&self, book_ids: &[String], user_id: &str) -> Result<Vec<BookDto>> {
+        let conn = self.db.ro()?;
+        let (from, base_params) = select_from(user_id, &BTreeSet::new());
+        let mut dtos = vec![];
+        // chunked like fill_children to stay under SQLite's parameter limit
+        for chunk in book_ids.chunks(500) {
+            let ph = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+            let sql = format!("{SELECT_CLAUSE} {from} WHERE BOOK.ID IN ({ph})");
+            let mut params = base_params.clone();
+            params.extend(chunk.iter().map(|id| Value::Text(id.clone())));
+            dtos.extend(fetch_and_map(&conn, &sql, params)?);
+        }
+        Ok(dtos)
+    }
+
     pub fn find_previous_in_series(&self, book_id: &str, user_id: &str) -> Result<Option<BookDto>> {
         self.find_sibling_series(book_id, user_id, false, false)
     }

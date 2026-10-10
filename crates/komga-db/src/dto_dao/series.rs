@@ -231,6 +231,30 @@ impl SeriesDtoDao {
         Ok(records.into_iter().map(|r| r.into_dto(&children)).next())
     }
 
+    /// Batch variant of `find_by_id` for the search-index event consumer, which
+    /// resolves a scan burst to one upsert per series and fetches them together.
+    pub fn find_all_by_ids(&self, series_ids: &[String], user_id: &str) -> Result<Vec<SeriesDto>> {
+        let columns = select_columns();
+        let (from, base_params) = select_from(user_id);
+        let conn = self.db.ro()?;
+        let mut dtos = vec![];
+        // chunked like fetch_children to stay under SQLite's parameter limit
+        for chunk in series_ids.chunks(500) {
+            let ph = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+            let sql =
+                format!("SELECT {columns} {from} WHERE SERIES.ID IN ({ph}) GROUP BY {columns}");
+            let mut params = base_params.clone();
+            params.extend(chunk.iter().map(|id| Value::Text(id.clone())));
+            let mut stmt = conn.prepare(&sql)?;
+            let records = stmt
+                .query_map(params_from_iter(params), map_record)?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            let children = fetch_children(&conn, &records)?;
+            dtos.extend(records.into_iter().map(|r| r.into_dto(&children)));
+        }
+        Ok(dtos)
+    }
+
     fn find_all_internal(
         &self,
         w: SqlWhere,

@@ -77,9 +77,48 @@ pub enum DomainEvent {
     },
 }
 
-/// Process-wide event bus. Lagging receivers skip ahead (broadcast semantics).
-pub type EventBus = tokio::sync::broadcast::Sender<DomainEvent>;
+/// Process-wide event bus. Broadcast receivers skip ahead when they lag, which the
+/// SSE/webhook/stats consumers tolerate; the search indexer cannot, so every publish
+/// is additionally queued on a dedicated lossless channel handed to it at startup.
+/// That channel is unbounded because publishers are synchronous code that cannot
+/// await backpressure.
+#[derive(Clone)]
+pub struct EventBus {
+    fanout: tokio::sync::broadcast::Sender<DomainEvent>,
+    index: tokio::sync::mpsc::UnboundedSender<DomainEvent>,
+}
 
-pub fn event_bus() -> EventBus {
-    tokio::sync::broadcast::channel(1024).0
+impl EventBus {
+    // the Err variant is boxed: it carries the event back, which exceeds
+    // clippy's result_large_err threshold
+    pub fn send(
+        &self,
+        event: DomainEvent,
+    ) -> Result<usize, Box<tokio::sync::broadcast::error::SendError<DomainEvent>>> {
+        // indexing is the one consumer that must not miss anything, so it is fed
+        // even when the broadcast side has no receivers (or errors)
+        let _ = self.index.send(event.clone());
+        self.fanout.send(event).map_err(Box::new)
+    }
+
+    pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<DomainEvent> {
+        self.fanout.subscribe()
+    }
+
+    pub fn receiver_count(&self) -> usize {
+        self.fanout.receiver_count()
+    }
+}
+
+const EVENT_BUS_CAPACITY: usize = 1024;
+
+pub fn event_bus() -> (EventBus, tokio::sync::mpsc::UnboundedReceiver<DomainEvent>) {
+    let (index, index_rx) = tokio::sync::mpsc::unbounded_channel();
+    (
+        EventBus {
+            fanout: tokio::sync::broadcast::channel(EVENT_BUS_CAPACITY).0,
+            index,
+        },
+        index_rx,
+    )
 }

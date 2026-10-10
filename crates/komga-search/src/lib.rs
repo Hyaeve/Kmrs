@@ -170,6 +170,14 @@ pub struct EntityDoc {
     pub fields: Vec<(String, String)>,
 }
 
+/// One resolved entity change for `SearchIndex::apply_ops`. `Upsert` is Lucene's
+/// `updateDocument(term, doc)`: delete by id, then add.
+#[derive(Debug)]
+pub enum IndexOp {
+    Upsert(EntityDoc),
+    Delete { entity: LuceneEntity, id: String },
+}
+
 impl EntityDoc {
     fn to_tantivy(&self, schema: &Schema) -> TantivyDocument {
         let mut doc = TantivyDocument::new();
@@ -377,25 +385,29 @@ impl SearchIndex {
         Ok(())
     }
 
-    /// Lucene's `updateDocument(term, doc)`: delete by id, then add
-    pub fn update_document(&self, entity: LuceneEntity, id: &str, doc: EntityDoc) -> Result<()> {
+    /// Applies a coalesced batch of entity changes under one writer lock: scan bursts
+    /// emit several events per entity, so the consumer resolves them to one op per
+    /// (entity, id) and pays the lock once for the whole batch.
+    pub fn apply_ops(&self, ops: Vec<IndexOp>) -> Result<()> {
+        let schema = self.index.schema();
         let writer = self.writer.lock().unwrap();
-        writer.delete_term(Term::from_field_text(
-            self.field(entity_id_field(entity)),
-            id,
-        ));
-        writer.add_document(doc.to_tantivy(&self.index.schema()))?;
-        Ok(())
-    }
-
-    pub fn delete_documents(&self, entity: LuceneEntity, id: &str) -> Result<()> {
-        self.writer
-            .lock()
-            .unwrap()
-            .delete_term(Term::from_field_text(
-                self.field(entity_id_field(entity)),
-                id,
-            ));
+        for op in ops {
+            match op {
+                IndexOp::Upsert(doc) => {
+                    writer.delete_term(Term::from_field_text(
+                        self.field(entity_id_field(doc.entity)),
+                        &doc.id,
+                    ));
+                    writer.add_document(doc.to_tantivy(&schema))?;
+                }
+                IndexOp::Delete { entity, id } => {
+                    writer.delete_term(Term::from_field_text(
+                        self.field(entity_id_field(entity)),
+                        &id,
+                    ));
+                }
+            }
+        }
         Ok(())
     }
 
@@ -744,11 +756,10 @@ mod tests {
         let (_dir, index) = index();
         seed(&index);
         index
-            .update_document(
-                LuceneEntity::Book,
+            .apply_ops(vec![IndexOp::Upsert(book(
                 "b1",
-                book("b1", &[("title", "Berserk Deluxe")]),
-            )
+                &[("title", "Berserk Deluxe")],
+            ))])
             .unwrap();
         index.commit().unwrap();
         assert!(index
@@ -761,7 +772,26 @@ mod tests {
                 .unwrap(),
             vec!["b1"]
         );
-        index.delete_documents(LuceneEntity::Book, "b1").unwrap();
+        // upsert replaces the old document of the same id instead of duplicating it
+        index
+            .apply_ops(vec![IndexOp::Upsert(book(
+                "b1",
+                &[("title", "Berserk Deluxe")],
+            ))])
+            .unwrap();
+        index.commit().unwrap();
+        assert_eq!(
+            index
+                .search_entity_ids(Some("deluxe"), LuceneEntity::Book)
+                .unwrap(),
+            vec!["b1"]
+        );
+        index
+            .apply_ops(vec![IndexOp::Delete {
+                entity: LuceneEntity::Book,
+                id: "b1".to_string(),
+            }])
+            .unwrap();
         index.commit().unwrap();
         assert!(index
             .search_entity_ids(Some("deluxe"), LuceneEntity::Book)
