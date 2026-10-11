@@ -232,34 +232,96 @@ pub fn hash_pages_and_persist(state: &AppState, book: &Book) -> komga_db::Result
     Ok(())
 }
 
-pub fn generate_thumbnail_and_persist(state: &AppState, book: &Book) -> komga_db::Result<()> {
+/// Downscales the stored generated thumbnail when it is a sufficient source, avoiding a
+/// book-file open. Upscaling is never done; any miss (no stored generated thumbnail,
+/// unknown dimension, stale or unreadable bytes) returns false so the caller falls back
+/// to source extraction.
+fn try_downscale_stored_thumbnail(state: &AppState, book: &Book) -> bool {
+    let target = state.settings.get().thumbnail_size.max_edge();
+    let dao = ThumbnailBookDao::new(state.db.clone());
+    let existing = match dao.find_all_by_book_id_and_type(&book.id, ThumbnailType::Generated) {
+        Ok(existing) => existing,
+        Err(e) => {
+            tracing::warn!("cannot list stored thumbnails of book {}: {e}", book.id);
+            return false;
+        }
+    };
+    let stored = existing.iter().find(|t| {
+        t.dimension.width.max(t.dimension.height) >= target as i32
+        // a thumbnail older than the file's last modification may predate a file
+        // replacement, and is not trusted as a source
+        && t.last_modified_date >= book.file_last_modified
+    });
+    let Some(stored) = stored else { return false };
+    let Ok(Some(content)) = thumbnail_bytes(stored, None, &book.id) else {
+        return false;
+    };
+    let resized = match image::resize(&content.bytes, ImageType::Jpeg, target) {
+        Ok(resized) => resized,
+        Err(e) => {
+            tracing::warn!("downscale stored thumbnail of book {} failed: {e}", book.id);
+            return false;
+        }
+    };
+    // already at the target: resize returned the stored bytes unchanged, no need to
+    // churn the row (new id, refreshed dates, ThumbnailBookAdded event)
+    if resized == content.bytes {
+        return true;
+    }
+    persist_generated_thumbnail(state, book, resized)
+}
+
+fn persist_generated_thumbnail(state: &AppState, book: &Book, bytes: Vec<u8>) -> bool {
+    let (w, h) = image::get_dimension(&bytes).unwrap_or((0, 0));
+    let file_size = bytes.len() as i64;
+    let thumbnail = ThumbnailBook {
+        id: String::new(),
+        book_id: book.id.clone(),
+        thumbnail: Some(bytes),
+        url: None,
+        selected: false,
+        type_: ThumbnailType::Generated,
+        media_type: ImageType::Jpeg.media_type().into(),
+        file_size,
+        dimension: Dimension {
+            width: w as i32,
+            height: h as i32,
+        },
+        created_date: now_utc(),
+        last_modified_date: now_utc(),
+    };
+    match add_thumbnail_for_book(state, thumbnail, MarkSelectedPreference::IfNoneOrGenerated) {
+        Ok(_) => true,
+        Err(e) => {
+            tracing::error!("Error while creating thumbnail: {e}");
+            false
+        }
+    }
+}
+
+/// `BookLifecycle.generateThumbnailAndPersist`.
+///
+/// kmrs deviation: with `reuse_stored` (only set for user-initiated regenerations, via a
+/// one-shot `THUMBNAIL_REUSE` marker written by the `FindBookThumbnailsToRegenerate`
+/// expansion), a stored generated thumbnail that is still at least as large as the
+/// configured size is downscaled in place of reopening the book file. Regenerations
+/// derived from analysis (e.g. after a book file replacement) always re-read the file,
+/// like komga, so a changed cover is picked up.
+pub fn generate_thumbnail_and_persist(
+    state: &AppState,
+    book: &Book,
+    reuse_stored: bool,
+) -> komga_db::Result<()> {
     tracing::info!("Generate thumbnail and persist for book: {book:?}");
+    if reuse_stored && try_downscale_stored_thumbnail(state, book) {
+        return Ok(());
+    }
     let media = MediaDao::new(state.db.clone())
         .find_by_id(&book.id)?
         .expect("book references a missing media");
     match analyzer_for(state).generate_thumbnail(&book_path(book), &media) {
         Ok(generated) => {
-            let thumbnail = ThumbnailBook {
-                id: String::new(),
-                book_id: book.id.clone(),
-                thumbnail: Some(generated.bytes),
-                url: None,
-                selected: false,
-                type_: ThumbnailType::Generated,
-                media_type: generated.media_type,
-                file_size: generated.file_size,
-                dimension: Dimension {
-                    width: generated.width,
-                    height: generated.height,
-                },
-                created_date: now_utc(),
-                last_modified_date: now_utc(),
-            };
-            if let Err(e) =
-                add_thumbnail_for_book(state, thumbnail, MarkSelectedPreference::IfNoneOrGenerated)
-            {
-                tracing::error!("Error while creating thumbnail: {e}");
-            }
+            persist_generated_thumbnail(state, book, generated.bytes);
         }
         Err(e) => tracing::error!("Error while creating thumbnail: {e}"),
     }
@@ -1233,7 +1295,7 @@ mod tests {
         );
         let (_actions, _sources) = analyze_and_persist(&state, &book).unwrap();
 
-        generate_thumbnail_and_persist(&state, &book).unwrap();
+        generate_thumbnail_and_persist(&state, &book, false).unwrap();
 
         let dao = ThumbnailBookDao::new(state.db.clone());
         let thumbnails = dao.find_all_by_book_id(&book.id).unwrap();
@@ -1246,6 +1308,157 @@ mod tests {
         // source is 48x48: no upscale
         assert_eq!(thumbnail.dimension.width, 48);
         assert_eq!(thumbnail.dimension.height, 48);
+    }
+
+    fn jpeg_bytes(w: u32, h: u32) -> Vec<u8> {
+        let img = komga_media::image::DynamicImage::new_rgb8(w, h);
+        komga_media::image::encode_jpeg(&img).unwrap()
+    }
+
+    fn seed_generated_thumbnail(state: &AppState, book: &Book, bytes: &[u8], w: i32, h: i32) {
+        let thumbnail = ThumbnailBook {
+            id: state.tsid.create_string(),
+            book_id: book.id.clone(),
+            thumbnail: Some(bytes.to_vec()),
+            url: None,
+            selected: true,
+            type_: ThumbnailType::Generated,
+            media_type: "image/jpeg".into(),
+            file_size: bytes.len() as i64,
+            dimension: Dimension {
+                width: w,
+                height: h,
+            },
+            created_date: now_utc(),
+            last_modified_date: now_utc(),
+        };
+        ThumbnailBookDao::new(state.db.clone())
+            .insert(&thumbnail)
+            .unwrap();
+    }
+
+    #[test]
+    fn generate_thumbnail_and_persist_downscales_stored_thumbnail_without_book_file() {
+        let state = test_state();
+        seed_library(&state, "lib1", true);
+        seed_series(&state, "lib1", "s1");
+        // the book file is gone (e.g. unmounted share): only the stored thumbnail
+        // remains, larger than the configured 300px max edge
+        let book = seed_book(&state, "lib1", "s1", "file:/l/s/missing.cbz", 1);
+        seed_generated_thumbnail(&state, &book, &jpeg_bytes(900, 1200), 900, 1200);
+
+        generate_thumbnail_and_persist(&state, &book, true).unwrap();
+
+        let thumbnails = ThumbnailBookDao::new(state.db.clone())
+            .find_all_by_book_id(&book.id)
+            .unwrap();
+        assert_eq!(thumbnails.len(), 1);
+        let thumbnail = &thumbnails[0];
+        assert_eq!(thumbnail.type_, ThumbnailType::Generated);
+        assert!(thumbnail.selected);
+        assert_eq!(thumbnail.media_type, "image/jpeg");
+        assert_eq!(
+            thumbnail.dimension.width.max(thumbnail.dimension.height),
+            state.settings.get().thumbnail_size.max_edge() as i32
+        );
+    }
+
+    #[test]
+    fn generate_thumbnail_and_persist_without_reuse_permission_reads_the_book_file() {
+        let state = test_state();
+        seed_library(&state, "lib1", true);
+        seed_series(&state, "lib1", "s1");
+        // the analysis-derived path carries no reuse permission: with the book file gone
+        // the large stored thumbnail must not be used as a source, and stays untouched
+        let book = seed_book(&state, "lib1", "s1", "file:/l/s/missing.cbz", 1);
+        seed_generated_thumbnail(&state, &book, &jpeg_bytes(900, 1200), 900, 1200);
+        let old_id = ThumbnailBookDao::new(state.db.clone())
+            .find_all_by_book_id(&book.id)
+            .unwrap()
+            .remove(0)
+            .id;
+
+        generate_thumbnail_and_persist(&state, &book, false).unwrap();
+
+        let thumbnails = ThumbnailBookDao::new(state.db.clone())
+            .find_all_by_book_id(&book.id)
+            .unwrap();
+        assert_eq!(thumbnails.len(), 1);
+        assert_eq!(thumbnails[0].id, old_id);
+        assert_eq!(thumbnails[0].dimension.width, 900);
+        assert_eq!(thumbnails[0].dimension.height, 1200);
+    }
+
+    #[test]
+    fn generate_thumbnail_and_persist_rereads_file_when_stored_thumbnail_is_smaller() {
+        let state = test_state();
+        seed_library(&state, "lib1", true);
+        seed_series(&state, "lib1", "s1");
+        let dir = tmpdir();
+        let zip_path = dir.join("v01.cbz");
+        std::fs::copy(fixtures().join("zip.zip"), &zip_path).unwrap();
+        let book = seed_book(
+            &state,
+            "lib1",
+            "s1",
+            &format!("file:{}", zip_path.display()),
+            3260,
+        );
+        let (_actions, _sources) = analyze_and_persist(&state, &book).unwrap();
+        generate_thumbnail_and_persist(&state, &book, true).unwrap();
+
+        // raise the target size: the stored 48px thumbnail no longer qualifies and the
+        // book file must be reopened. A sentinel blob pins that contract: if the stored
+        // thumbnail were (wrongly) reused, its bytes would survive the regeneration.
+        komga_db::dao::settings::SettingsDao::new(state.db.clone())
+            .save_setting("THUMBNAIL_SIZE", "XLARGE")
+            .unwrap();
+        state.settings.reload();
+        let dao = ThumbnailBookDao::new(state.db.clone());
+        let mut stored = dao.find_all_by_book_id(&book.id).unwrap().remove(0);
+        let old_id = stored.id.clone();
+        let sentinel = jpeg_bytes(48, 48);
+        stored.thumbnail = Some(sentinel.clone());
+        dao.update(&stored).unwrap();
+
+        generate_thumbnail_and_persist(&state, &book, true).unwrap();
+
+        let thumbnails = dao.find_all_by_book_id(&book.id).unwrap();
+        assert_eq!(thumbnails.len(), 1);
+        let thumbnail = &thumbnails[0];
+        assert_ne!(thumbnail.id, old_id);
+        assert_eq!(thumbnail.type_, ThumbnailType::Generated);
+        assert!(thumbnail.selected);
+        // the file was re-read: the sentinel blob is gone
+        assert_ne!(thumbnail.thumbnail.as_deref().unwrap(), sentinel.as_slice());
+        // source is 48x48: no upscale even at the 1200px target
+        assert_eq!(thumbnail.dimension.width, 48);
+        assert_eq!(thumbnail.dimension.height, 48);
+    }
+
+    #[test]
+    fn generate_thumbnail_and_persist_ignores_stored_thumbnail_with_unknown_dimension() {
+        let state = test_state();
+        seed_library(&state, "lib1", true);
+        seed_series(&state, "lib1", "s1");
+        let book = seed_book(&state, "lib1", "s1", "file:/l/s/missing.cbz", 1);
+        seed_generated_thumbnail(&state, &book, &jpeg_bytes(900, 1200), 0, 0);
+        let old_id = ThumbnailBookDao::new(state.db.clone())
+            .find_all_by_book_id(&book.id)
+            .unwrap()
+            .remove(0)
+            .id;
+
+        generate_thumbnail_and_persist(&state, &book, true).unwrap();
+
+        // dimension 0x0 does not qualify for downscaling; the book file is unreadable,
+        // so the stored thumbnail is left untouched
+        let thumbnails = ThumbnailBookDao::new(state.db.clone())
+            .find_all_by_book_id(&book.id)
+            .unwrap();
+        assert_eq!(thumbnails.len(), 1);
+        assert_eq!(thumbnails[0].id, old_id);
+        assert_eq!(thumbnails[0].dimension.width, 0);
     }
 
     #[test]

@@ -18,6 +18,7 @@ use komga_db::dao::library::LibraryDao;
 use komga_db::dao::media::MediaDao;
 use komga_db::dao::series::SeriesDao;
 use komga_db::dao::tasks::TasksDao;
+use komga_db::dao::thumbnail_reuse::ThumbnailReuseDao;
 use komga_media::CapturedMetadataSources;
 use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -289,7 +290,11 @@ pub(crate) fn dispatch_task(state: &AppState, task: &Task) -> anyhow::Result<()>
                 );
                 return Ok(());
             };
-            book::generate_thumbnail_and_persist(state, &book)?;
+            // a reuse marker is set only by the user-initiated regeneration expansion;
+            // everything else (analysis after a file replacement, page removal) must
+            // re-read the book file
+            let reuse_stored = ThumbnailReuseDao::new(state.kmrs_db.clone()).take(&book.id)?;
+            book::generate_thumbnail_and_persist(state, &book, reuse_stored)?;
             Ok(())
         }
         Task::RefreshBookMetadata(t) => {
@@ -411,6 +416,10 @@ pub(crate) fn dispatch_task(state: &AppState, task: &Task) -> anyhow::Result<()>
         }
         Task::FindBookThumbnailsToRegenerate(t) => {
             let ids = book::find_book_thumbnails_to_regenerate(state, t.for_bigger_result_only)?;
+            let reuse = ThumbnailReuseDao::new(state.kmrs_db.clone());
+            for id in &ids {
+                reuse.allow(id)?;
+            }
             state
                 .task_emitter
                 .generate_book_thumbnails(&ids, t.priority)?;
