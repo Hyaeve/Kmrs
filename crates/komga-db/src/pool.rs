@@ -15,7 +15,7 @@
 //!   pool inside each `Database`; the task/API split still holds.)
 //! - The task-side main database, the tasks queue and the kmrs database are
 //!   auxiliary pools: their work is serial per worker (`TASK_POOL_SIZE` defaults
-//!   to 1) or light API queries, so their read pool defaults to
+//!   to 2) or light API queries, so their read pool defaults to
 //!   [`DEFAULT_AUX_READERS`] — build their config with
 //!   [`DatabaseConfig::aux_pools`].
 //! - Page cache: each `Database` splits a fixed budget (default 16 MiB) between

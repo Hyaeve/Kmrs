@@ -30,7 +30,7 @@
 # tasks never contend with HTTP/API connections for pool slots. The task write
 # pool is a second writer on the file; keep a busy timeout (default 30s) so
 # concurrent writes wait instead of failing. The task read pool defaults to 2
-# connections — task work is serial per worker (TASK_POOL_SIZE defaults to 1);
+# connections — task work is serial per worker (TASK_POOL_SIZE defaults to 2);
 # an explicit pool-size applies to the task pool too.
 # [database.pragmas] # extra SQLite pragmas, TOML only. synchronous defaults to NORMAL in WAL mode, FULL otherwise
 # synchronous = "FULL"

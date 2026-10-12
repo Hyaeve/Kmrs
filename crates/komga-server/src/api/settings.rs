@@ -204,7 +204,7 @@ mod tests {
         assert_eq!(json["deleteEmptyReadLists"], true);
         assert_eq!(json["rememberMeDurationDays"], 365);
         assert_eq!(json["thumbnailSize"], "DEFAULT");
-        assert_eq!(json["taskPoolSize"], 1);
+        assert_eq!(json["taskPoolSize"], 2);
         assert_eq!(json["serverPort"]["effectiveValue"], 25600);
         assert_eq!(json["serverPort"]["configurationSource"], 25600);
         assert_eq!(json["koboProxy"], false);

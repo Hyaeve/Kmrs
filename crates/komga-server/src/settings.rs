@@ -102,7 +102,7 @@ impl SettingsProvider {
                 thumbnail_size: ThumbnailSize::from_str(
                     &dao.get_setting(KEY_THUMBNAIL_SIZE)?.unwrap_or_default(),
                 ),
-                task_pool_size: dao.get_setting_i64(KEY_TASK_POOL_SIZE)?.unwrap_or(1).max(0) as u32,
+                task_pool_size: dao.get_setting_i64(KEY_TASK_POOL_SIZE)?.unwrap_or(2).max(0) as u32,
                 server_port: dao.get_setting_i64(KEY_SERVER_PORT)?.map(|v| v as u16),
                 server_context_path: dao
                     .get_setting(KEY_SERVER_CONTEXT_PATH)?
