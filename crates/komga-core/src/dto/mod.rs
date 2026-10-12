@@ -130,18 +130,62 @@ fn format_decimal(value: f64) -> String {
 
 /// `URL.toURI().toPath().pathString` for komga's `file:/…` URLs: strips the scheme
 /// and percent-decodes (UTF-8). Java's Path normalizes away the trailing `/` of
-/// directory URLs (`Paths.get("/a/")` renders as `/a`).
+/// directory URLs (`Paths.get("/a/")` renders as `/a`). On Windows, drive URLs
+/// (`file:/E:/x`) resolve to `E:\x` and a non-empty authority to a UNC path.
 pub fn url_to_file_path(url: &str) -> String {
-    let path = url.strip_prefix("file:").unwrap_or(url);
+    let rest = url.strip_prefix("file:").unwrap_or(url);
     // `file:///path` and `file:/path` both denote a local path with an empty authority
-    let path = path.strip_prefix("//").map_or(path, |p| {
-        // after the authority marker, the path starts at the next '/'
-        match p.find('/') {
-            Some(idx) => &p[idx..],
-            None => "/",
-        }
-    });
+    let (authority, path) = match rest.strip_prefix("//") {
+        Some(p) => match p.find('/') {
+            Some(idx) => (&p[..idx], &p[idx..]),
+            None => (p, "/"),
+        },
+        None => ("", rest),
+    };
+    if cfg!(windows) {
+        windows_file_path(authority, path)
+    } else {
+        unix_file_path(path)
+    }
+}
+
+fn unix_file_path(path: &str) -> String {
+    trim_dir_slash(percent_decode(path))
+}
+
+/// Java's `Paths.get(URI)` on Windows: `/E:/x` denotes drive `E:` (renders `E:\x`), and a
+/// non-empty authority is a UNC host (`file://server/share` → `\\server\share`).
+fn windows_file_path(authority: &str, path: &str) -> String {
     let decoded = percent_decode(path);
+    let mut out = if !authority.is_empty() {
+        // path_to_url percent-encodes a non-ASCII UNC host
+        format!(
+            "\\\\{}{}",
+            percent_decode(authority),
+            decoded.replace('/', "\\")
+        )
+    } else if decoded.len() >= 3
+        && decoded.as_bytes()[0] == b'/'
+        && decoded.as_bytes()[1].is_ascii_alphabetic()
+        && decoded.as_bytes()[2] == b':'
+    {
+        decoded[1..].replace('/', "\\")
+    } else {
+        return trim_dir_slash(decoded);
+    };
+    // Paths.get renders "E:\x\" as "E:\x"; only the drive root keeps its separator
+    while out.len() > 3 && out.ends_with('\\') {
+        out.pop();
+    }
+    if out.len() == 2 {
+        // "E:" would be a drive-relative path, not the drive root the URL denotes
+        out.push('\\');
+    }
+    out
+}
+
+// "/" itself is the root, not a trailing slash
+fn trim_dir_slash(decoded: String) -> String {
     if decoded.len() > 1 {
         decoded.trim_end_matches('/').to_string()
     } else {
@@ -201,6 +245,33 @@ mod tests {
         assert_eq!(url_to_file_path("file:/data/my%20book/"), "/data/my book");
         assert_eq!(url_to_file_path("file:/data/%E3%81%82/"), "/data/あ");
         assert_eq!(url_to_file_path("file:/"), "/");
+    }
+
+    #[test]
+    fn url_to_path_windows() {
+        assert_eq!(
+            windows_file_path("", "/E:/comics/book.cbz"),
+            r"E:\comics\book.cbz"
+        );
+        assert_eq!(windows_file_path("", "/E:/comics/"), r"E:\comics");
+        assert_eq!(windows_file_path("", "/E:/"), r"E:\");
+        assert_eq!(windows_file_path("", "/E:/my%20book/"), r"E:\my book");
+        assert_eq!(windows_file_path("", "/data/berserk/"), "/data/berserk");
+        assert_eq!(
+            windows_file_path("server", "/share/comics/"),
+            r"\\server\share\comics"
+        );
+        // path_to_url percent-encodes a non-ASCII UNC host
+        assert_eq!(
+            windows_file_path("%E4%B8%BB%E6%9C%BA", "/share/x"),
+            "\\\\主机\\share\\x"
+        );
+        // databases written by earlier kmrs Windows builds percent-encode the backslashes
+        // and carry no leading slash; keep resolving them
+        assert_eq!(
+            windows_file_path("", "E:%5Ccomics%5Cbook.cbz"),
+            r"E:\comics\book.cbz"
+        );
     }
 
     #[test]

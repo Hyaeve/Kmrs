@@ -611,7 +611,11 @@ pub fn path_to_url(path: &Path) -> String {
         std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf())
     };
     let s = abs.to_string_lossy();
-    let s = s.trim_end_matches('/');
+    let s = if cfg!(windows) {
+        windows_uri_path(&s)
+    } else {
+        unix_uri_path(&s)
+    };
     let mut out = String::from("file:");
     for &b in s.as_bytes() {
         if is_url_path_char(b) {
@@ -627,6 +631,25 @@ pub fn path_to_url(path: &Path) -> String {
         out.push('/');
     }
     out
+}
+
+fn unix_uri_path(s: &str) -> String {
+    s.trim_end_matches('/').to_string()
+}
+
+/// URI form of a Windows path. Java renders it with forward slashes: drive roots gain a
+/// leading slash (`E:\x` → `/E:/x`), and a UNC host moves into the authority
+/// (`\\server\share\x` → `//server/share/x`).
+fn windows_uri_path(s: &str) -> String {
+    let s = s.trim_end_matches(['/', '\\']);
+    if let Some(unc) = s.strip_prefix("\\\\") {
+        return format!("//{}", unc.replace('\\', "/"));
+    }
+    let s = s.replace('\\', "/");
+    if s.len() >= 2 && s.as_bytes()[0].is_ascii_alphabetic() && s.as_bytes()[1] == b':' {
+        return format!("/{s}");
+    }
+    s
 }
 
 #[cfg(test)]
@@ -1037,6 +1060,30 @@ mod tests {
         // scanBookSidecars uses the containing directory as parentUrl (Kotlin fidelity)
         assert_eq!(sidecars[0].parent_url, path_to_url(&dir));
         assert!(sidecars[0].parent_url.ends_with('/'));
+    }
+
+    #[test]
+    fn uri_path_unix() {
+        assert_eq!(unix_uri_path("/data/comics/"), "/data/comics");
+        // a backslash is a valid unix filename character, not a separator
+        assert_eq!(unix_uri_path("/data/a\\b/"), "/data/a\\b");
+    }
+
+    #[test]
+    fn uri_path_windows() {
+        assert_eq!(
+            windows_uri_path(r"E:\comics\book.cbz"),
+            "/E:/comics/book.cbz"
+        );
+        assert_eq!(
+            windows_uri_path("E:/comics/book.cbz"),
+            "/E:/comics/book.cbz"
+        );
+        assert_eq!(windows_uri_path(r"E:\"), "/E:");
+        assert_eq!(
+            windows_uri_path(r"\\server\share\comics\"),
+            "//server/share/comics"
+        );
     }
 
     #[cfg(unix)]
