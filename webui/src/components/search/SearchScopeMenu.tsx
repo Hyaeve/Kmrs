@@ -8,13 +8,15 @@ import { scopeValue, useSearchScope, useSearchScopeDefault } from '@/components/
 import { Button } from '@/components/ui/Button'
 import { Menu, MenuItem, MenuSeparator } from '@/components/ui/Menu'
 
-export function SearchScopeMenu() {
+export function SearchScopeMenu({ urlScoped = false }: { urlScoped?: boolean }) {
   const { t } = useTranslation('search')
   const { data: libraries } = useQuery({ queryKey: ['libraries'], queryFn: librariesApi.list })
   const { pinned } = usePinnedLibraries()
-  // on /search the ?scope= param wins (shareable, back/forward); everywhere
-  // else the menu shows the persisted default that the next search will use
-  const onSearchPage = useLocation().pathname.startsWith('/search')
+  // on /search, and on browse pages that opt into urlScoped, the ?scope= param wins
+  // (shareable, back/forward); everywhere else the menu shows the persisted default
+  // that the next search will use
+  const onSearchRoute = useLocation().pathname.startsWith('/search')
+  const onSearchPage = urlScoped || onSearchRoute
   const { scope, setScope } = useSearchScope()
   const scopeDefault = useSearchScopeDefault()
   const value = onSearchPage ? scopeValue(scope) : scopeDefault.value

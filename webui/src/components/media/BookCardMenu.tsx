@@ -3,9 +3,11 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import {
   ArrowCounterClockwise,
+  ArrowsClockwise,
   Checks,
   CheckSquare,
   DownloadSimple,
+  FileMagnifyingGlass,
   ListPlus,
   PencilSimple,
   Trash,
@@ -18,6 +20,7 @@ import { Menu, MenuItem, MenuSeparator } from '@/components/ui/Menu'
 import { AddToReadListDialog } from '@/components/browse/AddToReadListDialog'
 import { ConfirmDeleteFilesDialog } from '@/components/browse/ConfirmDeleteFilesDialog'
 import { EditBooksDialog } from '@/components/metadata/EditBooksDialog'
+import { showToast } from '@/lib/store/toast'
 
 interface BookCardMenuProps {
   book: BookDto
@@ -55,6 +58,16 @@ export function BookCardMenu({ book, trigger, navItem, onSelect }: BookCardMenuP
       setDeleteOpen(false)
       invalidate()
     },
+  })
+  const analyzeMutation = useMutation({
+    mutationFn: () => booksApi.analyze(book.id),
+    onSuccess: () => showToast(t('detail:toast.analysisQueued')),
+    onError: (e) => showToast(e instanceof Error ? e.message : t('detail:toast.queueAnalysisFailed')),
+  })
+  const refreshMutation = useMutation({
+    mutationFn: () => booksApi.refreshMetadata(book.id),
+    onSuccess: () => showToast(t('detail:toast.refreshQueued')),
+    onError: (e) => showToast(e instanceof Error ? e.message : t('detail:toast.queueRefreshFailed')),
   })
 
   return (
@@ -94,6 +107,12 @@ export function BookCardMenu({ book, trigger, navItem, onSelect }: BookCardMenuP
         {isAdmin(user) && (
           <>
             <MenuSeparator />
+            <MenuItem onSelect={() => analyzeMutation.mutate()} disabled={analyzeMutation.isPending}>
+              <FileMagnifyingGlass className="size-4" /> {t('detail:menu.analyze')}
+            </MenuItem>
+            <MenuItem onSelect={() => refreshMutation.mutate()} disabled={refreshMutation.isPending}>
+              <ArrowsClockwise className="size-4" /> {t('detail:menu.refreshMetadata')}
+            </MenuItem>
             <MenuItem onSelect={() => setEditOpen(true)}>
               <PencilSimple className="size-4" /> {t('menu.editMetadata')}
             </MenuItem>

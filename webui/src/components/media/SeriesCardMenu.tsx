@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { ArrowCounterClockwise, Checks, CheckSquare, FolderPlus, PencilSimple, Sparkle, Trash } from '@phosphor-icons/react'
+import { ArrowCounterClockwise, ArrowsClockwise, Checks, CheckSquare, FileMagnifyingGlass, FolderPlus, PencilSimple, Sparkle, Trash } from '@phosphor-icons/react'
 import type { SeriesDto } from '@/lib/api/types'
 import { seriesApi } from '@/lib/api/series'
 import { isAdmin, useAuthStore } from '@/lib/store/auth'
@@ -43,6 +43,16 @@ export function SeriesCardMenu({ series, trigger, onSelect }: { series: SeriesDt
       invalidate()
     },
   })
+  const analyzeMutation = useMutation({
+    mutationFn: () => seriesApi.analyze(series.id),
+    onSuccess: () => showToast(t('detail:toast.analysisQueued')),
+    onError: (e) => showToast(e instanceof Error ? e.message : t('detail:toast.queueAnalysisFailed')),
+  })
+  const refreshMutation = useMutation({
+    mutationFn: () => seriesApi.refreshMetadata(series.id),
+    onSuccess: () => showToast(t('detail:toast.refreshQueued')),
+    onError: (e) => showToast(e instanceof Error ? e.message : t('detail:toast.queueRefreshFailed')),
+  })
 
   return (
     <>
@@ -59,9 +69,19 @@ export function SeriesCardMenu({ series, trigger, onSelect }: { series: SeriesDt
         <MenuItem onSelect={() => setAddOpen(true)}>
           <FolderPlus className="size-4" /> {t('menu.addToCollection')}
         </MenuItem>
-        <MenuItem onSelect={() => setEditOpen(true)}>
-          <PencilSimple className="size-4" /> {t('menu.editMetadata')}
-        </MenuItem>
+        {isAdmin(user) && (
+          <>
+            <MenuItem onSelect={() => analyzeMutation.mutate()} disabled={analyzeMutation.isPending}>
+              <FileMagnifyingGlass className="size-4" /> {t('detail:menu.analyze')}
+            </MenuItem>
+            <MenuItem onSelect={() => refreshMutation.mutate()} disabled={refreshMutation.isPending}>
+              <ArrowsClockwise className="size-4" /> {t('detail:menu.refreshMetadata')}
+            </MenuItem>
+            <MenuItem onSelect={() => setEditOpen(true)}>
+              <PencilSimple className="size-4" /> {t('menu.editMetadata')}
+            </MenuItem>
+          </>
+        )}
         {komfReady && (
           <MenuItem onSelect={() => setIdentifyOpen(true)}>
             <Sparkle className="size-4" /> {t('menu.identifyWithKomf')}

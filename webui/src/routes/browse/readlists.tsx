@@ -13,7 +13,7 @@ export function BrowseReadListsPage() {
     <div>
       <HistoryBackButton to="/dashboard" className="mb-2 -ml-2" />
       <PageHeader title={t('readlists.title')} />
-      <ReadListsGrid searchable />
+      <ReadListsGrid searchable libraryFilterable />
     </div>
   )
 }

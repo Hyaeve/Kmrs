@@ -10,18 +10,24 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { CardSkeleton, GridSkeleton } from '@/components/ui/Skeleton'
 import { MediaGrid } from '@/components/media/MediaGrid'
 import { ReadListCard } from '@/components/media/SeriesCard'
+import { SearchScopeMenu } from '@/components/search/SearchScopeMenu'
+import { scopeLibraryIds, useSearchScope } from '@/components/search/scope'
 import { Sentinel } from '@/components/filters/Sentinel'
 
 /** Read list count + card grid, shared by the global read lists page and the library tab.
-    Text search is offered only on the global page (`searchable`). */
-export function ReadListsGrid({ libraryId, searchable }: { libraryId?: string; searchable?: boolean }) {
+    Text search and the library scope filter are offered only on the global page (`searchable`/`libraryFilterable`). */
+export function ReadListsGrid({ libraryId, searchable, libraryFilterable }: { libraryId?: string; searchable?: boolean; libraryFilterable?: boolean }) {
   const { t } = useTranslation('browse')
   const [searchParams, setSearchParams] = useSearchParams()
   const qParam = searchable ? (searchParams.get('q') ?? '') : ''
   const [text, setText] = useState(qParam)
+  const { scope } = useSearchScope()
+  const scopedIds = libraryFilterable ? scopeLibraryIds(scope) : undefined
 
   // external URL changes (back/forward, shared links) sync back into the input
   if (useChanged([qParam, searchable]) && searchable) setText(qParam)
+
+  const effectiveLibraryIds = libraryId ? [libraryId] : scopedIds
 
   useEffect(() => {
     if (!searchable || text === qParam) return
@@ -35,11 +41,11 @@ export function ReadListsGrid({ libraryId, searchable }: { libraryId?: string; s
   }, [text, qParam, searchParams, setSearchParams, searchable])
 
   const q = useInfiniteQuery({
-    queryKey: ['readlists', 'list', libraryId ?? 'all', qParam],
+    queryKey: ['readlists', 'list', effectiveLibraryIds?.join(',') ?? 'all', qParam],
     queryFn: ({ pageParam }) =>
       readlistsApi.list({
         search: qParam || undefined,
-        libraryId: libraryId ? [libraryId] : undefined,
+        libraryId: effectiveLibraryIds,
         page: pageParam,
         size: 50,
       }),
@@ -63,6 +69,7 @@ export function ReadListsGrid({ libraryId, searchable }: { libraryId?: string; s
             <Trans i18nKey="filters:noun.readlists" count={total} components={{ num: <span className="font-mono" /> }} />
           )}
         </span>
+        {libraryFilterable && <SearchScopeMenu urlScoped />}
         {searchable && (
           <div className="flex min-w-0 flex-1 items-center justify-end">
             <div className="relative w-full max-w-xs">

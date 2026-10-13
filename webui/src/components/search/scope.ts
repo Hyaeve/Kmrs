@@ -37,7 +37,7 @@ export function useSearchScopeDefault() {
 }
 
 // the ?scope= param is the single source of truth, shared by the header scope
-// menu and the search page's queries
+// menu and the queries of /search and of the scope-filtered browse pages
 export function useSearchScope() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { pinned } = usePinnedLibraries()

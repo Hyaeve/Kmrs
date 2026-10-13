@@ -13,7 +13,7 @@ export function BrowseCollectionsPage() {
     <div>
       <HistoryBackButton to="/dashboard" className="mb-2 -ml-2" />
       <PageHeader title={t('collections.title')} />
-      <CollectionsGrid searchable />
+      <CollectionsGrid searchable libraryFilterable />
     </div>
   )
 }
