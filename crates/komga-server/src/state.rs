@@ -29,6 +29,7 @@ pub struct AppState {
     pub kobo_proxy: Arc<crate::service::kobo_proxy::KoboProxy>,
     /// Broadcasts the shutdown request (actuator `/actuator/shutdown`)
     pub shutdown_tx: tokio::sync::watch::Sender<bool>,
+    pub api_key_activity_throttle: Arc<crate::auth::ApiKeyActivityThrottle>,
 }
 
 /// A throwaway tantivy index for tests (one fresh directory per call).
@@ -103,6 +104,16 @@ impl AppState {
         parts: &axum::http::request::Parts,
     ) {
         let Some(draft) = activity else { return };
+        if draft.success && draft.source == crate::auth::SOURCE_API_KEY {
+            if let Some(key_id) = &draft.api_key_id {
+                if !self
+                    .api_key_activity_throttle
+                    .should_record(key_id, std::time::Instant::now())
+                {
+                    return;
+                }
+            }
+        }
         let db = self.db.clone();
         let ip = client_ip(parts);
         let user_agent = parts

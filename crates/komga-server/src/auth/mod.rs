@@ -2,9 +2,10 @@
 //! Aligned with `SecurityConfiguration.kt`: successful Basic/remember-me authentication establishes a session (IF_REQUIRED);
 //! any authenticated request with a `remember-me=true` parameter → issue a remember-me cookie.
 //! API-key authentication is stateless like 1.29's `ApiKeyAuthenticationFilter` (request-scoped
-//! `SecurityContext`, no session persistence): every request re-authenticates and records its own
-//! login activity, and no session cookie/token is issued. `/koreader/**` also accepts the
-//! KOReader sync header `X-Auth-User` (the kosync filter chain's converter).
+//! `SecurityContext`, no session persistence): every request re-authenticates and no session
+//! cookie/token is issued; successful activity rows are throttled per key
+//! (`ApiKeyActivityThrottle`). `/koreader/**` also accepts the KOReader sync header
+//! `X-Auth-User` (the kosync filter chain's converter).
 
 pub mod remember_me;
 pub mod session;
@@ -19,6 +20,53 @@ use komga_db::dao::user::UserDao;
 use sha2::{Digest, Sha512};
 
 pub use session::{SessionStore, SESSION_COOKIE_NAME, SESSION_HEADER_NAME};
+
+/// One successful API-key activity row per key per window: upstream komga writes a row for
+/// every API-key request, which floods the login-activity view for stateless clients that
+/// send their key on each one. Failures stay per-request — they are the brute-force signal.
+const API_KEY_ACTIVITY_WINDOW: std::time::Duration = std::time::Duration::from_secs(3600);
+
+/// LoginListener's source label for API-key authentications; persisted in
+/// AUTHENTICATION_ACTIVITY, it must stay the Java value.
+pub(crate) const SOURCE_API_KEY: &str = "ApiKey";
+
+pub struct ApiKeyActivityThrottle {
+    window: std::time::Duration,
+    last: std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>,
+}
+
+impl ApiKeyActivityThrottle {
+    pub(crate) fn new() -> Self {
+        Self {
+            window: API_KEY_ACTIVITY_WINDOW,
+            last: std::sync::Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
+    /// True when this success should be recorded: first sighting of the key, or the
+    /// previous record is older than the throttle window.
+    pub(crate) fn should_record(&self, api_key_id: &str, now: std::time::Instant) -> bool {
+        let mut last = self.last.lock().unwrap();
+        match last.get(api_key_id) {
+            Some(&t) if now.saturating_duration_since(t) < self.window => false,
+            _ => {
+                last.insert(api_key_id.to_string(), now);
+                true
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn expire(&self, api_key_id: &str) {
+        self.last.lock().unwrap().remove(api_key_id);
+    }
+}
+
+impl Default for ApiKeyActivityThrottle {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuthSource {
@@ -117,8 +165,9 @@ fn resolve(state: &AppState, parts: &Parts) -> Outcome {
         return match user_dao.find_by_api_key(&hashed) {
             Ok(Some((user, api_key))) => {
                 // LoginListener records user.id/user.email on success; nulls are for failures.
-                // The context is request-scoped (1.29), so every request re-authenticates and
-                // records its own activity; no session is created or marked.
+                // The context is request-scoped (1.29), so every request re-authenticates; no
+                // session is created or marked. Successful rows are throttled per key at
+                // recording time, failures stay per-request.
                 let activity = ActivityDraft {
                     user_id: Some(api_key.user_id.clone()),
                     email: Some(user.email.clone()),
@@ -126,7 +175,7 @@ fn resolve(state: &AppState, parts: &Parts) -> Outcome {
                     api_key_comment: Some(api_key.comment),
                     success: true,
                     error: None,
-                    source: "ApiKey".into(),
+                    source: SOURCE_API_KEY.into(),
                 };
                 Outcome {
                     auth: Some(Auth {
@@ -149,7 +198,7 @@ fn resolve(state: &AppState, parts: &Parts) -> Outcome {
                     api_key_comment: Some(masked),
                     success: false,
                     error: Some("Bad credentials".into()),
-                    source: "ApiKey".into(),
+                    source: SOURCE_API_KEY.into(),
                 }),
             },
         };
@@ -443,5 +492,33 @@ impl axum::extract::FromRequestParts<AppState> for MaybeAuth {
                 .get::<ResolvedAuth>()
                 .and_then(|r| r.auth.clone()),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn api_key_activity_throttle_collapses_within_window_per_key() {
+        let throttle = ApiKeyActivityThrottle::new();
+        let t0 = Instant::now();
+
+        assert!(throttle.should_record("k1", t0));
+        assert!(!throttle.should_record("k1", t0 + Duration::from_secs(3599)));
+        // keys are throttled independently
+        assert!(throttle.should_record("k2", t0 + Duration::from_secs(10)));
+        assert!(throttle.should_record("k1", t0 + Duration::from_secs(3600)));
+    }
+
+    #[test]
+    fn api_key_activity_throttle_expire_forgets_the_key() {
+        let throttle = ApiKeyActivityThrottle::new();
+        let t0 = Instant::now();
+
+        assert!(throttle.should_record("k1", t0));
+        throttle.expire("k1");
+        assert!(throttle.should_record("k1", t0 + Duration::from_secs(1)));
     }
 }

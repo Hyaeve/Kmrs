@@ -1813,6 +1813,7 @@ mod tests {
             kobo_proxy: crate::service::kobo_proxy::KoboProxy::new(),
 
             shutdown_tx: tokio::sync::watch::channel(false).0,
+            api_key_activity_throttle: Arc::new(crate::auth::ApiKeyActivityThrottle::new()),
         }
     }
 

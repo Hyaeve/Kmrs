@@ -436,6 +436,7 @@ pub(crate) mod test_support {
                 kobo_proxy: crate::service::kobo_proxy::KoboProxy::new(),
 
                 shutdown_tx: tokio::sync::watch::channel(false).0,
+                api_key_activity_throttle: Arc::new(crate::auth::ApiKeyActivityThrottle::new()),
             };
             let app = routes
                 .layer(axum::middleware::from_fn_with_state(

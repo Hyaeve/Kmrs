@@ -478,6 +478,7 @@ mod tests {
             kobo_proxy: crate::service::kobo_proxy::KoboProxy::new(),
 
             shutdown_tx,
+            api_key_activity_throttle: Arc::new(crate::auth::ApiKeyActivityThrottle::new()),
         };
         (state, shutdown_rx)
     }
@@ -602,11 +603,20 @@ mod tests {
         panic!("expected {expected} activities");
     }
 
+    /// Waits until at least `min` activities landed, then lets stragglers settle and returns
+    /// the exact count (recording happens on a spawned task per request).
+    async fn settled_activity_count(state: &AppState, user_id: &str, email: &str, min: i64) -> i64 {
+        wait_activity_count(state, user_id, email, min).await;
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        activity_count(state, user_id, email).await
+    }
+
     /// 1.29 made API-key authentication stateless (request-scoped SecurityContext, no session
     /// persistence): a session presented alongside the key neither suppresses re-authentication
-    /// nor is marked with the key — every request records its own activity.
+    /// nor is marked with the key. Repeated successes with the same key collapse into a single
+    /// throttled activity row.
     #[tokio::test]
-    async fn api_key_with_session_is_stateless_and_records_every_time() {
+    async fn api_key_with_session_is_stateless_and_activity_throttled() {
         let (state, _rx) = test_state();
         let user_id = seed_user(&state, "admin@example.com");
         let session_id = state.sessions.create(&user_id).unwrap();
@@ -639,13 +649,16 @@ mod tests {
                 "API-key authentication must not issue a session cookie"
             );
         }
-        wait_activity_count(&state, &user_id, "admin@example.com", 3).await;
+        assert_eq!(
+            settled_activity_count(&state, &user_id, "admin@example.com", 1).await,
+            1
+        );
     }
 
-    /// Without a session there is no stored context to reuse: every API-key request records,
-    /// matching cookie-less clients against the Java server.
+    /// Without a session there is no stored context to reuse: every API-key request
+    /// re-authenticates, but successful activity is throttled to one row per key per window.
     #[tokio::test]
-    async fn api_key_without_session_records_activity_every_time() {
+    async fn api_key_without_session_records_activity_once() {
         let (state, _rx) = test_state();
         let user_id = seed_user(&state, "admin@example.com");
         let app = test_router(state.clone());
@@ -665,7 +678,90 @@ mod tests {
                 .unwrap();
             assert_eq!(response.status(), StatusCode::OK);
         }
-        wait_activity_count(&state, &user_id, "admin@example.com", 2).await;
+        assert_eq!(
+            settled_activity_count(&state, &user_id, "admin@example.com", 1).await,
+            1
+        );
+    }
+
+    /// The throttle is per key: two keys of the same user each get their own row.
+    #[tokio::test]
+    async fn api_key_activity_throttle_is_per_key() {
+        let (state, _rx) = test_state();
+        let user_id = seed_user(&state, "admin@example.com");
+        UserDao::new(state.db.clone())
+            .insert_api_key(&ApiKey {
+                id: String::new(),
+                user_id: user_id.clone(),
+                key: crate::auth::sha512_hex("secret2"),
+                comment: "second".into(),
+                created_date: now_utc(),
+                last_modified_date: now_utc(),
+            })
+            .unwrap();
+        let app = test_router(state.clone());
+
+        for key in ["secret", "secret", "secret2", "secret2"] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("GET")
+                        .uri("/api/v2/users/me")
+                        .header("X-API-Key", key)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+        assert_eq!(
+            settled_activity_count(&state, &user_id, "admin@example.com", 2).await,
+            2
+        );
+    }
+
+    /// Once the throttle window has passed, the next success records a fresh row.
+    #[tokio::test]
+    async fn api_key_activity_records_again_after_window() {
+        let (state, _rx) = test_state();
+        let user_id = seed_user(&state, "admin@example.com");
+        let app = test_router(state.clone());
+
+        let call = || {
+            let app = app.clone();
+            async move {
+                app.oneshot(
+                    Request::builder()
+                        .method("GET")
+                        .uri("/api/v2/users/me")
+                        .header("X-API-Key", "secret")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap()
+            }
+        };
+
+        assert_eq!(call().await.status(), StatusCode::OK);
+        assert_eq!(
+            settled_activity_count(&state, &user_id, "admin@example.com", 1).await,
+            1
+        );
+
+        let (_, api_key) = UserDao::new(state.db.clone())
+            .find_by_api_key(&crate::auth::sha512_hex("secret"))
+            .unwrap()
+            .unwrap();
+        state.api_key_activity_throttle.expire(&api_key.id);
+
+        assert_eq!(call().await.status(), StatusCode::OK);
+        assert_eq!(
+            settled_activity_count(&state, &user_id, "admin@example.com", 2).await,
+            2
+        );
     }
 
     /// 1.29's API-key filter never creates a session: no Set-Cookie/X-Auth-Token on the
@@ -695,7 +791,10 @@ mod tests {
             assert!(response.headers().get("x-auth-token").is_none());
         }
 
-        wait_activity_count(&state, &user_id, "admin@example.com", 2).await;
+        assert_eq!(
+            settled_activity_count(&state, &user_id, "admin@example.com", 1).await,
+            1
+        );
     }
 
     /// LoginListener.onFailure for an ApiKey source records the masked key (XXH3-128) as
@@ -742,6 +841,41 @@ mod tests {
             activity.api_key_comment.as_deref(),
             Some(expected_comment.as_str())
         );
+    }
+
+    /// Failed API-key authentications are the brute-force signal: they stay per-request and
+    /// are not covered by the success throttle.
+    #[tokio::test]
+    async fn api_key_failure_is_not_throttled() {
+        let (state, _rx) = test_state();
+        seed_user(&state, "admin@example.com");
+        let app = test_router(state.clone());
+
+        for _ in 0..2 {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("GET")
+                        .uri("/api/v2/users/me")
+                        .header("X-API-Key", "wrong")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        }
+
+        let dao = UserDao::new(state.db.clone());
+        for _ in 0..100 {
+            if dao.find_all_activities(None, 0).unwrap().1 >= 2 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        assert_eq!(dao.find_all_activities(None, 0).unwrap().1, 2);
     }
 
     fn seed_plain_user(state: &AppState, email: &str) -> String {

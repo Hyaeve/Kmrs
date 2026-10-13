@@ -142,7 +142,7 @@ impl axum::extract::FromRequestParts<AppState> for KoboAuth {
                 api_key_comment: Some(komga_media::hash::compute_hash_bytes(token.as_bytes())),
                 success: false,
                 error: Some("Bad credentials".into()),
-                source: "ApiKey".into(),
+                source: crate::auth::SOURCE_API_KEY.into(),
             };
             state.record_activity(&Some(activity), parts).await;
             return Err(ApiError::unauthorized());
@@ -157,7 +157,7 @@ impl axum::extract::FromRequestParts<AppState> for KoboAuth {
             api_key_comment: Some(api_key.comment.clone()),
             success: true,
             error: None,
-            source: "ApiKey".into(),
+            source: crate::auth::SOURCE_API_KEY.into(),
         };
         state.record_activity(&Some(activity), parts).await;
         Ok(KoboAuth {
@@ -1368,6 +1368,7 @@ mod tests {
             kobo_proxy: crate::service::kobo_proxy::KoboProxy::new(),
 
             shutdown_tx: tokio::sync::watch::channel(false).0,
+            api_key_activity_throttle: Arc::new(crate::auth::ApiKeyActivityThrottle::new()),
         }
     }
 
@@ -1988,6 +1989,33 @@ mod tests {
 
         let (status, _, _) = call(&app, "GET", "/kobo/wrongkey/v1/library/sync", None).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    /// Kobo devices sync with their key on every request: the success activity goes through
+    /// the same per-key throttle as the REST middleware path.
+    #[tokio::test]
+    async fn success_activity_is_throttled_per_key() {
+        let state = test_state();
+        seed_base(&state, "a@b.c");
+        let app = test_router(state.clone());
+
+        for _ in 0..2 {
+            let (status, _, _) = call(&app, "GET", "/kobo/kobokey/ping", None).await;
+            assert_eq!(status, StatusCode::OK);
+        }
+
+        let dao = UserDao::new(state.db.clone());
+        for _ in 0..100 {
+            if dao.find_all_activities(None, 0).unwrap().1 >= 1 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let (rows, total) = dao.find_all_activities(None, 0).unwrap();
+        assert_eq!(total, 1);
+        assert!(rows[0].success);
+        assert_eq!(rows[0].source.as_deref(), Some(crate::auth::SOURCE_API_KEY));
     }
 
     #[tokio::test]
