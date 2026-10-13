@@ -64,5 +64,10 @@
     "matchCompleted": "比對完成",
     "postProcessing": "後處理中…",
     "seriesFallback": "系列比對"
+  },
+  "notableEntityKind": {
+    "character": "角色",
+    "team": "團隊",
+    "location": "地點"
   }
 }

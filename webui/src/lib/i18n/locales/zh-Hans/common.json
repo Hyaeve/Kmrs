@@ -64,5 +64,10 @@
     "matchCompleted": "匹配完成",
     "postProcessing": "后处理中…",
     "seriesFallback": "系列匹配"
+  },
+  "notableEntityKind": {
+    "character": "角色",
+    "team": "团队",
+    "location": "地点"
   }
 }

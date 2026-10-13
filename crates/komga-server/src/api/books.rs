@@ -2337,6 +2337,7 @@ mod tests {
             .insert(&komga_core::model::series::BookMetadataAggregation {
                 series_id: id.to_string(),
                 authors: vec![],
+                notable_entities: vec![],
                 tags: Default::default(),
                 release_date: None,
                 summary: String::new(),
@@ -2396,6 +2397,7 @@ mod tests {
                 number_sort,
                 release_date: None,
                 authors: vec![],
+                notable_entities: vec![],
                 tags: vec![],
                 isbn: String::new(),
                 links: vec![],
@@ -2405,6 +2407,7 @@ mod tests {
                 number_sort_lock: false,
                 release_date_lock: false,
                 authors_lock: false,
+                notable_entities_lock: false,
                 tags_lock: false,
                 isbn_lock: false,
                 links_lock: false,
@@ -4112,6 +4115,7 @@ mod tests {
                     "numberSort": 2.0,
                     "releaseDate": "2020-05-01",
                     "authors": [{"name": "  Studio Gaga  ", "role": " Penciller "}],
+                    "notableEntities": [{"kind": " Character ", "name": " Guts "}, {"kind": "location", "name": "Midland"}],
                     "tags": ["action", "seinen", "action"],
                     "isbn": "978-1-23-456789-7",
                     "links": [{"label": "wiki", "url": "https://example.org/wiki"}],
@@ -4137,6 +4141,14 @@ mod tests {
         assert_eq!(updated.authors.len(), 1);
         assert_eq!(updated.authors[0].name, "Studio Gaga");
         assert_eq!(updated.authors[0].role, "penciller");
+        // kind lowercased, name trimmed (NotableEntity construction semantics)
+        assert_eq!(
+            updated.notable_entities,
+            vec![
+                komga_core::model::common::NotableEntity::new("character", "Guts"),
+                komga_core::model::common::NotableEntity::new("location", "Midland"),
+            ]
+        );
         assert_eq!(updated.tags, vec!["action", "seinen"]); // dedup by first occurrence
         assert_eq!(updated.isbn, "9781234567897");
         assert_eq!(updated.links.len(), 1);
@@ -4186,6 +4198,7 @@ mod tests {
                     "number": " ",
                     "isbn": "9781234567890",
                     "authors": [{"role": "writer"}],
+                    "notableEntities": [{"kind": "character"}, {"name": "Midland"}],
                     "links": [{"url": "nope"}]
                 })
                 .to_string(),
@@ -4202,6 +4215,8 @@ mod tests {
         assert!(fields.contains(&"number"));
         assert!(fields.contains(&"isbn"));
         assert!(fields.contains(&"authors[0].name"));
+        assert!(fields.contains(&"notableEntities[0].name"));
+        assert!(fields.contains(&"notableEntities[1].kind"));
         assert!(fields.contains(&"links[0].url"));
 
         let (status, _, _) = call(

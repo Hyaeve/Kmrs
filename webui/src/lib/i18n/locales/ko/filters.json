@@ -13,7 +13,9 @@
     "author": "작가: {{name}}",
     "search": "검색: {{q}}",
     "value": "{{group}}: {{value}}",
-    "value_negated": "{{group}}: {{value}} 아님"
+    "value_negated": "{{group}}: {{value}} 아님",
+    "notableEntity": "{{kind}}: {{name}}",
+    "notableEntity_negated": "{{kind}}: {{name}} 아님"
   },
   "mode": {
     "any": "하나라도",
@@ -47,7 +49,8 @@
     "poster": "포스터",
     "libraries": "라이브러리",
     "readlists": "읽기 목록",
-    "collections": "컬렉션"
+    "collections": "컬렉션",
+    "notableEntities": "주요 엔터티"
   },
   "option": {
     "readStatus": {
@@ -109,5 +112,12 @@
     "series": "시리즈 검색…",
     "collections": "컬렉션 검색…",
     "readlists": "읽기 목록 검색…"
+  },
+  "notableEntities": {
+    "searchPlaceholder": "엔터티 검색",
+    "noMatch": "일치하는 엔터티가 없습니다.",
+    "anyKind": "모든 엔터티",
+    "any": "임의",
+    "none": "없음"
   }
 }

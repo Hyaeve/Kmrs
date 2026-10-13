@@ -175,6 +175,13 @@ fn parse_doc_fragment_index(progress: &str) -> Option<i32> {
     }
 }
 
+/// Kotlin `DocFragment/` (no brackets) with IGNORE_CASE: KOReader sends this xpath for
+/// EPUBs with a single spine resource, which is resource index 0
+fn parse_doc_fragment_index_single_resource(progress: &str) -> Option<i32> {
+    progress.to_lowercase().find("docfragment/")?;
+    Some(0)
+}
+
 /// Kotlin `#_doc_fragment_(\d+)_` with IGNORE_CASE
 fn parse_doc_fragment_index_v2(progress: &str) -> Option<i32> {
     let lower = progress.to_lowercase();
@@ -234,6 +241,7 @@ async fn update_progress(
             // KOReader indexes from 1 in the DocFragment form, from 0 in the anchor form
             let resource_index = parse_doc_fragment_index(&koreader_progress.progress)
                 .map(|i| i - 1)
+                .or_else(|| parse_doc_fragment_index_single_resource(&koreader_progress.progress))
                 .or_else(|| parse_doc_fragment_index_v2(&koreader_progress.progress))
                 .ok_or_else(|| {
                     ApiError::bad_request(format!(
@@ -360,6 +368,7 @@ mod tests {
                 number_sort: 1.0,
                 release_date: None,
                 authors: vec![],
+                notable_entities: vec![],
                 tags: vec![],
                 isbn: String::new(),
                 links: vec![],
@@ -369,6 +378,7 @@ mod tests {
                 number_sort_lock: false,
                 release_date_lock: false,
                 authors_lock: false,
+                notable_entities_lock: false,
                 tags_lock: false,
                 isbn_lock: false,
                 links_lock: false,
@@ -530,6 +540,19 @@ mod tests {
         let app = test_app();
         seed_user_with_key(&app.state.db, "user@x.c", "k1");
         let (status, body) = app.get_json("/koreader/users/auth", "k1").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, serde_json::json!({"authorized": "OK"}));
+    }
+
+    /// KOReader clients authenticate the sync API with the `X-Auth-User` header (the kosync
+    /// filter chain's converter), not `X-API-Key`.
+    #[tokio::test]
+    async fn users_auth_with_x_auth_user_header() {
+        let app = test_app();
+        seed_user_with_key(&app.state.db, "user@x.c", "k1");
+        let (status, body) = app
+            .get_json_with_header("/koreader/users/auth", "X-Auth-User", "k1")
+            .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body, serde_json::json!({"authorized": "OK"}));
     }
@@ -754,6 +777,70 @@ mod tests {
             .unwrap()
             .expect("progress row");
         assert_eq!(progress.locator.expect("locator")["href"], "text/ch2.xhtml");
+    }
+
+    /// KOReader sends the unbracketed `DocFragment/` xpath for EPUBs with a single spine
+    /// resource; it must parse as resource index 0 (upstream KoreaderUtils, #2482).
+    #[tokio::test]
+    async fn progress_put_epub_single_resource() {
+        let app = test_app();
+        let db = app.state.db.clone();
+        seed_library(&db, "l1");
+        seed_series(&db, "s1", "l1");
+        seed_book_with_hash(&db, "b1", "s1", "l1", "hash-1");
+        epub_media(&db, "b1");
+        let user_id = seed_user_with_key(&db, "user@x.c", "k1");
+
+        let (status, _) = app
+            .request_json(
+                "PUT",
+                "/koreader/syncs/progress",
+                "k1",
+                Some(serde_json::json!({
+                    "document": "hash-1",
+                    "percentage": 0.5,
+                    "progress": "/body/DocFragment/body/section/h2/text().0",
+                    "device": "dev",
+                    "device_id": "d1",
+                })),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let progress = ReadProgressDao::new(db.clone())
+            .find_by_book_and_user("b1", &user_id)
+            .unwrap()
+            .expect("progress row");
+        assert_eq!(progress.locator.expect("locator")["href"], "text/ch1.xhtml");
+    }
+
+    #[test]
+    fn parse_single_resource_doc_fragment() {
+        use super::{parse_doc_fragment_index, parse_doc_fragment_index_single_resource};
+        // unbracketed DocFragment means a single-resource EPUB: index 0
+        assert_eq!(
+            parse_doc_fragment_index_single_resource("/body/DocFragment/body/section"),
+            Some(0)
+        );
+        assert_eq!(
+            parse_doc_fragment_index_single_resource("/BODY/DOCFRAGMENT/BODY"),
+            Some(0)
+        );
+        // the bracketed and anchor forms are not single-resource markers
+        assert_eq!(
+            parse_doc_fragment_index_single_resource("/body/DocFragment[2]/p"),
+            None
+        );
+        assert_eq!(
+            parse_doc_fragment_index_single_resource("#_doc_fragment_1_"),
+            None
+        );
+        assert_eq!(parse_doc_fragment_index_single_resource("garbage"), None);
+        // the bracketed form still wins when both appear
+        assert_eq!(
+            parse_doc_fragment_index("/body/DocFragment[2]/body"),
+            Some(2)
+        );
     }
 
     #[tokio::test]

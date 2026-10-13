@@ -268,6 +268,10 @@ pub fn scan_root_folder(
                                 file_last_modified: new_book.file_last_modified,
                                 file_size: new_book.file_size,
                                 file_hash: hash.unwrap_or_default(),
+                                // the KOReader hash identifies the file content: a changed
+                                // file invalidates it, and clearing it re-queues hashing
+                                // via the empty-hash scan task
+                                file_hash_koreader: String::new(),
                                 ..existing_book.clone()
                             })?;
                         }
@@ -754,6 +758,12 @@ fn try_restore_books(state: &AppState, new_books: &[Book]) -> ScanRootResult<()>
         else {
             continue;
         };
+
+        // copy koreader hash: same content means same KOReader sync identity
+        book_dao.update(&Book {
+            file_hash_koreader: matched.file_hash_koreader.clone(),
+            ..book_with_hash.clone()
+        })?;
 
         // copy media
         let media_dao = MediaDao::new(state.db.clone());
@@ -1642,6 +1652,90 @@ mod tests {
         assert!(!events
             .iter()
             .any(|e| e.type_ == HistoricalEventType::BookPurged));
+    }
+
+    /// A book whose file content changed must lose its KOReader hash: the hash identifies
+    /// the file content, and keeping the stale value would sync KOReader against the wrong
+    /// document. Clearing it re-queues hashing via the empty-hash scan task.
+    #[test]
+    fn changed_book_file_clears_koreader_hash() {
+        let state = test_state();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = scan_root(&tmp);
+        let path = write_file(&root.join("s1"), "v01.cbz", b"original-content");
+        let lib = library(&state.db, "lib1", &root);
+        scan(&state, &lib);
+
+        let book_dao = BookDao::new(state.db.clone());
+        let book = all_books(&state).into_iter().next().unwrap();
+        let hash = compute_hash(&path).unwrap();
+        state
+            .db
+            .rw()
+            .unwrap()
+            .execute(
+                "UPDATE BOOK SET FILE_HASH = ?, FILE_HASH_KOREADER = ? WHERE ID = ?",
+                rusqlite::params![hash, "stale-koreader-hash", book.id],
+            )
+            .unwrap();
+
+        // different size: no baseline hash, straight into the "content changed" branch
+        std::fs::write(&path, b"the file has been replaced with different content!").unwrap();
+        scan_root_folder(&state, &lib, true).unwrap();
+
+        let updated = book_dao.find_by_id(&book.id).unwrap().unwrap();
+        assert!(updated.file_hash.is_empty());
+        assert!(
+            updated.file_hash_koreader.is_empty(),
+            "stale KOReader hash must be cleared when the file changed"
+        );
+        let media = MediaDao::new(state.db.clone())
+            .find_by_id(&book.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(media.status, MediaStatus::Outdated);
+    }
+
+    /// A moved/renamed book matched against a soft-deleted row inherits its KOReader hash:
+    /// same content means same KOReader identity, no re-hash needed.
+    #[test]
+    fn restored_book_keeps_koreader_hash() {
+        let state = test_state();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = scan_root(&tmp);
+        write_file(&root.join("s1"), "v01.cbz", b"content-bytes");
+        let lib = library(&state.db, "lib1", &root);
+        scan(&state, &lib);
+
+        let book = all_books(&state).into_iter().next().unwrap();
+        let hash = compute_hash(std::path::Path::new(&komga_core::dto::url_to_file_path(
+            &book.url,
+        )))
+        .unwrap();
+        state
+            .db
+            .rw()
+            .unwrap()
+            .execute(
+                "UPDATE BOOK SET FILE_HASH = ?, FILE_HASH_KOREADER = ? WHERE ID = ?",
+                rusqlite::params![hash, "koreader-hash-from-deleted", book.id],
+            )
+            .unwrap();
+
+        std::fs::remove_dir_all(root.join("s1")).unwrap();
+        scan(&state, &lib);
+        write_file(&root.join("s2"), "v01-renamed.cbz", b"content-bytes");
+        scan(&state, &lib);
+
+        let restored = all_books(&state)
+            .into_iter()
+            .find(|b| b.name == "v01-renamed")
+            .unwrap();
+        assert_eq!(restored.file_hash, hash);
+        assert_eq!(
+            restored.file_hash_koreader, "koreader-hash-from-deleted",
+            "restored book must inherit the KOReader hash of the matched deleted book"
+        );
     }
 
     #[test]

@@ -31,6 +31,8 @@ pub enum BookMetadataPatchCapability {
     ReleaseDate,
     #[serde(rename = "AUTHORS")]
     Authors,
+    #[serde(rename = "NOTABLE_ENTITIES")]
+    NotableEntities,
     #[serde(rename = "TAGS")]
     Tags,
     #[serde(rename = "ISBN")]
@@ -52,6 +54,7 @@ impl BookMetadataPatchCapability {
             Self::NumberSort,
             Self::ReleaseDate,
             Self::Authors,
+            Self::NotableEntities,
             Self::Tags,
             Self::Isbn,
             Self::ReadLists,
@@ -608,6 +611,7 @@ mod tests {
                 "NUMBER_SORT",
                 "RELEASE_DATE",
                 "AUTHORS",
+                "NOTABLE_ENTITIES",
                 "TAGS",
                 "ISBN",
                 "READ_LISTS",

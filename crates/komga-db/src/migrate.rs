@@ -301,7 +301,10 @@ impl<'a> Migrator<'a> {
             .max()
             .unwrap_or(0);
 
-        // out-of-order check + collect pending migrations
+        // out-of-order check + collect pending migrations. A komga-riir database
+        // (sqlx history present) may have komga-riir-applied versions stamped
+        // above a kmrs-owned migration komga-riir never had; those run on top.
+        let komga_riir_present = !load_sqlx_versions(conn)?.is_empty();
         let mut pending: Vec<&Migration> = Vec::new();
         for (version, migration) in &local {
             let version_string = version.to_string();
@@ -311,7 +314,9 @@ impl<'a> Migrator<'a> {
             if is_applied {
                 continue;
             }
-            if *version < max_applied {
+            if *version < max_applied
+                && !(komga_riir_present && KMRS_OWNED_VERSIONS.contains(version))
+            {
                 return Err(MigrateError::NotAppliedOutOfOrder(version_string));
             }
             pending.push(migration);
@@ -398,6 +403,14 @@ fn stamp_applied(conn: &Connection, rank: i64, migration: &Migration) -> Result<
     )?;
     Ok(())
 }
+
+/// Versions kmrs adds beyond komga-riir's migration set. komga-riir databases
+/// always lack these (its released builds do not carry them), so after
+/// adoption/absorption they are the only pending migrations even though later
+/// komga-riir-applied versions are already stamped. They are applied on top
+/// regardless of ordering; without this they would trip the strict
+/// out-of-order check once komga-riir ships migrations versioned above them.
+const KMRS_OWNED_VERSIONS: &[u64] = &[20260921111319 /* book_projection */];
 
 /// The versions komga-riir recorded as successfully applied in its sqlx history
 /// (`_sqlx_migrations`), in ascending order.

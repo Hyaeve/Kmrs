@@ -189,20 +189,17 @@ async fn get_sessions_for_username(
     let mut emails: std::collections::HashMap<String, Option<String>> =
         std::collections::HashMap::new();
     let mut sessions = Vec::new();
-    for (id, data) in state.sessions.all() {
+    for (id, data) in state.sessions.all()? {
         if let Some(username) = &username {
-            let indexed_name = match &data.api_key {
-                Some(key) => Some(key.hash.clone()),
-                None => emails
-                    .entry(data.user_id.clone())
-                    .or_insert_with(|| {
-                        dao.find_by_id(&data.user_id)
-                            .ok()
-                            .flatten()
-                            .map(|u| u.email)
-                    })
-                    .clone(),
-            };
+            let indexed_name = emails
+                .entry(data.user_id.clone())
+                .or_insert_with(|| {
+                    dao.find_by_id(&data.user_id)
+                        .ok()
+                        .flatten()
+                        .map(|u| u.email)
+                })
+                .clone();
             if indexed_name.as_deref() != Some(username.as_str()) {
                 continue;
             }
@@ -222,7 +219,7 @@ async fn get_session(
     auth.0.require_admin()?;
     let data = state
         .sessions
-        .get(&id)
+        .get(&id)?
         .ok_or_else(|| ApiError::not_found(""))?;
     Ok(actuator_response(&session_descriptor(&id, &data, &state)))
 }
@@ -233,7 +230,7 @@ async fn delete_session(
     Path(id): Path<String>,
 ) -> Result<Response, ApiError> {
     auth.0.require_admin()?;
-    state.sessions.invalidate(&id);
+    state.sessions.invalidate(&id)?;
     Ok(axum::http::StatusCode::NO_CONTENT.into_response())
 }
 
@@ -1334,7 +1331,7 @@ mod tests {
     async fn sessions_endpoints() {
         let (state, _rx) = test_state();
         let user_id = seed_user(&state, "admin@komga.org", true, "k1");
-        let session_id = state.sessions.create(&user_id);
+        let session_id = state.sessions.create(&user_id).unwrap();
         let app = test_router(state.clone());
 
         let (status, _headers, bytes) = call(
@@ -1362,13 +1359,13 @@ mod tests {
             .unwrap()
             .ends_with('Z'));
 
+        // API-key authentication is stateless (1.29): it never creates sessions, so the
+        // unfiltered list only carries the session seeded above
         let (status, _headers, bytes) = call(&app, "GET", "/actuator/sessions", Some("k1")).await;
         assert_eq!(status, StatusCode::OK);
         let body = json(&bytes);
         let sessions = body["sessions"].as_array().unwrap();
-        // each API-key call above created its own session, so the unfiltered list is
-        // longer than the email-filtered one
-        assert!(sessions.len() > 1);
+        assert_eq!(sessions.len(), 1);
         assert!(sessions.iter().any(|s| s["id"] == session_id));
 
         let (status, _headers, bytes) = call(
@@ -1394,25 +1391,6 @@ mod tests {
         let (status, _headers, _bytes) =
             call(&app, "GET", "/actuator/sessions/unknown", Some("k1")).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
-
-        // once the session context is replaced by an API-key auth, the principal-name
-        // index holds the key hash, not the email (Java's PRINCIPAL_NAME_INDEX_NAME)
-        state
-            .sessions
-            .mark_api_key(&session_id, &user_id, "key1", "hash1");
-        let (status, _headers, bytes) = call(
-            &app,
-            "GET",
-            "/actuator/sessions?username=admin@komga.org",
-            Some("k1"),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(json(&bytes)["sessions"], serde_json::json!([]));
-        let (status, _headers, bytes) =
-            call(&app, "GET", "/actuator/sessions?username=hash1", Some("k1")).await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(json(&bytes)["sessions"].as_array().unwrap().len(), 1);
 
         let (status, _headers, _bytes) = call(
             &app,

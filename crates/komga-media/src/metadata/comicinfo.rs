@@ -6,7 +6,7 @@ use crate::metadata::patch::{
     MetadataProvider, ReadListEntry, SeriesMetadataFromBookProvider, SeriesMetadataPatch,
 };
 use komga_core::error::{codes, CodedError};
-use komga_core::model::common::{Author, WebLink};
+use komga_core::model::common::{Author, NotableEntity, WebLink};
 use komga_core::model::library::Library;
 use komga_core::model::media::Media;
 use komga_core::model::series::ReadingDirection;
@@ -235,6 +235,7 @@ static CAPABILITIES: LazyLock<BTreeSet<BookMetadataPatchCapability>> = LazyLock:
         BookMetadataPatchCapability::NumberSort,
         BookMetadataPatchCapability::ReleaseDate,
         BookMetadataPatchCapability::Authors,
+        BookMetadataPatchCapability::NotableEntities,
         BookMetadataPatchCapability::ReadLists,
         BookMetadataPatchCapability::Links,
     ]
@@ -373,6 +374,17 @@ fn book_patch_from_comic_info(comic_info: &ComicInfo) -> Option<BookMetadataPatc
         }
     }
 
+    let mut notable_entities = vec![];
+    for (value, kind) in [
+        (&comic_info.locations, "location"),
+        (&comic_info.teams, "team"),
+        (&comic_info.characters, "character"),
+    ] {
+        if let Some(list) = split_with_kind(value.as_deref(), kind) {
+            notable_entities.extend(list);
+        }
+    }
+
     let mut read_lists = vec![];
     if let Some(alternate_series) = non_blank(comic_info.alternate_series.as_deref()) {
         read_lists.push(ReadListEntry::new(
@@ -457,6 +469,11 @@ fn book_patch_from_comic_info(comic_info: &ComicInfo) -> Option<BookMetadataPatc
             None
         } else {
             Some(authors)
+        },
+        notable_entities: if notable_entities.is_empty() {
+            None
+        } else {
+            Some(notable_entities)
         },
         isbn,
         links,
@@ -580,6 +597,25 @@ fn split_with_role(value: Option<&str>, role: &str) -> Option<Vec<Author>> {
     Some(
         list.into_iter()
             .map(|name| Author::new(name, role))
+            .collect(),
+    )
+}
+
+/// `splitWithKind`: `split(',')` trimmed, blanks dropped; None when nothing remains.
+fn split_with_kind(value: Option<&str>, kind: &str) -> Option<Vec<NotableEntity>> {
+    let list: Vec<&str> = value
+        .map(|v| {
+            v.split(',')
+                .filter_map(|s| non_blank(Some(s.trim())))
+                .collect()
+        })
+        .unwrap_or_default();
+    if list.is_empty() {
+        return None;
+    }
+    Some(
+        list.into_iter()
+            .map(|name| NotableEntity::new(kind, name))
             .collect(),
     )
 }
@@ -848,6 +884,9 @@ mod tests {
   <Manga>YesAndRightToLeft</Manga>
   <StoryArc>one, two, three</StoryArc>
   <StoryArcNumber>6, 7, 8</StoryArcNumber>
+  <Characters>Dream, Death</Characters>
+  <Teams>Endless,  </Teams>
+  <Locations>The Dreaming, Hell</Locations>
   <SeriesGroup>multiple,collections</SeriesGroup>
   <AgeRating>MA15+</AgeRating>
   <GTIN>9783440077894</GTIN>
@@ -897,6 +936,23 @@ mod tests {
 
         let tags = patch.tags.unwrap();
         assert_eq!(tags, vec!["dark".to_string(), "occult".to_string()]);
+
+        // Characters/Teams/Locations map to notable entities with their ComicInfo kinds;
+        // order is locations, teams, characters and blank entries are dropped
+        let entities = patch.notable_entities.unwrap();
+        assert_eq!(
+            entities,
+            vec![
+                NotableEntity::new("location", "The Dreaming"),
+                NotableEntity::new("location", "Hell"),
+                NotableEntity::new("team", "Endless"),
+                NotableEntity::new("character", "Dream"),
+                NotableEntity::new("character", "Death"),
+            ]
+        );
+        assert!(provider
+            .capabilities()
+            .contains(&BookMetadataPatchCapability::NotableEntities));
     }
 
     #[test]

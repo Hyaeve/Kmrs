@@ -349,7 +349,8 @@ function SidebarFooter() {
     } finally {
       clear()
       queryClient.clear()
-      navigate('/login')
+      // the logout marker suppresses the OAuth2 auto-login redirect on the login page
+      navigate('/login?logout=1')
     }
   }
 

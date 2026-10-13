@@ -25,7 +25,9 @@
     "author": "Автор: {{name}}",
     "search": "Поиск: {{q}}",
     "value": "{{group}}: {{value}}",
-    "value_negated": "{{group}}: не {{value}}"
+    "value_negated": "{{group}}: не {{value}}",
+    "notableEntity": "{{kind}}: {{name}}",
+    "notableEntity_negated": "{{kind}}: не {{name}}"
   },
   "mode": {
     "any": "Любой",
@@ -59,7 +61,8 @@
     "poster": "Постер",
     "libraries": "Библиотеки",
     "readlists": "Списки чтения",
-    "collections": "Коллекции"
+    "collections": "Коллекции",
+    "notableEntities": "Заметные сущности"
   },
   "option": {
     "readStatus": {
@@ -121,5 +124,12 @@
     "series": "Поиск серий…",
     "collections": "Поиск коллекций…",
     "readlists": "Поиск списков чтения…"
+  },
+  "notableEntities": {
+    "searchPlaceholder": "Поиск сущностей",
+    "noMatch": "Подходящих сущностей нет.",
+    "anyKind": "Все сущности",
+    "any": "Любые",
+    "none": "Нет"
   }
 }

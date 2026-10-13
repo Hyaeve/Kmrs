@@ -12,7 +12,7 @@ pub mod udf;
 pub use error::{Error, Result};
 pub use migrate::{Migrator, Placeholders};
 
-/// Migration list for the main database (database.sqlite): 86 SQL + 5 Java ports.
+/// Migration list for the main database (database.sqlite): 89 SQL + 5 Java ports.
 pub fn main_migrations() -> Vec<migrate::Migration> {
     let sql: &[migrate::SqlMigration] = include!(concat!(env!("OUT_DIR"), "/migrations_main.rs"));
     let mut migrations: Vec<migrate::Migration> = sql
@@ -46,6 +46,23 @@ pub fn tasks_migrations() -> Vec<migrate::Migration> {
 /// thumbnail storage migration state, thumbnail reuse markers, reading events.
 pub fn kmrs_migrations() -> Vec<migrate::Migration> {
     let sql: &[migrate::SqlMigration] = include!(concat!(env!("OUT_DIR"), "/migrations_kmrs.rs"));
+    sql.iter()
+        .map(|m| {
+            migrate::Migration::Sql(migrate::SqlMigration {
+                file_name: m.file_name,
+                sql: m.sql,
+            })
+        })
+        .collect()
+}
+
+/// Migration list for the sessions database (sessions.sqlite): the Spring
+/// Session JDBC schema, only opened when `komga.jdbc-session-enabled=true`
+/// (like the Java datasource and its Flyway initializer, which are both
+/// conditional on that property).
+pub fn sessions_migrations() -> Vec<migrate::Migration> {
+    let sql: &[migrate::SqlMigration] =
+        include!(concat!(env!("OUT_DIR"), "/migrations_sessions.rs"));
     sql.iter()
         .map(|m| {
             migrate::Migration::Sql(migrate::SqlMigration {

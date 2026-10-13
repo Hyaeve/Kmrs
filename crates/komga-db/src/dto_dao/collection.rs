@@ -58,7 +58,10 @@ impl CollectionDtoDao {
 
         let conn = self.db.ro()?;
 
-        let total: i64 = if needs_query_ids {
+        // lazily counted like komga 1.29's PageableExtension: unpaged queries skip the COUNT
+        let total: Option<i64> = if page.unpaged {
+            None
+        } else if needs_query_ids {
             let w = make_conditions();
             // the id subquery joins SERIES_METADATA unconditionally, unlike the base select
             let sql = format!(
@@ -68,11 +71,11 @@ impl CollectionDtoDao {
          LEFT JOIN SERIES_METADATA ON COLLECTION_SERIES.SERIES_ID = SERIES_METADATA.SERIES_ID{})",
                 where_sql(&w)
             );
-            conn.query_row(&sql, rusqlite::params_from_iter(w.params), |r| r.get(0))?
+            Some(conn.query_row(&sql, rusqlite::params_from_iter(w.params), |r| r.get(0))?)
         } else {
             let w = make_conditions();
             let sql = format!("SELECT COUNT(*) FROM COLLECTION{}", where_sql(&w));
-            conn.query_row(&sql, rusqlite::params_from_iter(w.params), |r| r.get(0))?
+            Some(conn.query_row(&sql, rusqlite::params_from_iter(w.params), |r| r.get(0))?)
         };
 
         let (order_sql, order_params) = order_by(&page.sort, &ids);
@@ -117,6 +120,7 @@ impl CollectionDtoDao {
         drop(conn);
 
         let collections = self.fetch_and_map(rows, authorized_library_ids, restrictions)?;
+        let total = total.unwrap_or(collections.len() as i64);
         Ok(DtoPage {
             items: collections.iter().map(CollectionDto::from).collect(),
             total,

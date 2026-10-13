@@ -23,7 +23,9 @@
     "totalBookCount": "Gesamtbuchanzahl",
     "alternateTitles": "Alternative Titel",
     "sharingLabels": "Freigabe-Labels",
-    "notSet": "Nicht gesetzt"
+    "notSet": "Nicht gesetzt",
+    "notableEntities": "Bemerkenswerte Entitäten",
+    "kind": "Art"
   },
   "tabs": {
     "general": "Allgemein",
@@ -33,7 +35,8 @@
     "links": "Links",
     "sharing": "Freigabe",
     "sharedFields": "Gemeinsame Felder",
-    "perBook": "Pro Buch"
+    "perBook": "Pro Buch",
+    "entities": "Entitäten"
   },
   "action": {
     "saveChanges": "Änderungen speichern"
@@ -64,12 +67,23 @@
     "linkLabel": "Wiki",
     "addTag": "Tag hinzufügen…",
     "addGenre": "Genre hinzufügen…",
-    "addLabel": "Label hinzufügen…"
+    "addLabel": "Label hinzufügen…",
+    "entityKind": "Figur",
+    "entityName": "Guts"
   },
   "add": {
     "author": "Autor hinzufügen",
     "link": "Link hinzufügen",
-    "title": "Titel hinzufügen"
+    "title": "Titel hinzufügen",
+    "entity": "Entität hinzufügen",
+    "kind": "Art hinzufügen"
+  },
+  "entities": {
+    "empty": "Noch keine bemerkenswerten Entitäten.",
+    "customKind": "Benutzerdefinierte Art…",
+    "customKindLabel": "Name der Art",
+    "noMatch": "Keine Ergebnisse für „{{search}}“. Zum Erstellen Eingabetaste drücken oder klicken.",
+    "removeName": "{{name}} entfernen"
   },
   "editBooks": {
     "dialogTitle_single": "Buch-Metadaten bearbeiten",
@@ -92,7 +106,8 @@
       "isbnEmpty": "ISBN-13, leer zum Entfernen.",
       "authorsReplace": "Ersetzt alle Autoren; eine leere Liste löscht sie.",
       "tagsReplace": "Ersetzt alle Tags; eine leere Liste löscht sie.",
-      "linksReplace": "Ersetzt alle Links; eine leere Liste löscht sie."
+      "linksReplace": "Ersetzt alle Links; eine leere Liste löscht sie.",
+      "entitiesReplace": "Ersetzt alle bemerkenswerten Entitäten; eine leere Liste entfernt sie."
     }
   },
   "editSeries": {

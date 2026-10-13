@@ -66,5 +66,10 @@
     "matchCompleted": "match completed",
     "postProcessing": "Post-processing…",
     "seriesFallback": "Series match"
+  },
+  "notableEntityKind": {
+    "character": "Character",
+    "team": "Team",
+    "location": "Location"
   }
 }

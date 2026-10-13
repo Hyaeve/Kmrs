@@ -55,6 +55,29 @@ impl MaintenanceScheduler {
         })
     }
 
+    /// JDBC sessions (`jdbc-session-enabled`): on startup and every hour, delete
+    /// expired rows from `sessions.sqlite` (Java's `cleanup-cron: "0 0 * * * *"`).
+    /// A no-op for the in-memory store, whose cache evicts idle entries itself.
+    pub fn start_session_cleanup(state: AppState) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
+            loop {
+                interval.tick().await;
+                let removed = tokio::task::spawn_blocking({
+                    let state = state.clone();
+                    move || state.sessions.cleanup_expired()
+                })
+                .await;
+                match removed {
+                    Ok(Ok(n)) if n > 0 => tracing::info!("Removed {n} expired sessions"),
+                    Ok(Err(e)) => tracing::error!("Failed to cleanup expired sessions: {e}"),
+                    Err(e) => tracing::error!("Session cleanup task failed: {e}"),
+                    _ => {}
+                }
+            }
+        })
+    }
+
     /// Thumbnail file storage: sweeps orphaned files under `<config-dir>/thumbnails` at
     /// startup and every day. Runs in both storage modes; a missing directory is a no-op.
     pub fn start_thumbnail_sweep(state: AppState) -> tokio::task::JoinHandle<()> {

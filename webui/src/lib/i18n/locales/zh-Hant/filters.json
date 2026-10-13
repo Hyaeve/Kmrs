@@ -13,7 +13,9 @@
     "author": "作者：{{name}}",
     "search": "搜尋：{{q}}",
     "value": "{{group}}：{{value}}",
-    "value_negated": "{{group}}：非 {{value}}"
+    "value_negated": "{{group}}：非 {{value}}",
+    "notableEntity": "{{kind}}：{{name}}",
+    "notableEntity_negated": "{{kind}}：非 {{name}}"
   },
   "mode": {
     "any": "任一",
@@ -47,7 +49,8 @@
     "poster": "海報",
     "libraries": "書庫",
     "readlists": "閱讀清單",
-    "collections": "合集"
+    "collections": "合集",
+    "notableEntities": "著名實體"
   },
   "option": {
     "readStatus": {
@@ -109,5 +112,12 @@
     "series": "搜尋系列…",
     "collections": "搜尋收藏…",
     "readlists": "搜尋閱讀清單…"
+  },
+  "notableEntities": {
+    "searchPlaceholder": "搜尋實體",
+    "noMatch": "沒有相符的實體。",
+    "anyKind": "所有實體",
+    "any": "任意",
+    "none": "無"
   }
 }

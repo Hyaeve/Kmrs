@@ -12,7 +12,9 @@ use crate::search_sql::{
     book_condition, content_restrictions_condition, id_in_or_no_condition, join_referenced,
     readlist_alias, sort_by_values, RequiredJoin, SqlWhere,
 };
-use komga_core::dto::book::{BookDto, BookMetadataDto, MediaDto, ReadProgressDto};
+use komga_core::dto::book::{
+    BookDto, BookMetadataDto, MediaDto, NotableEntityDto, ReadProgressDto,
+};
 use komga_core::dto::common::{AuthorDto, WebLinkDto};
 use komga_core::dto::url_to_file_path;
 use komga_core::model::readlist::ReadList;
@@ -40,7 +42,7 @@ const SELECT_CLAUSE: &str = "SELECT \
  READ_PROGRESS.BOOK_ID, READ_PROGRESS.USER_ID, READ_PROGRESS.PAGE, READ_PROGRESS.COMPLETED, \
  READ_PROGRESS.READ_DATE, READ_PROGRESS.DEVICE_ID, READ_PROGRESS.DEVICE_NAME, \
  READ_PROGRESS.LOCATOR, READ_PROGRESS.CREATED_DATE, READ_PROGRESS.LAST_MODIFIED_DATE, \
- SERIES_METADATA.TITLE";
+ SERIES_METADATA.TITLE, BOOK_METADATA.NOTABLE_ENTITIES_LOCK";
 
 /// "not read" for skip_read sibling navigation: unread or in progress, same as the
 /// read_status IsNot Read search predicate
@@ -91,6 +93,7 @@ const R_DEVICE_NAME: usize = 49;
 const R_CREATED_DATE: usize = 51;
 const R_LAST_MODIFIED_DATE: usize = 52;
 const SD_TITLE: usize = 53;
+const D_NOTABLE_ENTITIES_LOCK: usize = 54;
 
 pub struct BookDtoDao {
     db: Database,
@@ -127,11 +130,11 @@ impl BookDtoDao {
             .and(id_in_or_no_condition("BOOK.ID", ids.as_deref()));
         let conn = self.db.ro()?;
 
-        let total = count(&conn, &conditions, user_id)?;
-
         let (orders, order_params, order_joins) =
             build_orders(page, &conditions.joins, ids.as_deref(), user_id);
         if page.unpaged {
+            // lazily counted like komga 1.29's PageableExtension: unpaged queries skip the
+            // COUNT entirely and report the fetched size
             let (from, mut params) = select_from(user_id, &conditions.joins);
             let mut sql = format!("{SELECT_CLAUSE} {from}");
             if !conditions.sql.is_empty() {
@@ -144,11 +147,13 @@ impl BookDtoDao {
             params.extend(order_params);
             let items = fetch_and_map(&conn, &sql, params)?;
             return Ok(DtoPage {
+                total: items.len() as i64,
                 items,
-                total,
                 sorted: !orders.is_empty(),
             });
         }
+
+        let total = count(&conn, &conditions, user_id)?;
 
         // Every join available to this query is 1:1 on a primary key, so the page can be
         // computed on BOOK plus only the joins WHERE/ORDER BY reference; the remaining
@@ -793,6 +798,7 @@ fn fill_children(conn: &Connection, dtos: &mut [BookDto]) -> Result<()> {
     }
     let ids: Vec<String> = dtos.iter().map(|d| d.id.clone()).collect();
     let mut authors: HashMap<String, Vec<AuthorDto>> = HashMap::new();
+    let mut notable_entities: HashMap<String, Vec<NotableEntityDto>> = HashMap::new();
     let mut tags: HashMap<String, Vec<String>> = HashMap::new();
     let mut links: HashMap<String, Vec<WebLinkDto>> = HashMap::new();
     for chunk in ids.chunks(500) {
@@ -818,6 +824,24 @@ fn fill_children(conn: &Connection, dtos: &mut [BookDto]) -> Result<()> {
                     .or_default()
                     .push(AuthorDto { name, role });
             }
+        }
+
+        let mut stmt = conn.prepare(&format!(
+            "SELECT BOOK_ID, KIND, NAME FROM BOOK_METADATA_NOTABLE_ENTITIES WHERE BOOK_ID IN ({ph})"
+        ))?;
+        let rows = stmt.query_map(params_from_iter(&params), |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })?;
+        for row in rows {
+            let (book_id, kind, name) = row?;
+            notable_entities
+                .entry(book_id)
+                .or_default()
+                .push(NotableEntityDto { kind, name });
         }
 
         let mut stmt = conn.prepare(&format!(
@@ -852,6 +876,9 @@ fn fill_children(conn: &Connection, dtos: &mut [BookDto]) -> Result<()> {
     for dto in dtos.iter_mut() {
         if let Some(a) = authors.remove(&dto.id) {
             dto.metadata.authors = a;
+        }
+        if let Some(ne) = notable_entities.remove(&dto.id) {
+            dto.metadata.notable_entities = ne;
         }
         if let Some(t) = tags.remove(&dto.id) {
             dto.metadata.tags = t.into_iter().collect();
@@ -920,6 +947,8 @@ fn row_to_dto(row: &Row<'_>) -> rusqlite::Result<BookDto> {
             release_date_lock: row.get(D_RELEASE_DATE_LOCK)?,
             authors: vec![],
             authors_lock: row.get(D_AUTHORS_LOCK)?,
+            notable_entities: vec![],
+            notable_entities_lock: row.get(D_NOTABLE_ENTITIES_LOCK)?,
             tags: BTreeSet::new(),
             tags_lock: row.get(D_TAGS_LOCK)?,
             isbn: row.get(D_ISBN)?,

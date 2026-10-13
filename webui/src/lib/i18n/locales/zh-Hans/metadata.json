@@ -23,7 +23,9 @@
     "totalBookCount": "书籍总数",
     "alternateTitles": "其他标题",
     "sharingLabels": "共享标签",
-    "notSet": "未设置"
+    "notSet": "未设置",
+    "notableEntities": "著名实体",
+    "kind": "类别"
   },
   "tabs": {
     "general": "常规",
@@ -33,7 +35,8 @@
     "links": "链接",
     "sharing": "共享",
     "sharedFields": "公共字段",
-    "perBook": "逐本"
+    "perBook": "逐本",
+    "entities": "实体"
   },
   "action": {
     "saveChanges": "保存更改"
@@ -64,12 +67,23 @@
     "linkLabel": "维基",
     "addTag": "添加标签…",
     "addGenre": "添加题材…",
-    "addLabel": "添加标签…"
+    "addLabel": "添加标签…",
+    "entityKind": "角色",
+    "entityName": "格斯"
   },
   "add": {
     "author": "添加作者",
     "link": "添加链接",
-    "title": "添加标题"
+    "title": "添加标题",
+    "entity": "添加实体",
+    "kind": "添加类别"
+  },
+  "entities": {
+    "empty": "暂无著名实体。",
+    "customKind": "自定义类别…",
+    "customKindLabel": "类别名称",
+    "noMatch": "没有与“{{search}}”匹配的结果。按 Enter 或点击创建。",
+    "removeName": "移除 {{name}}"
   },
   "editBooks": {
     "dialogTitle_single": "编辑书籍元数据",
@@ -91,7 +105,8 @@
       "isbnEmpty": "ISBN-13，留空则清除。",
       "authorsReplace": "替换全部作者；留空则清除。",
       "tagsReplace": "替换全部标签；留空则清除。",
-      "linksReplace": "替换全部链接；留空则清除。"
+      "linksReplace": "替换全部链接；留空则清除。",
+      "entitiesReplace": "替换所有著名实体；留空列表则清除。"
     }
   },
   "editSeries": {

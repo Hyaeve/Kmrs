@@ -1,12 +1,14 @@
-//! Equivalent of `ReferentialV1Controller` (`/api/v1`) and `ReferentialV2Controller` (`/api/v2`).
+//! Equivalent of `ReferentialV1Controller` (`/api/v1`), `ReferentialV2Controller` (`/api/v2`)
+//! and `ReferentialV3Controller` (`/api/v3`, komga 1.29 notable entities).
 
 use crate::auth::RequireAuth;
-use crate::dto::common::{Page, Pageable};
-use crate::error::ApiError;
+use crate::dto::common::{Page, PageResponse, Pageable};
+use crate::error::{ApiError, V3Error};
 use crate::http::pagination::{QueryExt, QueryPageable};
 use crate::state::AppState;
-use axum::extract::State;
+use axum::extract::{OriginalUri, State};
 use axum::{routing, Json, Router};
+use komga_core::dto::book::NotableEntityDto;
 use komga_core::dto::common::AuthorDto;
 use komga_core::model::user::KomgaUser;
 use komga_core::search::{FilterBy, FilterByEntity, FilterTags, SearchContext};
@@ -53,6 +55,19 @@ pub fn router() -> Router<AppState> {
             routing::get(get_series_release_years_v2),
         )
         .route("/api/v2/age-ratings", routing::get(get_age_ratings_v2))
+        // v3 (komga 1.29): errors under this prefix are RFC 9457 ProblemDetail
+        .route(
+            "/api/v3/notable-entities",
+            routing::get(get_notable_entities_v3),
+        )
+        .route(
+            "/api/v3/notable-entities/kinds",
+            routing::get(get_notable_entities_kinds_v3),
+        )
+        .route(
+            "/api/v3/notable-entities/names",
+            routing::get(get_notable_entities_names_v3),
+        )
 }
 
 fn dao(state: &AppState) -> ReferentialDao {
@@ -506,6 +521,62 @@ async fn get_age_ratings_v2(
 
 // endregion
 
+// region v3
+
+async fn get_notable_entities_v3(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    OriginalUri(uri): OriginalUri,
+    QueryPageable { params, pageable }: QueryPageable,
+) -> Result<Json<PageResponse<NotableEntityDto>>, V3Error> {
+    dao(&state)
+        .find_notable_entities(
+            &search_ctx(&auth.0.user),
+            params.first("search"),
+            params.first("kind"),
+            filter_by_lcsr(&params).as_ref(),
+            &to_page_request(&pageable),
+        )
+        .map(|result| Json(PageResponse::of_dto(result, &pageable)))
+        .map_err(|e| V3Error::new(e.into(), uri.path()))
+}
+
+async fn get_notable_entities_kinds_v3(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    OriginalUri(uri): OriginalUri,
+    QueryPageable { params, pageable }: QueryPageable,
+) -> Result<Json<PageResponse<String>>, V3Error> {
+    dao(&state)
+        .find_notable_entities_kinds(
+            &search_ctx(&auth.0.user),
+            filter_by_lcsr(&params).as_ref(),
+            &to_page_request(&pageable),
+        )
+        .map(|result| Json(PageResponse::of_dto(result, &pageable)))
+        .map_err(|e| V3Error::new(e.into(), uri.path()))
+}
+
+async fn get_notable_entities_names_v3(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    OriginalUri(uri): OriginalUri,
+    QueryPageable { params, pageable }: QueryPageable,
+) -> Result<Json<PageResponse<String>>, V3Error> {
+    dao(&state)
+        .find_notable_entities_names(
+            &search_ctx(&auth.0.user),
+            params.first("search"),
+            params.first("kind"),
+            filter_by_lcsr(&params).as_ref(),
+            &to_page_request(&pageable),
+        )
+        .map(|result| Json(PageResponse::of_dto(result, &pageable)))
+        .map_err(|e| V3Error::new(e.into(), uri.path()))
+}
+
+// endregion
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -515,7 +586,7 @@ mod tests {
     use axum::http::StatusCode;
     use komga_core::model::book::{Book, BookMetadata};
     use komga_core::model::collection::SeriesCollection;
-    use komga_core::model::common::Author;
+    use komga_core::model::common::{Author, NotableEntity};
     use komga_core::model::readlist::ReadList;
     use komga_core::model::series::{
         BookMetadataAggregation, ReadingDirection, Series, SeriesMetadata, SeriesStatus,
@@ -590,6 +661,7 @@ mod tests {
                 Author::new("Miura", "writer"),
                 Author::new("Gaga", "penciller"),
             ],
+            notable_entities: vec![],
             tags: [format!("atag-{series_id}")].into_iter().collect(),
             release_date,
             summary: String::new(),
@@ -627,6 +699,10 @@ mod tests {
             number_sort: 1.0,
             release_date: None,
             authors,
+            notable_entities: vec![
+                NotableEntity::new("character", "Guts"),
+                NotableEntity::new("location", "Midland"),
+            ],
             tags: vec![format!("btag-{book_id}")],
             isbn: String::new(),
             links: vec![],
@@ -636,6 +712,7 @@ mod tests {
             number_sort_lock: false,
             release_date_lock: false,
             authors_lock: false,
+            notable_entities_lock: false,
             tags_lock: false,
             isbn_lock: false,
             links_lock: false,
@@ -970,5 +1047,88 @@ mod tests {
         let (status, body) = app.get_json("/api/v2/publishers", "k-user").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["content"].as_array().unwrap(), &["pub-s2"]);
+    }
+
+    #[tokio::test]
+    async fn v3_notable_entities_endpoints() {
+        let app = app();
+        seed(&app.state.db);
+        let key = admin_key(&app);
+
+        let (status, body) = app
+            .get_json("/api/v3/notable-entities?unpaged=true", &key)
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        // v3's flat PageResponse shape, not the v1/v2 PageImpl JSON
+        assert_eq!(body["page"], 0);
+        assert_eq!(body["size"], 2);
+        assert_eq!(body["totalElements"], 2);
+        assert_eq!(body["totalPages"], 1);
+        assert_eq!(body["first"], true);
+        assert_eq!(body["last"], true);
+        assert!(body.get("pageable").is_none());
+        assert!(body.get("number").is_none());
+        assert_eq!(
+            body["content"].as_array().unwrap(),
+            &[
+                serde_json::json!({"kind": "character", "name": "Guts"}),
+                serde_json::json!({"kind": "location", "name": "Midland"}),
+            ]
+        );
+
+        // kind filter narrows the page (rows are distinct kind/name pairs)
+        let (status, body) = app
+            .get_json("/api/v3/notable-entities?kind=character", &key)
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["page"], 0);
+        assert_eq!(body["size"], 20);
+        assert_eq!(body["totalElements"], 1);
+        assert_eq!(body["totalPages"], 1);
+        assert_eq!(
+            body["content"].as_array().unwrap(),
+            &[serde_json::json!({"kind": "character", "name": "Guts"})]
+        );
+
+        let (status, body) = app
+            .get_json("/api/v3/notable-entities/kinds?unpaged=true", &key)
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            body["content"].as_array().unwrap(),
+            &["character", "location"]
+        );
+
+        let (status, body) = app
+            .get_json(
+                "/api/v3/notable-entities/names?search=mid&unpaged=true",
+                &key,
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["content"].as_array().unwrap(), &["Midland"]);
+
+        // search against NAME only: the character kind does not match
+        let (status, body) = app
+            .get_json("/api/v3/notable-entities?search=character", &key)
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["totalElements"], 0);
+        // upstream: empty page reports totalPages=0, which makes last=true
+        assert_eq!(body["totalPages"], 0);
+        assert_eq!(body["first"], true);
+        assert_eq!(body["last"], true);
+    }
+
+    /// v3 errors are RFC 9457 ProblemDetail, not the v1/v2 Spring error body.
+    #[tokio::test]
+    async fn v3_error_is_problem_detail() {
+        let app = app();
+        let response = app
+            .get_response("/api/v3/notable-entities", "k-missing")
+            .await;
+        assert_eq!(response.0, StatusCode::UNAUTHORIZED);
+        // the security entry point is outside the controller advice: empty body stays
+        assert!(response.2.is_empty());
     }
 }

@@ -54,7 +54,11 @@ async fn logout(State(state): State<AppState>, auth: MaybeAuth, headers: HeaderM
                 })
         });
     if let Some(id) = session_id {
-        state.sessions.invalidate(&id);
+        // the client discards the cookie either way; a failed delete is left to the
+        // hourly cleanup rather than failing the logout
+        if let Err(e) = state.sessions.invalidate(&id) {
+            tracing::warn!("failed to delete session on logout: {e}");
+        }
     }
     let _ = auth;
     (

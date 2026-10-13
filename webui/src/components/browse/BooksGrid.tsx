@@ -63,6 +63,7 @@ export function BooksGrid({ libraryId }: { libraryId?: string }) {
         activeCount={activeFilterCount(filters.state)}
         onToggleValue={filters.toggleValue}
         onToggleAuthor={filters.toggleAuthor}
+        onToggleNotableEntity={filters.toggleNotableEntity}
         onQChange={filters.setQ}
         onOpenFilters={() => setDrawerOpen(true)}
         sortOptions={BOOK_SORT_OPTIONS}
@@ -106,6 +107,7 @@ export function BooksGrid({ libraryId }: { libraryId?: string }) {
         activeCount={activeFilterCount(filters.state)}
         onToggleValue={filters.toggleValue}
         onToggleAuthor={filters.toggleAuthor}
+        onToggleNotableEntity={filters.toggleNotableEntity}
         onSetMode={filters.setMode}
         onSetNegated={filters.setNegated}
         onSetExclusive={filters.setExclusive}

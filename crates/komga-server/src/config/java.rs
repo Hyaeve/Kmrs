@@ -77,6 +77,8 @@ struct JavaKomga {
     delete_empty_read_lists: Option<bool>,
     database: Option<JavaDatabase>,
     tasks_db: Option<JavaDatabase>,
+    sessions_db: Option<JavaDatabase>,
+    jdbc_session_enabled: Option<bool>,
     lucene: Option<JavaLucene>,
     fonts: Option<JavaFonts>,
     cors: Option<JavaCors>,
@@ -193,6 +195,7 @@ impl JavaConfig {
                 port: server.port,
                 context_path: servlet.context_path,
                 session_timeout: servlet.session.and_then(|s| s.timeout),
+                jdbc_session_enabled: None,
                 sort_locale: None,
             });
         }
@@ -235,6 +238,13 @@ impl JavaConfig {
             file.tasks_db = komga
                 .tasks_db
                 .map(|d| d.into_file(&subst_base, "komga.tasks-db"));
+            file.sessions_db = komga
+                .sessions_db
+                .map(|d| d.into_file(&subst_base, "komga.sessions-db"));
+            if komga.jdbc_session_enabled.unwrap_or(false) {
+                let server = file.server.get_or_insert_with(FileServer::default);
+                server.jdbc_session_enabled = Some(true);
+            }
             if let Some(lucene) = komga.lucene {
                 if lucene.commit_delay.is_some() {
                     tracing::warn!("komga.lucene.commit-delay: not supported by kmrs, ignored during migration");
@@ -409,6 +419,11 @@ komga:
       synchronous: NORMAL
   tasks-db:
     file: /other/tasks.sqlite
+  sessions-db:
+    file: /other/sessions.sqlite
+    pragmas:
+      synchronous: NORMAL
+  jdbc-session-enabled: true
   lucene:
     data-directory: ${komga.config-dir}/lucene
   fonts:
@@ -475,6 +490,13 @@ logging:
             file.tasks_db.unwrap().file,
             Some(PathBuf::from("/other/tasks.sqlite"))
         );
+        let sessions = file.sessions_db.unwrap();
+        assert_eq!(sessions.file, Some(PathBuf::from("/other/sessions.sqlite")));
+        assert_eq!(
+            sessions.pragmas.unwrap().get("synchronous"),
+            Some(&"NORMAL".to_string())
+        );
+        assert_eq!(server.jdbc_session_enabled, Some(true));
         assert_eq!(
             file.search.unwrap().data_directory,
             Some(PathBuf::from("/data/komga/lucene"))

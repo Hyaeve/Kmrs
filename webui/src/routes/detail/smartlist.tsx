@@ -179,6 +179,7 @@ function SmartListContent({ list, isBook }: { list: SmartListDto; isBook: boolea
         activeCount={activeFilterCount(filters.state)}
         onToggleValue={filters.toggleValue}
         onToggleAuthor={filters.toggleAuthor}
+        onToggleNotableEntity={filters.toggleNotableEntity}
         onQChange={filters.setQ}
         onOpenFilters={() => setDrawerOpen(true)}
         sortOptions={isBook ? BOOK_SORT_OPTIONS : SERIES_SORT_OPTIONS}
@@ -231,6 +232,7 @@ function SmartListContent({ list, isBook }: { list: SmartListDto; isBook: boolea
         activeCount={activeFilterCount(filters.state)}
         onToggleValue={filters.toggleValue}
         onToggleAuthor={filters.toggleAuthor}
+        onToggleNotableEntity={filters.toggleNotableEntity}
         onSetMode={filters.setMode}
         onSetNegated={filters.setNegated}
         onSetExclusive={filters.setExclusive}

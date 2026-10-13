@@ -7,7 +7,7 @@ import { IconButton } from '@/components/ui/IconButton'
 import type { ReferentialScope } from '@/lib/api/referential'
 import { EnumFilterSection, FilterGroupDetail, FilterGroupRow, FlagFilterRow } from './FilterGroups'
 import { groupSelectedCount } from './filterUrl'
-import type { AuthorFilter, FilterGroupDef, FilterState, GroupKey, GroupMode } from './types'
+import type { AuthorFilter, FilterGroupDef, FilterState, GroupKey, GroupMode, NotableEntityFilter } from './types'
 
 interface FilterDrawerProps {
   open: boolean
@@ -20,6 +20,7 @@ interface FilterDrawerProps {
   activeCount: number
   onToggleValue: (key: GroupKey, value: string) => void
   onToggleAuthor: (author: AuthorFilter) => void
+  onToggleNotableEntity: (entity: NotableEntityFilter) => void
   onSetMode: (key: GroupKey, mode: GroupMode) => void
   onSetNegated: (key: GroupKey, negated: boolean) => void
   onSetExclusive: (key: GroupKey, value: string) => void
@@ -38,6 +39,7 @@ export function FilterDrawer({
   activeCount,
   onToggleValue,
   onToggleAuthor,
+  onToggleNotableEntity,
   onSetMode,
   onSetNegated,
   onSetExclusive,
@@ -152,6 +154,7 @@ export function FilterDrawer({
                       enabled={open}
                       onToggleValue={onToggleValue}
                       onToggleAuthor={onToggleAuthor}
+                      onToggleNotableEntity={onToggleNotableEntity}
                       onSetMode={onSetMode}
                       onSetNegated={onSetNegated}
                       onSetExclusive={onSetExclusive}

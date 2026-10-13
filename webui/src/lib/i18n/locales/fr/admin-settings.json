@@ -21,7 +21,10 @@
     "hidePasswordHelperWithCount_many": "N'a d'effet que si au moins un fournisseur OAuth2 est configuré ({{count}} configurés). Sans cela, le formulaire de mot de passe reste toujours affiché afin que personne ne soit bloqué.",
     "hidePasswordHelperWithCount_other": "N'a d'effet que si au moins un fournisseur OAuth2 est configuré ({{count}} configurés). Sans cela, le formulaire de mot de passe reste toujours affiché afin que personne ne soit bloqué.",
     "noProviderWarning": "Aucun fournisseur OAuth2 n'est configuré, le formulaire de mot de passe reste donc affiché sur la page de connexion.",
-    "saveFailed": "Impossible d'enregistrer le réglage."
+    "saveFailed": "Impossible d'enregistrer le réglage.",
+    "oauthAuto": "Passer la page de connexion et se connecter directement avec le fournisseur",
+    "oauthAutoHelper": "Redirige automatiquement vers le fournisseur lorsque le formulaire de mot de passe est masqué et qu'un seul fournisseur OAuth2 est configuré. La déconnexion renvoie une fois vers la page de connexion.",
+    "oauthAutoNoSingleProvider": "La connexion automatique ne prend effet qu'avec exactement un fournisseur OAuth2 configuré."
   },
   "stats": {
     "version": "Version",

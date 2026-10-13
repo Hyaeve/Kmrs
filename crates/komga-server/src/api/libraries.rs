@@ -480,6 +480,28 @@ pub(crate) mod test_support {
             (status, json)
         }
 
+        /// GET with an arbitrary auth header instead of `X-API-Key` (e.g. the KOReader
+        /// sync chain's `X-Auth-User`).
+        pub(crate) async fn get_json_with_header(
+            &self,
+            uri: &str,
+            header: &str,
+            value: &str,
+        ) -> (StatusCode, serde_json::Value) {
+            let request = Request::get(uri)
+                .header(header, value)
+                .body(Body::empty())
+                .unwrap();
+            let response = self.app.clone().oneshot(request).await.unwrap();
+            let status = response.status();
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .to_vec();
+            let json = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+            (status, json)
+        }
+
         pub(crate) async fn request_json(
             &self,
             method: &str,
@@ -522,6 +544,8 @@ pub(crate) mod test_support {
             database: Default::default(),
             tasks_db: Default::default(),
             kmrs_db: Default::default(),
+            sessions_db: Default::default(),
+            jdbc_session_enabled: false,
             session_timeout: std::time::Duration::from_secs(3600),
             cors_allowed_origins: vec![],
             page_hashing: 3,

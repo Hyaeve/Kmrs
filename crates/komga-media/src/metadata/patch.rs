@@ -1,7 +1,7 @@
 //! Patch model (`BookMetadataPatch.kt` / `SeriesMetadataPatch.kt`), `MetadataApplier.kt`,
 //! `MetadataAggregator.kt`, and `mostFrequent`.
 
-use komga_core::model::book::{BookMetadata, WebLink};
+use komga_core::model::book::{BookMetadata, NotableEntity, WebLink};
 use komga_core::model::library::Library;
 use komga_core::model::media::Media;
 use komga_core::model::series::{ReadingDirection, SeriesMetadata, SeriesStatus};
@@ -29,6 +29,7 @@ pub struct BookMetadataPatch {
     pub number_sort: Option<f32>,
     pub release_date: Option<Date>,
     pub authors: Option<Vec<Author>>,
+    pub notable_entities: Option<Vec<NotableEntity>>,
     pub isbn: Option<String>,
     pub links: Option<Vec<WebLink>>,
     /// Kotlin `BookMetadata.tags` is a Set; the Rust domain model stores it as Vec
@@ -95,6 +96,11 @@ pub fn apply_book_patch(patch: &BookMetadataPatch, metadata: &BookMetadata) -> B
             metadata.release_date_lock,
         ),
         authors: get(&metadata.authors, &patch.authors, metadata.authors_lock),
+        notable_entities: get(
+            &metadata.notable_entities,
+            &patch.notable_entities,
+            metadata.notable_entities_lock,
+        ),
         isbn: get(&metadata.isbn, &patch.isbn, metadata.isbn_lock),
         links: get(&metadata.links, &patch.links, metadata.links_lock),
         tags: get(&metadata.tags, &patch.tags, metadata.tags_lock),
@@ -160,6 +166,7 @@ pub fn apply_series_patch(
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct AggregationParts {
     pub authors: Vec<Author>,
+    pub notable_entities: Vec<NotableEntity>,
     pub tags: BTreeSet<String>,
     pub release_date: Option<Date>,
     pub summary: String,
@@ -174,6 +181,14 @@ pub fn aggregate(metadatas: &[BookMetadata]) -> AggregationParts {
             format!("{}__{}", a.role, a.name) == format!("{}__{}", author.role, author.name)
         }) {
             authors.push(author.clone());
+        }
+    }
+    let mut notable_entities: Vec<NotableEntity> = vec![];
+    for entity in metadatas.iter().flat_map(|m| m.notable_entities.iter()) {
+        if !notable_entities.iter().any(|e| {
+            format!("{}__{}", e.kind, e.name) == format!("{}__{}", entity.kind, entity.name)
+        }) {
+            notable_entities.push(entity.clone());
         }
     }
     let tags: BTreeSet<String> = metadatas
@@ -193,6 +208,7 @@ pub fn aggregate(metadatas: &[BookMetadata]) -> AggregationParts {
     let release_date = metadatas.iter().filter_map(|m| m.release_date).min();
     AggregationParts {
         authors,
+        notable_entities,
         tags,
         release_date,
         summary,
@@ -661,6 +677,7 @@ mod tests {
             number_sort: 1.0,
             release_date: None,
             authors: vec![],
+            notable_entities: vec![],
             tags: vec![],
             isbn: String::new(),
             links: vec![],
@@ -670,6 +687,7 @@ mod tests {
             number_sort_lock: false,
             release_date_lock: false,
             authors_lock: false,
+            notable_entities_lock: false,
             tags_lock: false,
             isbn_lock: false,
             links_lock: false,
@@ -750,6 +768,10 @@ mod tests {
         a.number = "2".into();
         a.release_date = parse_date("2020-05-01");
         a.authors = vec![Author::new("A", "writer"), Author::new("B", "artist")];
+        a.notable_entities = vec![
+            NotableEntity::new("character", "Guts"),
+            NotableEntity::new("team", "Hawks"),
+        ];
         a.tags = vec!["x".into()];
         let mut b = book_metadata();
         b.summary = "second".into();
@@ -757,9 +779,23 @@ mod tests {
         b.number = "1".into();
         b.release_date = parse_date("2019-01-01");
         b.authors = vec![Author::new("A", "writer")];
+        // exact kind+name duplicate is dropped; the key is the raw pair, so a case
+        // variant of the name is a different entity and survives
+        b.notable_entities = vec![
+            NotableEntity::new("character", "Guts"),
+            NotableEntity::new("character", "guts"),
+        ];
         b.tags = vec!["y".into()];
         let parts = aggregate(&[a, b]);
         assert_eq!(parts.authors.len(), 2);
+        assert_eq!(
+            parts.notable_entities,
+            vec![
+                NotableEntity::new("character", "Guts"),
+                NotableEntity::new("team", "Hawks"),
+                NotableEntity::new("character", "guts"),
+            ]
+        );
         assert_eq!(
             parts.tags,
             ["x".to_string(), "y".to_string()].into_iter().collect()

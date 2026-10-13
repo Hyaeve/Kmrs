@@ -23,7 +23,9 @@
     "totalBookCount": "総冊数",
     "alternateTitles": "別タイトル",
     "sharingLabels": "共有ラベル",
-    "notSet": "未設定"
+    "notSet": "未設定",
+    "notableEntities": "注目のエンティティ",
+    "kind": "種類"
   },
   "tabs": {
     "general": "一般",
@@ -33,7 +35,8 @@
     "links": "リンク",
     "sharing": "共有",
     "sharedFields": "共通フィールド",
-    "perBook": "本ごと"
+    "perBook": "本ごと",
+    "entities": "エンティティ"
   },
   "action": {
     "saveChanges": "変更を保存"
@@ -64,12 +67,23 @@
     "linkLabel": "Wiki",
     "addTag": "タグを追加…",
     "addGenre": "ジャンルを追加…",
-    "addLabel": "ラベルを追加…"
+    "addLabel": "ラベルを追加…",
+    "entityKind": "キャラクター",
+    "entityName": "ガッツ"
   },
   "add": {
     "author": "著者を追加",
     "link": "リンクを追加",
-    "title": "タイトルを追加"
+    "title": "タイトルを追加",
+    "entity": "エンティティを追加",
+    "kind": "種類を追加"
+  },
+  "entities": {
+    "empty": "注目のエンティティはまだありません。",
+    "customKind": "カスタム種類…",
+    "customKindLabel": "種類名",
+    "noMatch": "「{{search}}」に一致する結果はありません。Enterキーを押すかクリックして作成してください。",
+    "removeName": "{{name}} を取り除く"
   },
   "editBooks": {
     "dialogTitle_single": "本のメタデータを編集",
@@ -91,7 +105,8 @@
       "isbnEmpty": "ISBN-13。空欄にするとクリアされます。",
       "authorsReplace": "すべての著者を置き換えます。空のリストにするとクリアされます。",
       "tagsReplace": "すべてのタグを置き換えます。空のリストにするとクリアされます。",
-      "linksReplace": "すべてのリンクを置き換えます。空のリストにするとクリアされます。"
+      "linksReplace": "すべてのリンクを置き換えます。空のリストにするとクリアされます。",
+      "entitiesReplace": "すべての注目のエンティティを置き換えます。空のリストでクリアします。"
     }
   },
   "editSeries": {

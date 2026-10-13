@@ -8,6 +8,7 @@ use crate::search_sql::{
     collection_alias, id_in_or_no_condition, join_referenced, series_condition,
     series_regex_condition, sort_by_values, RequiredJoin, SqlWhere,
 };
+use komga_core::dto::book::NotableEntityDto;
 use komga_core::dto::common::{AlternateTitleDto, AuthorDto, GroupCountDto, WebLinkDto};
 use komga_core::dto::series::{BookMetadataAggregationDto, SeriesDto, SeriesMetadataDto};
 use komga_core::dto::url_to_file_path;
@@ -112,6 +113,7 @@ struct ChildrenMaps {
     links: HashMap<String, Vec<WebLinkDto>>,
     alternate_titles: HashMap<String, Vec<AlternateTitleDto>>,
     aggregated_authors: HashMap<String, Vec<AuthorDto>>,
+    aggregated_notable_entities: HashMap<String, Vec<NotableEntityDto>>,
     aggregated_tags: HashMap<String, Vec<String>>,
 }
 
@@ -273,21 +275,29 @@ impl SeriesDtoDao {
                 .chain(w.params.clone())
         };
 
-        let (count_from_sql, count_from_params) = count_from(&w.joins, user_id);
-        let count_sql = format!(
-            "SELECT COUNT(DISTINCT SERIES.ID) {count_from_sql} {join_sql} {}",
-            where_clause(&w)
-        );
-        let total: i64 = conn.query_row(
-            &count_sql,
-            params_from_iter(
-                count_from_params
-                    .into_iter()
-                    .chain(join_params.clone())
-                    .chain(w.params.clone()),
-            ),
-            |r| r.get(0),
-        )?;
+        // lazily counted like komga 1.29's PageableExtension: unpaged queries skip the
+        // COUNT(DISTINCT) entirely and report the fetched size
+        let total = if page.unpaged {
+            None
+        } else {
+            let (count_from_sql, count_from_params) = count_from(&w.joins, user_id);
+            let count_sql = format!(
+                "SELECT COUNT(DISTINCT SERIES.ID) {count_from_sql} {join_sql} {}",
+                where_clause(&w)
+            );
+            Some(
+                conn.query_row(
+                    &count_sql,
+                    params_from_iter(
+                        count_from_params
+                            .into_iter()
+                            .chain(join_params.clone())
+                            .chain(w.params.clone()),
+                    ),
+                    |r| r.get::<_, i64>(0),
+                )?,
+            )
+        };
 
         let (order_sql, order_params) = build_order_by(&page.sort, &w.joins, lucene_ids);
         let sorted = !order_sql.is_empty();
@@ -312,6 +322,7 @@ impl SeriesDtoDao {
             .query_map(params_from_iter(params), map_record)?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         let children = fetch_children(&conn, &records)?;
+        let total = total.unwrap_or(records.len() as i64);
         let items = records.into_iter().map(|r| r.into_dto(&children)).collect();
         Ok(DtoPage {
             items,
@@ -545,6 +556,11 @@ impl SeriesRecord {
                 .get(&self.id)
                 .cloned()
                 .unwrap_or_default(),
+            notable_entities: children
+                .aggregated_notable_entities
+                .get(&self.id)
+                .cloned()
+                .unwrap_or_default(),
             tags: take(&children.aggregated_tags, &self.id),
             release_date: self.agg_release_date,
             summary: self.agg_summary,
@@ -663,6 +679,25 @@ fn fetch_children(conn: &rusqlite::Connection, records: &[SeriesRecord]) -> Resu
         })? {
             let (id, v) = row?;
             maps.aggregated_authors.entry(id).or_default().push(v);
+        }
+
+        let mut stmt = conn.prepare(&format!(
+            "SELECT SERIES_ID, KIND, NAME FROM BOOK_METADATA_AGGREGATION_NOTABLE_ENTITIES WHERE SERIES_ID IN ({ph})"
+        ))?;
+        for row in stmt.query_map(params_from_iter(chunk.iter()), |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                NotableEntityDto {
+                    kind: r.get(1)?,
+                    name: r.get(2)?,
+                },
+            ))
+        })? {
+            let (id, v) = row?;
+            maps.aggregated_notable_entities
+                .entry(id)
+                .or_default()
+                .push(v);
         }
 
         let mut stmt = conn.prepare(&format!(
@@ -831,6 +866,7 @@ mod tests {
                     .iter()
                     .map(|(name, role)| Author::new(name, role))
                     .collect(),
+                notable_entities: vec![],
                 tags: tags.iter().map(|s| s.to_string()).collect(),
                 release_date: None,
                 summary: String::new(),

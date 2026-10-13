@@ -23,7 +23,9 @@
     "totalBookCount": "전체 책 수",
     "alternateTitles": "대체 제목",
     "sharingLabels": "공유 라벨",
-    "notSet": "설정되지 않음"
+    "notSet": "설정되지 않음",
+    "notableEntities": "주요 엔터티",
+    "kind": "종류"
   },
   "tabs": {
     "general": "일반",
@@ -33,7 +35,8 @@
     "links": "링크",
     "sharing": "공유",
     "sharedFields": "공유 필드",
-    "perBook": "책별"
+    "perBook": "책별",
+    "entities": "엔터티"
   },
   "action": {
     "saveChanges": "변경 사항 저장"
@@ -64,12 +67,23 @@
     "linkLabel": "위키",
     "addTag": "태그 추가…",
     "addGenre": "장르 추가…",
-    "addLabel": "라벨 추가…"
+    "addLabel": "라벨 추가…",
+    "entityKind": "캐릭터",
+    "entityName": "가츠"
   },
   "add": {
     "author": "작가 추가",
     "link": "링크 추가",
-    "title": "제목 추가"
+    "title": "제목 추가",
+    "entity": "엔터티 추가",
+    "kind": "종류 추가"
+  },
+  "entities": {
+    "empty": "아직 주요 엔터티가 없습니다.",
+    "customKind": "사용자 지정 종류…",
+    "customKindLabel": "종류 이름",
+    "noMatch": "'{{search}}'와(과) 일치하는 결과가 없습니다. Enter를 누르거나 클릭하여 새로 만드세요.",
+    "removeName": "{{name}} 제거"
   },
   "editBooks": {
     "dialogTitle_single": "책 메타데이터 편집",
@@ -91,7 +105,8 @@
       "isbnEmpty": "ISBN-13, 비워 두면 지워집니다.",
       "authorsReplace": "모든 작가를 대체합니다. 빈 목록이면 지웁니다.",
       "tagsReplace": "모든 태그를 대체합니다. 빈 목록이면 지웁니다.",
-      "linksReplace": "모든 링크를 대체합니다. 빈 목록이면 지웁니다."
+      "linksReplace": "모든 링크를 대체합니다. 빈 목록이면 지웁니다.",
+      "entitiesReplace": "모든 주요 엔터티를 바꿉니다. 빈 목록은 모두 지웁니다."
     }
   },
   "editSeries": {

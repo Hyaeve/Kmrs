@@ -25,6 +25,7 @@ import {
   type FilterGroupDef,
   type FilterState,
   type GroupKey,
+  type NotableEntityFilter,
 } from '@/components/filters/types'
 import { emptyFilterState, searchToFilterState, useFilterState } from './searchState'
 
@@ -317,6 +318,7 @@ export function SmartListDialog({
                   onBack={() => setOpenGroup(null)}
                   onToggleValue={filters.toggleValue}
                   onToggleAuthor={filters.toggleAuthor}
+                  onToggleNotableEntity={filters.toggleNotableEntity}
                   onSetMode={filters.setMode}
                   onSetNegated={filters.setNegated}
                   onSetExclusive={filters.setExclusive}
@@ -413,6 +415,7 @@ function FilterGroupDetailInline({
   onBack,
   onToggleValue,
   onToggleAuthor,
+  onToggleNotableEntity,
   onSetMode,
   onSetNegated,
   onSetExclusive,
@@ -423,6 +426,7 @@ function FilterGroupDetailInline({
   onBack: () => void
   onToggleValue: (key: GroupKey, value: string) => void
   onToggleAuthor: (author: { name: string; role: string }) => void
+  onToggleNotableEntity: (entity: NotableEntityFilter) => void
   onSetMode: (key: GroupKey, mode: 'any' | 'all') => void
   onSetNegated: (key: GroupKey, negated: boolean) => void
   onSetExclusive: (key: GroupKey, value: string) => void
@@ -443,6 +447,7 @@ function FilterGroupDetailInline({
         enabled
         onToggleValue={onToggleValue}
         onToggleAuthor={onToggleAuthor}
+        onToggleNotableEntity={onToggleNotableEntity}
         onSetMode={onSetMode}
         onSetNegated={onSetNegated}
         onSetExclusive={onSetExclusive}

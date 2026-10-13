@@ -159,8 +159,14 @@ export interface SeriesMetadataDto {
   lastModified: string
 }
 
+export interface NotableEntityDto {
+  kind: string
+  name: string
+}
+
 export interface BookMetadataAggregationDto {
   authors: AuthorDto[]
+  notableEntities: NotableEntityDto[]
   tags: string[]
   releaseDate?: string
   summary: string
@@ -210,6 +216,8 @@ export interface BookMetadataDto {
   releaseDateLock: boolean
   authors: AuthorDto[]
   authorsLock: boolean
+  notableEntities: NotableEntityDto[]
+  notableEntitiesLock: boolean
   tags: string[]
   tagsLock: boolean
   isbn: string
@@ -572,6 +580,11 @@ export interface AuthorUpdateDto {
   role?: string
 }
 
+export interface NotableEntityUpdateDto {
+  kind?: string
+  name?: string
+}
+
 /**
  * Patch semantics: omitted fields keep their current value. Collection and nullable fields are
  * isSet-tracked: sending null clears them, while explicit null on plain fields is a no-op.
@@ -621,6 +634,8 @@ export interface BookMetadataUpdateDto {
   releaseDateLock?: boolean
   authors?: AuthorUpdateDto[] | null
   authorsLock?: boolean
+  notableEntities?: NotableEntityUpdateDto[] | null
+  notableEntitiesLock?: boolean
   tags?: string[] | null
   tagsLock?: boolean
   isbn?: string | null

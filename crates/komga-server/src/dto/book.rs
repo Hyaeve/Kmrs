@@ -32,6 +32,13 @@ pub struct AuthorUpdateDto {
     pub role: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotableEntityUpdateDto {
+    pub kind: Option<String>,
+    pub name: Option<String>,
+}
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct BookMetadataUpdateDto {
@@ -51,6 +58,9 @@ pub struct BookMetadataUpdateDto {
     #[serde(deserialize_with = "deserialize_some")]
     pub authors: Option<Option<Vec<AuthorUpdateDto>>>,
     pub authors_lock: Option<bool>,
+    #[serde(deserialize_with = "deserialize_some")]
+    pub notable_entities: Option<Option<Vec<NotableEntityUpdateDto>>>,
+    pub notable_entities_lock: Option<bool>,
     #[serde(deserialize_with = "deserialize_some")]
     pub tags: Option<Option<Vec<String>>>,
     pub tags_lock: Option<bool>,
@@ -115,6 +125,22 @@ impl BookMetadataUpdateDto {
                 }
             }
         }
+        if let Some(Some(entities)) = &self.notable_entities {
+            for (i, entity) in entities.iter().enumerate() {
+                if entity.kind.as_deref().is_none_or(|k| k.trim().is_empty()) {
+                    violations.push(Violation {
+                        field_name: format!("notableEntities[{i}].kind"),
+                        message: "must not be blank".into(),
+                    });
+                }
+                if entity.name.as_deref().is_none_or(|n| n.trim().is_empty()) {
+                    violations.push(Violation {
+                        field_name: format!("notableEntities[{i}].name"),
+                        message: "must not be blank".into(),
+                    });
+                }
+            }
+        }
         if let Some(Some(links)) = &self.links {
             violations.extend(web_link_violations(links));
         }
@@ -143,6 +169,24 @@ impl BookMetadataUpdateDto {
                 None => existing.authors.clone(),
             },
             authors_lock: self.authors_lock.unwrap_or(existing.authors_lock),
+            notable_entities: match self.notable_entities {
+                Some(entities) => entities
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|e| {
+                        // NotableEntity construction normalizes kind/name, matching the
+                        // Kotlin `NotableEntity(it.kind ?: "", it.name ?: "")`
+                        komga_core::model::common::NotableEntity::new(
+                            e.kind.as_deref().unwrap_or(""),
+                            e.name.as_deref().unwrap_or(""),
+                        )
+                    })
+                    .collect(),
+                None => existing.notable_entities.clone(),
+            },
+            notable_entities_lock: self
+                .notable_entities_lock
+                .unwrap_or(existing.notable_entities_lock),
             tags: match self.tags {
                 // Kotlin Set semantics: dedup by first occurrence
                 Some(tags) => {
@@ -220,6 +264,7 @@ mod tests {
             number_sort: 1.0,
             release_date: Some(Date::from_calendar_date(1990, time::Month::January, 1).unwrap()),
             authors: vec![Author::new("Kentaro Miura", "writer")],
+            notable_entities: vec![],
             tags: vec!["seinen".into()],
             isbn: "9781234567897".into(),
             links: vec![WebLink {
@@ -232,6 +277,7 @@ mod tests {
             number_sort_lock: false,
             release_date_lock: false,
             authors_lock: false,
+            notable_entities_lock: false,
             tags_lock: false,
             isbn_lock: false,
             links_lock: false,

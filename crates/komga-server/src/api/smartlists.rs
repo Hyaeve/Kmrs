@@ -928,6 +928,108 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn notable_entity_conditions_are_evaluated() {
+        let (state, _) = setup();
+        for (book, kind, name) in [
+            ("b1", "character", "Guts"),
+            ("b4", "character", "Guts"),
+            ("b2", "location", "Midland"),
+        ] {
+            shared::exec(
+                &state.db,
+                "INSERT INTO BOOK_METADATA_NOTABLE_ENTITIES (KIND, NAME, BOOK_ID) VALUES (?, ?, ?)",
+                rusqlite::params![kind, name, book],
+            );
+        }
+        for series in ["s1", "s3"] {
+            shared::exec(
+                &state.db,
+                "INSERT INTO BOOK_METADATA_AGGREGATION_NOTABLE_ENTITIES (KIND, NAME, SERIES_ID) VALUES ('character', 'Guts', ?)",
+                [series],
+            );
+        }
+
+        // book-target list: book-level notable entities
+        let by_entity = create_list(
+            &state,
+            "u1key",
+            "guts",
+            "BOOK",
+            serde_json::json!({"condition": {"notableEntity": {"operator": "is", "value": {"kind": "character", "name": "Guts"}}}}),
+        )
+        .await;
+        let (status, body) = call(
+            &state,
+            post_json(
+                &format!("/api/v1/smart-lists/{by_entity}/books"),
+                "u1key",
+                serde_json::json!({}),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        let json = serde_json::from_slice::<serde_json::Value>(&body).unwrap();
+        let mut ids: Vec<String> = json["content"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|b| b["id"].as_str().unwrap().to_string())
+            .collect();
+        ids.sort();
+        assert_eq!(ids, ["b1", "b4"]);
+
+        // same result as posting the condition to /api/v1/books/list directly
+        let (status, _, direct_body) = shared::call(
+            &state,
+            crate::api::books::router(),
+            post_json(
+                "/api/v1/books/list",
+                "u1key",
+                serde_json::json!({"condition": {"notableEntity": {"operator": "is", "value": {"kind": "character", "name": "Guts"}}}}),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let direct: Vec<String> = serde_json::from_slice::<serde_json::Value>(&direct_body)
+            .unwrap()["content"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|b| b["id"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(ids, direct);
+
+        // series-target list: aggregated notable entities
+        let by_series = create_list(
+            &state,
+            "u1key",
+            "guts-series",
+            "SERIES",
+            serde_json::json!({"condition": {"notableEntity": {"operator": "is", "value": {"kind": "character", "name": "Guts"}}}}),
+        )
+        .await;
+        let (status, body) = call(
+            &state,
+            post_json(
+                &format!("/api/v1/smart-lists/{by_series}/series"),
+                "u1key",
+                serde_json::json!({}),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        let json = serde_json::from_slice::<serde_json::Value>(&body).unwrap();
+        let mut ids: Vec<String> = json["content"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["id"].as_str().unwrap().to_string())
+            .collect();
+        ids.sort();
+        assert_eq!(ids, ["s1", "s3"]);
+    }
+
+    #[tokio::test]
     async fn read_status_conditions_are_evaluated_per_requesting_user() {
         let (state, _) = setup();
         // u1 has completed b1; u2 has read nothing

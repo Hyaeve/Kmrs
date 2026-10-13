@@ -20,7 +20,10 @@
     "hidePasswordHelperWithCount_one": "Only takes effect when at least one OAuth2 provider is configured ({{count}} configured). Without one, the password form always shows so nobody gets locked out.",
     "hidePasswordHelperWithCount_other": "Only takes effect when at least one OAuth2 provider is configured ({{count}} configured). Without one, the password form always shows so nobody gets locked out.",
     "noProviderWarning": "No OAuth2 provider is configured, so the password form still shows on the login page.",
-    "saveFailed": "Could not save the setting."
+    "saveFailed": "Could not save the setting.",
+    "oauthAuto": "Skip the login page and sign in directly with the provider",
+    "oauthAutoHelper": "Redirects to the provider automatically when the password form is hidden and exactly one OAuth2 provider is configured. Signing out returns to the login page once.",
+    "oauthAutoNoSingleProvider": "Auto sign-in only takes effect with exactly one OAuth2 provider configured."
   },
   "stats": {
     "version": "Version",

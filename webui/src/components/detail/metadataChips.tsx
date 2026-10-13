@@ -1,7 +1,8 @@
-import { Buildings, MaskHappy, Tag, UsersThree } from '@phosphor-icons/react'
-import type { AuthorDto } from '@/lib/api/types'
+import { Buildings, MaskHappy, Sparkle, Tag, UsersThree } from '@phosphor-icons/react'
+import type { AuthorDto, NotableEntityDto } from '@/lib/api/types'
 import { sortAuthorsByRole } from '@/lib/utils/authors'
-import { serializeAuthor } from '@/components/filters/filterUrl'
+import { KNOWN_ENTITY_KINDS } from '@/lib/utils/notableEntities'
+import { serializeAuthor, serializeNotableEntity } from '@/components/filters/filterUrl'
 import type { DetailChipItem } from './DetailChipFlow'
 
 const iconCls = 'size-3.5'
@@ -47,6 +48,38 @@ export function tagChipItems(tags: string[], base: '/series' | '/books', locale:
       icon: <Tag className={iconCls} />,
       to: `${base}?tags=${encodeURIComponent(t)}`,
       className,
+    }))
+}
+
+export interface NotableEntityChipGroup {
+  kind: string
+  items: DetailChipItem[]
+}
+
+/** one group per kind: known kinds first, customs in data order; names locale-sorted */
+export function notableEntityChipGroups(entities: NotableEntityDto[], base: '/series' | '/books', locale: string): NotableEntityChipGroup[] {
+  const byKind = new Map<string, NotableEntityDto[]>()
+  for (const e of entities) {
+    const list = byKind.get(e.kind) ?? []
+    list.push(e)
+    byKind.set(e.kind, list)
+  }
+  const rank = (kind: string) => {
+    const i = (KNOWN_ENTITY_KINDS as readonly string[]).indexOf(kind)
+    return i === -1 ? KNOWN_ENTITY_KINDS.length : i
+  }
+  return [...byKind.entries()]
+    .sort((a, b) => rank(a[0]) - rank(b[0]))
+    .map(([kind, list]) => ({
+      kind,
+      items: [...list]
+        .sort((a, b) => a.name.localeCompare(b.name, locale))
+        .map((e) => ({
+          key: `entity-${e.kind}-${e.name}`,
+          label: e.name,
+          icon: <Sparkle className={iconCls} />,
+          to: `${base}?notableEntities=${encodeURIComponent(serializeNotableEntity(e))}`,
+        })),
     }))
 }
 

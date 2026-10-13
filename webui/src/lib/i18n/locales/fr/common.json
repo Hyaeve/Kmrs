@@ -68,5 +68,10 @@
     "matchCompleted": "association terminée",
     "postProcessing": "Post-traitement…",
     "seriesFallback": "Correspondance de série"
+  },
+  "notableEntityKind": {
+    "character": "Personnage",
+    "team": "Équipe",
+    "location": "Lieu"
   }
 }

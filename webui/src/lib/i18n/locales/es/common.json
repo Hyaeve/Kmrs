@@ -68,5 +68,10 @@
     "matchCompleted": "emparejamiento completado",
     "postProcessing": "Posprocesando…",
     "seriesFallback": "Coincidencia de serie"
+  },
+  "notableEntityKind": {
+    "character": "Personaje",
+    "team": "Equipo",
+    "location": "Lugar"
   }
 }

@@ -346,6 +346,7 @@ fn book_patch_from_package(package_file: &str) -> Option<BookMetadataPatch> {
         number_sort: series_index.and_then(|s| s.parse::<f32>().ok()),
         release_date: date,
         authors,
+        notable_entities: None,
         isbn,
         links: None,
         tags: None,

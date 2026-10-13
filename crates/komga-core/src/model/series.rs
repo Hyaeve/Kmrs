@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub use super::common::{Author, WebLink};
+pub use super::common::{Author, NotableEntity, WebLink};
 use std::collections::BTreeSet;
 use time::{Date, OffsetDateTime};
 
@@ -137,6 +137,7 @@ pub struct AlternateTitle {
 pub struct BookMetadataAggregation {
     pub series_id: String,
     pub authors: Vec<Author>,
+    pub notable_entities: Vec<NotableEntity>,
     pub tags: BTreeSet<String>,
     pub release_date: Option<Date>,
     pub summary: String,

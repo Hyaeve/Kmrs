@@ -8,8 +8,9 @@ use crate::dto_dao::{DtoPage, PageRequest};
 use crate::error::Result;
 use crate::pool::Database;
 use crate::search_sql::{content_restrictions_condition, RequiredJoin};
+use komga_core::dto::book::NotableEntityDto;
 use komga_core::dto::common::AuthorDto;
-use komga_core::model::common::Author;
+use komga_core::model::common::{Author, NotableEntity};
 use komga_core::natural_sort::strip_accents;
 use komga_core::search::{FilterBy, FilterByEntity, FilterTags, SearchContext};
 use rusqlite::types::Value;
@@ -766,6 +767,97 @@ impl ReferentialDao {
         )
     }
 
+    pub fn find_notable_entities(
+        &self,
+        ctx: &SearchContext,
+        search: Option<&str>,
+        kind: Option<&str>,
+        filter_by: Option<&FilterBy>,
+        page: &PageRequest,
+    ) -> Result<DtoPage<NotableEntityDto>> {
+        let extra_condition = kind.map(|k| {
+            (
+                "BOOK_METADATA_NOTABLE_ENTITIES.KIND = ?".to_string(),
+                vec![Value::Text(k.to_string())],
+            )
+        });
+        self.find_generic(
+            ctx,
+            search,
+            filter_by,
+            page,
+            "BOOK_METADATA_NOTABLE_ENTITIES",
+            Some("BOOK_METADATA_NOTABLE_ENTITIES.NAME"),
+            None,
+            Some("BOOK_METADATA_NOTABLE_ENTITIES.BOOK_ID"),
+            &["BOOK_METADATA_NOTABLE_ENTITIES.KIND"],
+            extra_condition,
+            None,
+            |row| {
+                let name: String = row.get(0)?;
+                let kind: String = row.get(1)?;
+                // the domain construction normalizes kind/name, matching `toDomain().toDto()`
+                let entity = NotableEntity::new(&kind, &name);
+                Ok(Some(NotableEntityDto {
+                    kind: entity.kind,
+                    name: entity.name,
+                }))
+            },
+        )
+    }
+
+    pub fn find_notable_entities_kinds(
+        &self,
+        ctx: &SearchContext,
+        filter_by: Option<&FilterBy>,
+        page: &PageRequest,
+    ) -> Result<DtoPage<String>> {
+        self.find_generic(
+            ctx,
+            None,
+            filter_by,
+            page,
+            "BOOK_METADATA_NOTABLE_ENTITIES",
+            None,
+            None,
+            Some("BOOK_METADATA_NOTABLE_ENTITIES.BOOK_ID"),
+            &["BOOK_METADATA_NOTABLE_ENTITIES.KIND"],
+            None,
+            Some("BOOK_METADATA_NOTABLE_ENTITIES.KIND"),
+            |row| Ok(Some(row.get::<_, String>(0)?)),
+        )
+    }
+
+    pub fn find_notable_entities_names(
+        &self,
+        ctx: &SearchContext,
+        search: Option<&str>,
+        kind: Option<&str>,
+        filter_by: Option<&FilterBy>,
+        page: &PageRequest,
+    ) -> Result<DtoPage<String>> {
+        let extra_condition = kind.map(|k| {
+            (
+                "BOOK_METADATA_NOTABLE_ENTITIES.KIND = ?".to_string(),
+                vec![Value::Text(k.to_string())],
+            )
+        });
+        self.find_generic(
+            ctx,
+            search,
+            filter_by,
+            page,
+            "BOOK_METADATA_NOTABLE_ENTITIES",
+            Some("BOOK_METADATA_NOTABLE_ENTITIES.NAME"),
+            None,
+            Some("BOOK_METADATA_NOTABLE_ENTITIES.BOOK_ID"),
+            &[],
+            extra_condition,
+            None,
+            |row| Ok(Some(row.get::<_, String>(0)?)),
+        )
+    }
+
     pub fn find_genres(
         &self,
         ctx: &SearchContext,
@@ -1110,8 +1202,14 @@ impl ReferentialDao {
         }
 
         let (where_sql, where_params) = q.where_parts();
-        let count_sql = format!("SELECT COUNT(*) FROM ({}{})", q.from, where_sql);
-        let total = self.count(&count_sql, &where_params)?;
+        // lazily counted like komga 1.29's PageableExtension: unpaged queries skip the COUNT
+        // and report the fetched size
+        let total = if page.unpaged {
+            None
+        } else {
+            let count_sql = format!("SELECT COUNT(*) FROM ({}{})", q.from, where_sql);
+            Some(self.count(&count_sql, &where_params)?)
+        };
 
         let order = sort_field
             .map(str::to_string)
@@ -1132,6 +1230,7 @@ impl ReferentialDao {
         }
 
         // every v2 caller passes an explicit Sort in komga, so the page is always sorted
+        let total = total.unwrap_or(items.len() as i64);
         Ok(DtoPage {
             items,
             total,

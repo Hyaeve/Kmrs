@@ -66,5 +66,10 @@
     "matchCompleted": "Abgleich abgeschlossen",
     "postProcessing": "Nachbearbeitung…",
     "seriesFallback": "Serienabgleich"
+  },
+  "notableEntityKind": {
+    "character": "Figur",
+    "team": "Team",
+    "location": "Ort"
   }
 }

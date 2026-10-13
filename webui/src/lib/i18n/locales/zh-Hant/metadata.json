@@ -23,7 +23,9 @@
     "totalBookCount": "書籍總數",
     "alternateTitles": "其他標題",
     "sharingLabels": "分享標籤",
-    "notSet": "未設定"
+    "notSet": "未設定",
+    "notableEntities": "著名實體",
+    "kind": "類別"
   },
   "tabs": {
     "general": "一般",
@@ -33,7 +35,8 @@
     "links": "連結",
     "sharing": "分享",
     "sharedFields": "共用欄位",
-    "perBook": "單本"
+    "perBook": "單本",
+    "entities": "實體"
   },
   "action": {
     "saveChanges": "儲存變更"
@@ -64,12 +67,23 @@
     "linkLabel": "Wiki",
     "addTag": "新增標籤…",
     "addGenre": "新增類型…",
-    "addLabel": "新增標籤…"
+    "addLabel": "新增標籤…",
+    "entityKind": "角色",
+    "entityName": "格斯"
   },
   "add": {
     "author": "新增作者",
     "link": "新增連結",
-    "title": "新增標題"
+    "title": "新增標題",
+    "entity": "新增實體",
+    "kind": "新增類別"
+  },
+  "entities": {
+    "empty": "尚無著名實體。",
+    "customKind": "自訂類別…",
+    "customKindLabel": "類別名稱",
+    "noMatch": "沒有與「{{search}}」相符的結果。按 Enter 或點擊以建立。",
+    "removeName": "移除 {{name}}"
   },
   "editBooks": {
     "dialogTitle_single": "編輯書籍詮釋資料",
@@ -91,7 +105,8 @@
       "isbnEmpty": "ISBN-13，留空則清除。",
       "authorsReplace": "取代所有作者；空清單則清除。",
       "tagsReplace": "取代所有標籤；空清單則清除。",
-      "linksReplace": "取代所有連結；空清單則清除。"
+      "linksReplace": "取代所有連結；空清單則清除。",
+      "entitiesReplace": "取代所有著名實體；空白清單則清除。"
     }
   },
   "editSeries": {

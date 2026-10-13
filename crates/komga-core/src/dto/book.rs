@@ -6,6 +6,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use time::{Date, OffsetDateTime};
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotableEntityDto {
+    pub kind: String,
+    pub name: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BookDto {
@@ -96,6 +102,8 @@ pub struct BookMetadataDto {
     pub release_date_lock: bool,
     pub authors: Vec<AuthorDto>,
     pub authors_lock: bool,
+    pub notable_entities: Vec<NotableEntityDto>,
+    pub notable_entities_lock: bool,
     pub tags: BTreeSet<String>,
     pub tags_lock: bool,
     pub isbn: String,
@@ -182,6 +190,8 @@ mod tests {
                 release_date_lock: false,
                 authors: vec![],
                 authors_lock: false,
+                notable_entities: vec![],
+                notable_entities_lock: false,
                 tags: BTreeSet::new(),
                 tags_lock: false,
                 isbn: String::new(),

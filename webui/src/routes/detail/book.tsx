@@ -42,7 +42,8 @@ import { DetailTitle } from '@/components/detail/DetailTitle'
 import { DetailSkeleton } from '@/components/detail/DetailSkeleton'
 import { DetailError } from '@/components/detail/DetailError'
 import { DetailChipFlow } from '@/components/detail/DetailChipFlow'
-import { creatorChipItems, tagChipItems } from '@/components/detail/metadataChips'
+import { creatorChipItems, notableEntityChipGroups, tagChipItems } from '@/components/detail/metadataChips'
+import { NotableEntityChipRows } from '@/components/detail/NotableEntityChipRows'
 import { Summary } from '@/components/detail/Summary'
 import { DownloadLink } from '@/components/detail/DownloadLink'
 import { AddToReadListDialog } from '@/components/detail/AddToReadListDialog'
@@ -149,6 +150,7 @@ export function BookDetailPage() {
   const readlists = readlistsQuery.data ?? []
   const cover = urls.bookThumbnail(book.id, bust || undefined)
   const authorItems = creatorChipItems('', md.authors, '/books')
+  const entityGroups = notableEntityChipGroups(md.notableEntities, '/books', i18n.language)
   const tagItems = tagChipItems(md.tags, '/books', i18n.language)
   const progressPct = completed ? 100 : book.media.pagesCount > 0 && progress ? (progress.page / book.media.pagesCount) * 100 : 0
 
@@ -264,7 +266,8 @@ export function BookDetailPage() {
 
       {md.summary && <Summary text={md.summary} className="mt-6" />}
 
-      <DetailChipFlow items={tagItems} className="mt-4" />
+      {entityGroups.length > 0 && <NotableEntityChipRows groups={entityGroups} className="mt-4" />}
+      <DetailChipFlow items={tagItems} className={entityGroups.length > 0 ? 'mt-2' : 'mt-4'} />
 
       {md.links.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">

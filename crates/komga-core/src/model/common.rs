@@ -23,3 +23,20 @@ pub struct WebLink {
     pub label: String,
     pub url: String,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct NotableEntity {
+    pub kind: String,
+    pub name: String,
+}
+
+impl NotableEntity {
+    /// Kotlin `NotableEntity` construction semantics: both fields are trimmed, kind is
+    /// additionally lowercased; equality is (kind, name).
+    pub fn new(kind: &str, name: &str) -> Self {
+        Self {
+            kind: kind.trim().to_lowercase(),
+            name: name.trim().to_string(),
+        }
+    }
+}

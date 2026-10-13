@@ -16,6 +16,7 @@ pub struct FileConfig {
     pub database: Option<FileDatabase>,
     pub tasks_db: Option<FileDatabase>,
     pub kmrs_db: Option<FileDatabase>,
+    pub sessions_db: Option<FileDatabase>,
     pub search: Option<FileSearch>,
     pub fonts: Option<FileFonts>,
     pub books: Option<FileBooks>,
@@ -71,6 +72,9 @@ pub struct FileServer {
     pub port: Option<u16>,
     pub context_path: Option<String>,
     pub session_timeout: Option<ConfigDuration>,
+    /// komga.jdbc-session-enabled: persist sessions in [sessions-db] (Spring
+    /// Session JDBC) instead of per-node in-memory storage
+    pub jdbc_session_enabled: Option<bool>,
     pub sort_locale: Option<String>,
 }
 
@@ -85,7 +89,7 @@ pub struct FileCors {
 pub struct FileDatabase {
     pub file: Option<PathBuf>,
     /// read pool size; None = min(CPU cores, max-pool-size) for [database],
-    /// [`DEFAULT_AUX_READERS`] for the auxiliary [tasks-db]/[kmrs-db] pools
+    /// [`DEFAULT_AUX_READERS`] for the auxiliary [tasks-db]/[kmrs-db]/[sessions-db] pools
     pub pool_size: Option<u32>,
     pub max_pool_size: Option<u32>,
     pub journal_mode: Option<String>,
@@ -269,10 +273,22 @@ pub fn render(file: &FileConfig, config: &ServerConfig, source: Option<&Path>) -
     );
     push_line(
         &mut out,
-        fserver.and_then(|s| s.session_timeout).is_some(),
+        fserver
+            .and_then(|s| s.session_timeout)
+            .is_some(),
         format!(
             "session-timeout = {} # env: SERVER_SERVLET_SESSION_TIMEOUT; \"500ms\"/\"10s\"/\"30m\"/\"1h\"/\"7d\", bare integer = seconds",
             q(&format_duration(config.session_timeout))
+        ),
+    );
+    push_line(
+        &mut out,
+        fserver
+            .and_then(|s| s.jdbc_session_enabled)
+            .is_some(),
+        format!(
+            "jdbc-session-enabled = {} # env: KOMGA_JDBCSESSIONENABLED; persist sessions in [sessions-db] (Spring Session JDBC layout) so they survive restarts",
+            config.jdbc_session_enabled
         ),
     );
     push_line(
@@ -329,6 +345,14 @@ pub fn render(file: &FileConfig, config: &ServerConfig, source: Option<&Path>) -
         file.kmrs_db.as_ref(),
         &config.kmrs_db,
         "KOMGA_KMRSDB",
+        Some(DEFAULT_AUX_READERS),
+    );
+    render_database(
+        &mut out,
+        "sessions-db",
+        file.sessions_db.as_ref(),
+        &config.sessions_db,
+        "KOMGA_SESSIONSDB",
         Some(DEFAULT_AUX_READERS),
     );
 
@@ -611,7 +635,7 @@ fn render_database(
     );
     let (default_desc, default_size) = match aux_readers {
         Some(n) => (
-            format!("{n} for the tasks/kmrs databases"),
+            format!("{n} for the tasks/kmrs/sessions databases"),
             db.aux_pools().read_pool_size(),
         ),
         None => (
@@ -794,7 +818,7 @@ mod tests {
         );
         assert!(
             aux.contains(
-                "# pool-size = 2 # read pool size; default 2 for the tasks/kmrs databases."
+                "# pool-size = 2 # read pool size; default 2 for the tasks/kmrs/sessions databases."
             ),
             "aux section:\n{aux}"
         );

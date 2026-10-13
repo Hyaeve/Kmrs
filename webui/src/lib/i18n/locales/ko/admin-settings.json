@@ -19,7 +19,10 @@
     "hidePasswordHelper": "OAuth2 제공자가 하나 이상 구성된 경우에만 적용됩니다. 없으면 누구도 잠기지 않도록 비밀번호 폼이 항상 표시됩니다.",
     "hidePasswordHelperWithCount_other": "OAuth2 제공자가 하나 이상 구성된 경우에만 적용됩니다({{count}}개 구성됨). 없으면 누구도 잠기지 않도록 비밀번호 폼이 항상 표시됩니다.",
     "noProviderWarning": "구성된 OAuth2 제공자가 없어 로그인 페이지에 비밀번호 폼이 계속 표시됩니다.",
-    "saveFailed": "설정을 저장할 수 없습니다."
+    "saveFailed": "설정을 저장할 수 없습니다.",
+    "oauthAuto": "로그인 페이지를 걸너뛰고 공급자로 바로 로그인",
+    "oauthAutoHelper": "비밀번호 양식이 숨겨져 있고 OAuth2 공급자가 정확히 하나로 설정된 경우 공급자로 자동 이동합니다. 로그아웃하면 로그인 페이지로 한 번 돌아갑니다.",
+    "oauthAutoNoSingleProvider": "자동 로그인은 OAuth2 공급자가 정확히 하나로 설정된 경우에만 적용됩니다."
   },
   "stats": {
     "version": "버전",

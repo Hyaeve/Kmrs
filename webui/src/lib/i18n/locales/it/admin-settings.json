@@ -21,7 +21,10 @@
     "hidePasswordHelperWithCount_many": "Ha effetto solo quando è configurato almeno un provider OAuth2 ({{count}} configurati). Senza, il modulo password resta sempre visibile così nessuno resta chiuso fuori.",
     "hidePasswordHelperWithCount_other": "Ha effetto solo quando è configurato almeno un provider OAuth2 ({{count}} configurati). Senza, il modulo password resta sempre visibile così nessuno resta chiuso fuori.",
     "noProviderWarning": "Nessun provider OAuth2 configurato: il modulo password resta visibile nella pagina di accesso.",
-    "saveFailed": "Impossibile salvare l'impostazione."
+    "saveFailed": "Impossibile salvare l'impostazione.",
+    "oauthAuto": "Salta la pagina di accesso e accedi direttamente con il provider",
+    "oauthAutoHelper": "Reindirizza automaticamente al provider quando il modulo della password è nascosto ed è configurato esattamente un provider OAuth2. Dopo il logout si torna una volta alla pagina di accesso.",
+    "oauthAutoNoSingleProvider": "L'accesso automatico ha effetto solo con esattamente un provider OAuth2 configurato."
   },
   "stats": {
     "version": "Versione",

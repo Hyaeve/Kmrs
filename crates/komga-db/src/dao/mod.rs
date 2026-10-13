@@ -23,6 +23,7 @@ pub mod reading_event;
 pub mod readlist;
 pub mod series;
 pub mod series_metadata_contribution;
+pub mod session;
 pub mod settings;
 pub mod sidecar;
 pub mod smart_list;

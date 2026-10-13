@@ -80,6 +80,7 @@ export function SeriesGrid({ libraryId }: { libraryId?: string }) {
         activeCount={activeFilterCount(filters.state)}
         onToggleValue={filters.toggleValue}
         onToggleAuthor={filters.toggleAuthor}
+        onToggleNotableEntity={filters.toggleNotableEntity}
         onQChange={filters.setQ}
         onOpenFilters={() => setDrawerOpen(true)}
         sortOptions={SERIES_SORT_OPTIONS}
@@ -128,6 +129,7 @@ export function SeriesGrid({ libraryId }: { libraryId?: string }) {
         activeCount={activeFilterCount(filters.state)}
         onToggleValue={filters.toggleValue}
         onToggleAuthor={filters.toggleAuthor}
+        onToggleNotableEntity={filters.toggleNotableEntity}
         onSetMode={filters.setMode}
         onSetNegated={filters.setNegated}
         onSetExclusive={filters.setExclusive}

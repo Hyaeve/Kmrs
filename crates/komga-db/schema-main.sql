@@ -19,6 +19,8 @@ CREATE INDEX idx__book_metadata__release_date
 
 CREATE INDEX idx__book_metadata_aggregation_author__series_id on BOOK_METADATA_AGGREGATION_AUTHOR (SERIES_ID);
 
+CREATE INDEX idx__book_metadata_aggregation_notable_entities__series_id on BOOK_METADATA_AGGREGATION_NOTABLE_ENTITIES (SERIES_ID);
+
 CREATE INDEX idx__book_metadata_aggregation_tag__series_id
     on BOOK_METADATA_AGGREGATION_TAG (SERIES_ID);
 
@@ -27,9 +29,13 @@ CREATE INDEX idx__book_metadata_author__book_id on BOOK_METADATA_AUTHOR (BOOK_ID
 CREATE INDEX idx__book_metadata_link__book_id
     on BOOK_METADATA_LINK (BOOK_ID);
 
+CREATE INDEX idx__book_metadata_notable_entities__book_id on BOOK_METADATA_NOTABLE_ENTITIES (BOOK_ID);
+
 CREATE INDEX idx__book_metadata_tag__book_id on BOOK_METADATA_TAG (BOOK_ID);
 
-CREATE INDEX idx__library_exclusions__library_id on LIBRARY_EXCLUSIONS (LIBRARY_ID);
+CREATE INDEX idx__client_settings_user__user_id on CLIENT_SETTINGS_USER (USER_ID);
+
+CREATE INDEX idx__collection_series__series_id on COLLECTION_SERIES (SERIES_ID);
 
 CREATE INDEX idx__media__status
     on MEDIA (STATUS);
@@ -38,6 +44,12 @@ CREATE INDEX idx__media_file__book_id on MEDIA_FILE (BOOK_ID);
 
 CREATE INDEX idx__read_progress__last_modified_date
     on READ_PROGRESS (LAST_MODIFIED_DATE);
+
+CREATE INDEX idx__read_progress__user_id on READ_PROGRESS (USER_ID);
+
+CREATE INDEX idx__read_progress_series__user_id on READ_PROGRESS_SERIES (USER_ID);
+
+CREATE INDEX idx__readlist_book__book_id on READLIST_BOOK (BOOK_ID);
 
 CREATE INDEX idx__series__created_date
     on SERIES (CREATED_DATE);
@@ -66,18 +78,6 @@ CREATE INDEX idx__series_metadata_tag__series_id on SERIES_METADATA_TAG (SERIES_
 CREATE INDEX idx__sync_point__user_id
     on SYNC_POINT (USER_ID);
 
-CREATE INDEX idx__sync_point_book__sync_point_id
-    on SYNC_POINT_BOOK (SYNC_POINT_ID);
-
-CREATE INDEX idx__sync_point_book_removed_status__sync_point_id
-    on SYNC_POINT_BOOK_REMOVED_SYNCED (SYNC_POINT_ID);
-
-CREATE INDEX idx__sync_point_readlist__sync_point_id
-    on SYNC_POINT_READLIST (SYNC_POINT_ID);
-
-CREATE INDEX idx__sync_point_readlist_book__sync_point_id_readlist_id
-    on SYNC_POINT_READLIST_BOOK (SYNC_POINT_ID, READLIST_ID);
-
 CREATE INDEX idx__thumbnail_book__book_id on THUMBNAIL_BOOK (BOOK_ID);
 
 CREATE INDEX idx__thumbnail_book__file_size
@@ -100,6 +100,10 @@ CREATE INDEX idx__thumbnail_series__series_id
 
 CREATE INDEX idx__user_api_key__user_id
     on USER_API_KEY (USER_ID);
+
+CREATE INDEX idx__user_library_sharing__library_id on USER_LIBRARY_SHARING (LIBRARY_ID);
+
+CREATE INDEX idx__user_sharing__user_id on USER_SHARING (USER_ID);
 
 CREATE TABLE ANNOUNCEMENTS_READ
 (
@@ -153,7 +157,7 @@ CREATE TABLE BOOK_METADATA
     TITLE_LOCK         boolean  NOT NULL DEFAULT 0,
     AUTHORS_LOCK       boolean  NOT NULL DEFAULT 0,
     TAGS_LOCK          boolean  NOT NULL DEFAULT 0,
-    BOOK_ID            varchar  NOT NULL PRIMARY KEY, ISBN varchar NOT NULL DEFAULT '', ISBN_LOCK boolean NOT NULL DEFAULT 0, LINKS_LOCK boolean NOT NULL DEFAULT 0,
+    BOOK_ID            varchar  NOT NULL PRIMARY KEY, ISBN varchar NOT NULL DEFAULT '', ISBN_LOCK boolean NOT NULL DEFAULT 0, LINKS_LOCK boolean NOT NULL DEFAULT 0, NOTABLE_ENTITIES_LOCK boolean NOT NULL DEFAULT 0,
     FOREIGN KEY (BOOK_ID) REFERENCES BOOK (ID)
 );
 
@@ -172,6 +176,14 @@ CREATE TABLE BOOK_METADATA_AGGREGATION_AUTHOR
 (
     NAME      varchar NOT NULL,
     ROLE      varchar NOT NULL,
+    SERIES_ID varchar NOT NULL,
+    FOREIGN KEY (SERIES_ID) REFERENCES SERIES (ID)
+);
+
+CREATE TABLE BOOK_METADATA_AGGREGATION_NOTABLE_ENTITIES
+(
+    KIND      varchar NOT NULL,
+    NAME      varchar NOT NULL,
     SERIES_ID varchar NOT NULL,
     FOREIGN KEY (SERIES_ID) REFERENCES SERIES (ID)
 );
@@ -195,6 +207,14 @@ CREATE TABLE BOOK_METADATA_LINK
 (
     LABEL   varchar NOT NULL,
     URL     varchar NOT NULL,
+    BOOK_ID varchar NOT NULL,
+    FOREIGN KEY (BOOK_ID) REFERENCES BOOK (ID)
+);
+
+CREATE TABLE BOOK_METADATA_NOTABLE_ENTITIES
+(
+    KIND    varchar NOT NULL,
+    NAME    varchar NOT NULL,
     BOOK_ID varchar NOT NULL,
     FOREIGN KEY (BOOK_ID) REFERENCES BOOK (ID)
 );

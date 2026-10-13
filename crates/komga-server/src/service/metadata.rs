@@ -768,6 +768,7 @@ pub fn aggregate_series_metadata(state: &AppState, series: &Series) -> Result<()
         komga_core::model::series::BookMetadataAggregation {
             series_id: series.id.clone(),
             authors: vec![],
+            notable_entities: vec![],
             tags: BTreeSet::new(),
             release_date: None,
             summary: String::new(),
@@ -778,6 +779,7 @@ pub fn aggregate_series_metadata(state: &AppState, series: &Series) -> Result<()
     });
     aggregation.series_id = series.id.clone();
     aggregation.authors = parts.authors;
+    aggregation.notable_entities = parts.notable_entities;
     aggregation.tags = parts.tags;
     aggregation.release_date = parts.release_date;
     aggregation.summary = parts.summary;

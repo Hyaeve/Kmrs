@@ -1,5 +1,5 @@
-import { useMemo, useState, type ReactNode } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { CaretRight, CheckCircle, Circle, X, XCircle } from '@phosphor-icons/react'
 import { collectionsApi, readlistsApi } from '@/lib/api/collections'
@@ -8,8 +8,8 @@ import { referentialApi, type ReferentialScope } from '@/lib/api/referential'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { SegmentedControl } from '@/components/ui/SegmentedControl'
 import { cn } from '@/lib/utils/cn'
-import { displayFilterValue, groupSelectedCount } from './filterUrl'
-import { AGE_RATING_UNSET, LETTERS, type AuthorFilter, type FilterGroupDef, type FilterState, type GroupKey, type GroupMode, type ReferentialKind } from './types'
+import { displayFilterValue, groupSelectedCount, notableEntityChipLabel, notableEntityKindLabel } from './filterUrl'
+import { AGE_RATING_UNSET, LETTERS, NOTABLE_ENTITY_ANYKIND, type AuthorFilter, type FilterGroupDef, type FilterState, type GroupKey, type GroupMode, type NotableEntityFilter, type ReferentialKind } from './types'
 
 const MODE_OPTIONS: { value: GroupMode; labelKey: string }[] = [
   { value: 'any', labelKey: 'filters:mode.any' },
@@ -23,16 +23,18 @@ const NEGATE_OPTIONS: { value: 'is' | 'isNot'; labelKey: string }[] = [
 
 const GROUP_SEARCH_THRESHOLD = 40
 
-function OptionChip({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
+function OptionChip({ active, excluded, onClick, children }: { active?: boolean; excluded?: boolean; onClick: () => void; children: ReactNode }) {
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
         'inline-flex cursor-pointer items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition-colors',
-        active
-          ? 'border-accent/50 bg-accent-soft text-accent-strong'
-          : 'border-line bg-raised text-ink-2 hover:border-line-strong hover:text-ink',
+        excluded
+          ? 'border-danger/50 bg-danger/10 text-danger'
+          : active
+            ? 'border-accent/50 bg-accent-soft text-accent-strong'
+            : 'border-line bg-raised text-ink-2 hover:border-line-strong hover:text-ink',
       )}
     >
       {children}
@@ -317,6 +319,135 @@ function AuthorsOptions({
   )
 }
 
+// known kinds lead in label-key order, custom analyzer kinds follow in server order
+const KNOWN_ENTITY_KINDS = ['character', 'team', 'location']
+
+/** name lists shorter than this get no search box (komga next-ui hides it under 10) */
+const NAME_SEARCH_THRESHOLD = 10
+
+function orderEntityKinds(server: string[]): string[] {
+  const rank = (k: string) => {
+    const i = KNOWN_ENTITY_KINDS.indexOf(k)
+    return i === -1 ? KNOWN_ENTITY_KINDS.length : i
+  }
+  return [NOTABLE_ENTITY_ANYKIND, ...[...server].sort((a, b) => rank(a) - rank(b))]
+}
+
+function NotableEntitiesOptions({
+  scope,
+  selected,
+  enabled,
+  onToggle,
+}: {
+  scope?: ReferentialScope
+  selected: NotableEntityFilter[]
+  enabled: boolean
+  onToggle: (entity: NotableEntityFilter) => void
+}) {
+  const query = useQuery({
+    queryKey: ['referential', 'notableEntityKinds', scope],
+    queryFn: () => referentialApi.notableEntityKinds(scope),
+    enabled,
+    staleTime: 60_000,
+  })
+  const kinds = useMemo(() => orderEntityKinds(query.data ?? []), [query.data])
+
+  if (query.isPending) return <LoadingChips />
+  if (query.isLoadingError) return <LoadError onRetry={() => query.refetch()} />
+
+  return (
+    <div>
+      {kinds.map((kind) => (
+        <NotableEntityKindPanel
+          key={kind}
+          kind={kind}
+          scope={scope}
+          selected={selected.filter((e) => e.kind === kind)}
+          enabled={enabled}
+          onToggle={onToggle}
+        />
+      ))}
+    </div>
+  )
+}
+
+function NotableEntityKindPanel({
+  kind,
+  scope,
+  selected,
+  enabled,
+  onToggle,
+}: {
+  kind: string
+  scope?: ReferentialScope
+  /** entries of this kind only */
+  selected: NotableEntityFilter[]
+  enabled: boolean
+  onToggle: (entity: NotableEntityFilter) => void
+}) {
+  const { t, i18n } = useTranslation('filters')
+  const [search, setSearch] = useState('')
+  const [debounced, setDebounced] = useState('')
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(search.trim()), 500)
+    return () => clearTimeout(id)
+  }, [search])
+  const query = useQuery({
+    queryKey: ['referential', 'notableEntityNames', kind, debounced, scope],
+    queryFn: () => referentialApi.notableEntityNames(kind === NOTABLE_ENTITY_ANYKIND ? undefined : kind, debounced || undefined, scope),
+    enabled,
+    staleTime: 60_000,
+    placeholderData: keepPreviousData,
+  })
+
+  // selected names stay visible so they can be cycled back while a search filters the list
+  const names = useMemo(() => {
+    const all = new Set([...selected.filter((e) => e.name !== '').map((e) => e.name), ...(query.data ?? [])])
+    return [...all].sort((a, b) => a.localeCompare(b, i18n.language))
+  }, [selected, query.data, i18n.language])
+  const byName = useMemo(() => new Map(selected.map((e) => [e.name, e])), [selected])
+
+  // onToggle replaces a different include/exclude form and removes the same one,
+  // so one call steps the chip through off → include → exclude → off
+  const cycle = (name: string) => {
+    const cur = byName.get(name)
+    if (!cur) onToggle({ kind, name })
+    else if (!cur.exclude) onToggle({ ...cur, exclude: true })
+    else onToggle(cur)
+  }
+
+  const pseudo = byName.get('')
+  // the box must stay visible while a search is active, even if the filtered list is short
+  const showSearch = search !== '' || (query.data?.length ?? 0) > NAME_SEARCH_THRESHOLD
+
+  return (
+    <section className="mt-5 first:mt-0">
+      <h4 className="mb-2 text-xs font-medium text-ink-2">{notableEntityKindLabel(kind)}</h4>
+      {showSearch && <GroupSearchInput value={search} onChange={setSearch} placeholder={t('notableEntities.searchPlaceholder')} />}
+      {query.isPending ? (
+        <LoadingChips />
+      ) : query.isLoadingError ? (
+        <LoadError onRetry={() => query.refetch()} />
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          <OptionChip active={!!pseudo && !pseudo.exclude} excluded={pseudo?.exclude} onClick={() => cycle('')}>
+            {pseudo?.exclude ? t('notableEntities.none') : t('notableEntities.any')}
+          </OptionChip>
+          {names.map((name) => {
+            const cur = byName.get(name)
+            return (
+              <OptionChip key={name} active={!!cur && !cur.exclude} excluded={cur?.exclude} onClick={() => cycle(name)}>
+                {name}
+              </OptionChip>
+            )
+          })}
+          {names.length === 0 && debounced !== '' && <p className="text-xs text-ink-3">{t('notableEntities.noMatch')}</p>}
+        </div>
+      )}
+    </section>
+  )
+}
+
 interface ControlProps {
   def: FilterGroupDef
   state: FilterState
@@ -409,6 +540,7 @@ export function FlagFilterRow({ def, value, onCycle }: { def: FilterGroupDef; va
 function groupSummary(def: FilterGroupDef, state: FilterState, locale: string, labelFor?: (key: GroupKey, id: string) => string): string {
   const list = new Intl.ListFormat(locale, { style: 'narrow', type: 'conjunction' })
   if (def.kind === 'authors') return list.format(state.authors.map((a) => (a.role ? `${a.name} (${a.role})` : a.name)))
+  if (def.kind === 'notableEntities') return list.format(state.notableEntities.map(notableEntityChipLabel))
   return list.format((state[def.key] as string[]).map((v) => labelFor?.(def.key, v) ?? displayFilterValue(def.key, v)))
 }
 
@@ -448,6 +580,7 @@ interface DetailProps {
   enabled: boolean
   onToggleValue: (key: GroupKey, value: string) => void
   onToggleAuthor: (author: AuthorFilter) => void
+  onToggleNotableEntity: (entity: NotableEntityFilter) => void
   onSetMode: (key: GroupKey, mode: GroupMode) => void
   onSetNegated: (key: GroupKey, negated: boolean) => void
   onSetExclusive: (key: GroupKey, value: string) => void
@@ -461,11 +594,14 @@ export function FilterGroupDetail({
   enabled,
   onToggleValue,
   onToggleAuthor,
+  onToggleNotableEntity,
   onSetMode,
   onSetNegated,
   onSetExclusive,
 }: DetailProps) {
-  const values = def.kind === 'authors' ? [] : (state[def.key] as string[])
+  // authors and notableEntities carry structured values consumed via `state` directly,
+  // not the flat string list
+  const values = def.kind === 'authors' || def.kind === 'notableEntities' ? [] : (state[def.key] as string[])
   return (
     <div className="py-4">
       <GroupControls def={def} state={state} onSetMode={onSetMode} onSetNegated={onSetNegated} className="mb-3" />
@@ -484,6 +620,9 @@ export function FilterGroupDetail({
       {def.kind === 'letters' && <LetterOptions selected={values} onSelect={(l) => onSetExclusive(def.key, l)} />}
       {def.kind === 'authors' && (
         <AuthorsOptions scope={scope} selected={state.authors} enabled={enabled} onToggle={onToggleAuthor} />
+      )}
+      {def.kind === 'notableEntities' && (
+        <NotableEntitiesOptions scope={scope} selected={state.notableEntities} enabled={enabled} onToggle={onToggleNotableEntity} />
       )}
     </div>
   )

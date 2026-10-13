@@ -64,5 +64,10 @@
     "matchCompleted": "マッチ完了",
     "postProcessing": "後処理中…",
     "seriesFallback": "シリーズマッチ"
+  },
+  "notableEntityKind": {
+    "character": "キャラクター",
+    "team": "チーム",
+    "location": "場所"
   }
 }

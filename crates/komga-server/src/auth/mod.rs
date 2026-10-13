@@ -1,9 +1,10 @@
 //! Authentication resolution and middleware: tries X-API-Key → Basic → X-Auth-Token/session cookie → remember-me, in that order.
 //! Aligned with `SecurityConfiguration.kt`: successful Basic/remember-me authentication establishes a session (IF_REQUIRED);
 //! any authenticated request with a `remember-me=true` parameter → issue a remember-me cookie.
-//! A successful API-key authentication is folded into the session's context — creating the session
-//! when the request had none, like Spring's SecurityContext persistence — so subsequent requests with
-//! the same key skip re-authentication and record no further activity (`ApiKeyAuthenticationFilter.authenticationIsRequired`).
+//! API-key authentication is stateless like 1.29's `ApiKeyAuthenticationFilter` (request-scoped
+//! `SecurityContext`, no session persistence): every request re-authenticates and records its own
+//! login activity, and no session cookie/token is issued. `/koreader/**` also accepts the
+//! KOReader sync header `X-Auth-User` (the kosync filter chain's converter).
 
 pub mod remember_me;
 pub mod session;
@@ -96,37 +97,28 @@ struct Outcome {
     activity: Option<ActivityDraft>,
 }
 
-fn resolve(state: &AppState, parts: &Parts, session_id: Option<&str>) -> Outcome {
+fn resolve(state: &AppState, parts: &Parts) -> Outcome {
     let headers = &parts.headers;
     let user_dao = UserDao::new(state.db.clone());
 
-    // 1. X-API-Key
-    if let Some(key) = headers.get("X-API-Key").and_then(|v| v.to_str().ok()) {
+    // 1. X-API-Key (X-Auth-User on /koreader/**, the KOReader sync chain's header)
+    let api_key_header = if parts.uri.path().starts_with("/koreader/") {
+        headers
+            .get("X-Auth-User")
+            .or_else(|| headers.get("X-API-Key"))
+    } else {
+        headers.get("X-API-Key")
+    };
+    if let Some(key) = api_key_header.and_then(|v| v.to_str().ok()) {
         // sha512 is the DB lookup hash (Java's TokenEncoder credentials); the XXH3-128 masked hash
-        // is the token's principal name (Java's Hasher), used for the session mark and failure activity
+        // is the token's principal name (Java's Hasher), used for the failure activity
         let hashed = sha512_hex(key.trim());
         let masked = komga_media::hash::compute_hash_bytes(key.trim().as_bytes());
-        // The session's SecurityContext is loaded before the API key filter runs; when it already
-        // holds an ApiKeyAuthenticationToken for the same key (its name is the masked key hash), the
-        // filter skips re-authentication, so no login event fires and no activity is recorded.
-        if let Some(session) = session_id.and_then(|id| state.sessions.get(id)) {
-            if session.api_key.as_ref().is_some_and(|k| k.hash == masked) {
-                if let Ok(Some(user)) = user_dao.find_by_id(&session.user_id) {
-                    return Outcome {
-                        auth: Some(Auth {
-                            user,
-                            source: AuthSource::ApiKey,
-                            api_key_id: session.api_key.map(|k| k.id),
-                        }),
-                        new_session_id: None,
-                        activity: None,
-                    };
-                }
-            }
-        }
         return match user_dao.find_by_api_key(&hashed) {
             Ok(Some((user, api_key))) => {
-                // LoginListener records user.id/user.email on success; nulls are for failures
+                // LoginListener records user.id/user.email on success; nulls are for failures.
+                // The context is request-scoped (1.29), so every request re-authenticates and
+                // records its own activity; no session is created or marked.
                 let activity = ActivityDraft {
                     user_id: Some(api_key.user_id.clone()),
                     email: Some(user.email.clone()),
@@ -136,31 +128,13 @@ fn resolve(state: &AppState, parts: &Parts, session_id: Option<&str>) -> Outcome
                     error: None,
                     source: "ApiKey".into(),
                 };
-                // Spring persists the authenticated context into the session, creating one when
-                // the request had none; the session cookie issued in response lets the next
-                // request with the same key skip re-authentication (and its activity record).
-                let new_session_id = match session_id {
-                    Some(id) if state.sessions.get(id).is_some() => {
-                        state
-                            .sessions
-                            .mark_api_key(id, &user.id, &api_key.id, &masked);
-                        None
-                    }
-                    _ => {
-                        let id = state.sessions.create(&user.id);
-                        state
-                            .sessions
-                            .mark_api_key(&id, &user.id, &api_key.id, &masked);
-                        Some(id)
-                    }
-                };
                 Outcome {
                     auth: Some(Auth {
                         user: user.clone(),
                         source: AuthSource::ApiKey,
                         api_key_id: Some(api_key.id.clone()),
                     }),
-                    new_session_id,
+                    new_session_id: None,
                     activity: Some(activity),
                 }
             }
@@ -204,7 +178,16 @@ fn resolve(state: &AppState, parts: &Parts, session_id: Option<&str>) -> Outcome
                         source: "Password".into(),
                     };
                     Outcome {
-                        new_session_id: Some(state.sessions.create(&user.id)),
+                        // a broken session store must not fail the authentication itself
+                        new_session_id: state
+                            .sessions
+                            .create(&user.id)
+                            .map_err(|e| {
+                                tracing::warn!(
+                                    "failed to persist session, continuing without one: {e}"
+                                )
+                            })
+                            .ok(),
                         auth: Some(Auth {
                             user,
                             source: AuthSource::Password,
@@ -246,18 +229,24 @@ async fn resolve_session_and_remember(
 
     // 3. session (X-Auth-Token header takes precedence over cookie)
     if let Some(session_id) = session_id {
-        if let Some(session) = state.sessions.get(&session_id) {
-            if let Ok(Some(user)) = user_dao.find_by_id(&session.user_id) {
-                return Outcome {
-                    auth: Some(Auth {
-                        user,
-                        source: AuthSource::Session,
-                        api_key_id: session.api_key.map(|k| k.id),
-                    }),
-                    new_session_id: None,
-                    activity: None,
-                };
+        // a store error reads as no session: the request falls through to the
+        // remaining auth methods (fail-closed)
+        match state.sessions.get(&session_id) {
+            Ok(Some(session)) => {
+                if let Ok(Some(user)) = user_dao.find_by_id(&session.user_id) {
+                    return Outcome {
+                        auth: Some(Auth {
+                            user,
+                            source: AuthSource::Session,
+                            api_key_id: None,
+                        }),
+                        new_session_id: None,
+                        activity: None,
+                    };
+                }
             }
+            Ok(None) => {}
+            Err(e) => tracing::warn!("failed to load session {session_id}: {e}"),
         }
     }
 
@@ -287,7 +276,13 @@ async fn resolve_session_and_remember(
                                 source: "RememberMe".into(),
                             };
                             return Outcome {
-                                new_session_id: Some(state.sessions.create(&user.id)),
+                                new_session_id: state
+                                    .sessions
+                                    .create(&user.id)
+                                    .map_err(|e| {
+                                        tracing::warn!("failed to persist session, continuing without one: {e}")
+                                    })
+                                    .ok(),
                                 auth: Some(Auth {
                                     user,
                                     source: AuthSource::RememberMe,
@@ -340,7 +335,7 @@ pub async fn auth_middleware(
 
     let session_id = session_header.or(session_cookie);
 
-    let mut outcome = resolve(&state, &parts, session_id.as_deref());
+    let mut outcome = resolve(&state, &parts);
     if outcome.auth.is_none() && outcome.activity.is_none() {
         outcome = resolve_session_and_remember(&state, &parts, session_id.clone()).await;
     }

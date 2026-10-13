@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import { Funnel, MagnifyingGlass, X } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/Button'
-import { describeActiveFilters, parseAuthor, type ActiveFilterItem } from './filterUrl'
+import { describeActiveFilters, parseAuthor, parseNotableEntity, type ActiveFilterItem } from './filterUrl'
 import { SortMenu } from './SortMenu'
-import type { AuthorFilter, FilterGroupDef, FilterState, GroupKey, SortOption, SortState } from './types'
+import type { AuthorFilter, FilterGroupDef, FilterState, GroupKey, NotableEntityFilter, SortOption, SortState } from './types'
 
 interface FilterBarProps {
   count?: number
@@ -14,6 +14,7 @@ interface FilterBarProps {
   activeCount: number
   onToggleValue: (key: GroupKey, value: string) => void
   onToggleAuthor: (author: AuthorFilter) => void
+  onToggleNotableEntity: (entity: NotableEntityFilter) => void
   onQChange: (q: string) => void
   onOpenFilters: () => void
   sortOptions: SortOption[]
@@ -44,6 +45,7 @@ export function FilterBar({
   activeCount,
   onToggleValue,
   onToggleAuthor,
+  onToggleNotableEntity,
   onQChange,
   onOpenFilters,
   sortOptions,
@@ -70,6 +72,7 @@ export function FilterBar({
 
   const remove = (item: ChipItem) => {
     if (item.group === 'authors') onToggleAuthor(parseAuthor(item.value))
+    else if (item.group === 'notableEntities') onToggleNotableEntity(parseNotableEntity(item.value))
     else onToggleValue(item.group, item.value)
   }
 

@@ -68,5 +68,10 @@
     "matchCompleted": "abbinamento completato",
     "postProcessing": "Post-elaborazione…",
     "seriesFallback": "Abbinamento serie"
+  },
+  "notableEntityKind": {
+    "character": "Personaggio",
+    "team": "Squadra",
+    "location": "Luogo"
   }
 }

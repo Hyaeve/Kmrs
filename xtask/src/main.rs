@@ -75,6 +75,10 @@ fn sync_migrations() -> Result<()> {
             komga_repo.join("komga/src/flyway/resources/tasks/migration/sqlite"),
             root.join("crates/komga-db/migrations_tasks"),
         ),
+        (
+            komga_repo.join("komga/src/flyway/resources/sessions/migration/sqlite"),
+            root.join("crates/komga-db/migrations_sessions"),
+        ),
     ] {
         let java = read_dir_map(&java_dir)?;
         let rust = read_dir_map(&rust_dir)?;

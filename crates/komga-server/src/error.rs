@@ -111,6 +111,103 @@ struct ErrorBody {
     path: String,
 }
 
+/// RFC 9457 ProblemDetail error for the `/api/v3` prefix (komga 1.29
+/// `ApiV3ErrorHandlingControllerAdvice`): controller exceptions under v3 serialize as
+/// `application/problem+json`; the security-level 401/empty-404 stay as-is (the advice only
+/// wraps controller exceptions). `instance` carries the request path — an RFC 9457
+/// extension Spring leaves unset — for log correlation.
+pub struct V3Error {
+    error: ApiError,
+    /// request path for the ProblemDetail `instance`, without the query string
+    path: String,
+}
+
+impl V3Error {
+    pub fn new(error: ApiError, path: &str) -> Self {
+        Self {
+            error,
+            path: path.to_string(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct ProblemDetailBody {
+    #[serde(rename = "type")]
+    type_: &'static str,
+    title: String,
+    status: u16,
+    detail: String,
+    instance: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    violations: Option<Vec<V3Violation>>,
+}
+
+#[derive(Serialize)]
+struct V3Violation {
+    field: Option<String>,
+    message: Option<String>,
+}
+
+impl IntoResponse for V3Error {
+    fn into_response(self) -> Response {
+        match self.error {
+            ApiError::Unauthorized => (
+                StatusCode::UNAUTHORIZED,
+                [(
+                    axum::http::header::WWW_AUTHENTICATE,
+                    "Basic realm=\"Realm\"",
+                )],
+            )
+                .into_response(),
+            ApiError::NotFoundEmpty => StatusCode::NOT_FOUND.into_response(),
+            ApiError::Status { status, message } => {
+                problem_response(status, message, self.path, None)
+            }
+            ApiError::Violations(violations) => problem_response(
+                StatusCode::BAD_REQUEST,
+                "Invalid request content.".to_string(),
+                self.path,
+                Some(
+                    violations
+                        .into_iter()
+                        .map(|v| V3Violation {
+                            field: Some(v.field_name),
+                            message: Some(v.message),
+                        })
+                        .collect(),
+                ),
+            ),
+            ApiError::Internal(message) => {
+                tracing::error!("{message}");
+                problem_response(StatusCode::INTERNAL_SERVER_ERROR, message, self.path, None)
+            }
+        }
+    }
+}
+
+fn problem_response(
+    status: StatusCode,
+    detail: String,
+    path: String,
+    violations: Option<Vec<V3Violation>>,
+) -> Response {
+    let body = ProblemDetailBody {
+        type_: "about:blank",
+        title: reason_phrase(status),
+        status: status.as_u16(),
+        detail,
+        instance: path,
+        violations,
+    };
+    let mut response = (status, Json(body)).into_response();
+    response.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/problem+json"),
+    );
+    response
+}
+
 #[derive(Serialize)]
 struct ViolationsBody {
     violations: Vec<Violation>,

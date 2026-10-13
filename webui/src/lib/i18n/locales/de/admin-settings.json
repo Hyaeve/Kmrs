@@ -20,7 +20,10 @@
     "hidePasswordHelperWithCount_one": "Wirkt nur, wenn mindestens ein OAuth2-Anbieter konfiguriert ist ({{count}} konfiguriert). Ohne einen wird das Passwortformular immer angezeigt, damit sich niemand aussperrt.",
     "hidePasswordHelperWithCount_other": "Wirkt nur, wenn mindestens ein OAuth2-Anbieter konfiguriert ist ({{count}} konfiguriert). Ohne einen wird das Passwortformular immer angezeigt, damit sich niemand aussperrt.",
     "noProviderWarning": "Es ist kein OAuth2-Anbieter konfiguriert, daher wird das Passwortformular auf der Anmeldeseite weiterhin angezeigt.",
-    "saveFailed": "Die Einstellung konnte nicht gespeichert werden."
+    "saveFailed": "Die Einstellung konnte nicht gespeichert werden.",
+    "oauthAuto": "Anmeldeseite überspringen und direkt über den Anbieter anmelden",
+    "oauthAutoHelper": "Leitet automatisch zum Anbieter weiter, wenn das Passwortformular ausgeblendet ist und genau ein OAuth2-Anbieter konfiguriert ist. Die Abmeldung kehrt einmalig zur Anmeldeseite zurück.",
+    "oauthAutoNoSingleProvider": "Die automatische Anmeldung greift nur bei genau einem konfigurierten OAuth2-Anbieter."
   },
   "stats": {
     "version": "Version",

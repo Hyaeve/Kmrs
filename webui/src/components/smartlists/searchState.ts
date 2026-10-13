@@ -2,7 +2,7 @@
 // useBrowseFilters, plus the reverse conversion from a stored search document.
 import { useCallback, useState } from 'react'
 import type { BookSearch, ConditionGroup, ConditionLeaf, SearchCondition, SeriesSearch, SmartListTarget } from '@/lib/api/types'
-import { AGE_RATING_UNSET, type AuthorFilter, type FilterState, type GroupKey, type GroupMode } from '@/components/filters/types'
+import { AGE_RATING_UNSET, NOTABLE_ENTITY_ANYKIND, type AuthorFilter, type FilterState, type GroupKey, type GroupMode, type NotableEntityFilter } from '@/components/filters/types'
 
 export function emptyFilterState(): FilterState {
   return {
@@ -21,6 +21,7 @@ export function emptyFilterState(): FilterState {
     languages: [],
     releaseYears: [],
     authors: [],
+    notableEntities: [],
     mediaProfiles: [],
     mediaStatuses: [],
     poster: [],
@@ -54,6 +55,17 @@ export function useFilterState(initial: FilterState = emptyFilterState()) {
       const same = (a: AuthorFilter) => a.name === author.name && a.role === author.role
       const exists = s.authors.some(same)
       return { ...s, authors: exists ? s.authors.filter((a) => !same(a)) : [...s.authors, author] }
+    })
+  }, [])
+
+  const toggleNotableEntity = useCallback((entity: NotableEntityFilter) => {
+    setState((s) => {
+      const same = (e: NotableEntityFilter) => e.kind === entity.kind && e.name === entity.name
+      const cur = s.notableEntities.find(same)
+      const rest = s.notableEntities.filter((e) => !same(e))
+      // the same include/exclude form toggles off; a different form replaces the entry, so a
+      // tri-state chip can move include → exclude in one call
+      return { ...s, notableEntities: !cur || !cur.exclude !== !entity.exclude ? [...rest, entity] : rest }
     })
   }, [])
 
@@ -92,7 +104,7 @@ export function useFilterState(initial: FilterState = emptyFilterState()) {
   const clearAll = useCallback(() => setState(emptyFilterState()), [])
   const reset = useCallback((next: FilterState) => setState(next), [])
 
-  return { state, toggleValue: toggleIn, toggleAuthor, setMode, setNegated, setExclusive, cycleValue, clearGroup, setQ, clearAll, reset }
+  return { state, toggleValue: toggleIn, toggleAuthor, toggleNotableEntity, setMode, setNegated, setExclusive, cycleValue, clearGroup, setQ, clearAll, reset }
 }
 
 // ---- stored search document -> FilterState ----
@@ -164,6 +176,8 @@ function groupKeyForCondition(key: string, target: SmartListTarget): GroupKey | 
       return { publisher: 'publishers', genre: 'genres', tag: 'tags', sharingLabel: 'sharingLabels', language: 'languages' }[key] as GroupKey
     case 'author':
       return 'authors'
+    case 'notableEntity':
+      return 'notableEntities'
     case 'libraryId':
       return 'libraries'
     case 'readListId':
@@ -179,7 +193,8 @@ function groupKeyForCondition(key: string, target: SmartListTarget): GroupKey | 
  * Reverses buildBookSearch/buildSeriesSearch for the subset the group editor can express:
  * a top-level leaf per group, same-key leaves combined as anyOf/allOf branches, the
  * library/read-list/collection membership anyOf, and canonical release-year pairs.
- * Anything else (nested logic, mixed is/isNot per group, regex-era shapes) sets `lossy`.
+ * Anything else (nested logic, mixed is/isNot within one group — notable entities excepted,
+ * they negate per value —, regex-era shapes) sets `lossy`.
  */
 export function searchToFilterState(search: BookSearch | SeriesSearch, target: SmartListTarget): ParsedSearch {
   const state = emptyFilterState()
@@ -257,9 +272,13 @@ export function searchToFilterState(search: BookSearch | SeriesSearch, target: S
         bucket('mediaStatuses').values.push(op.value)
         return true
       case 'poster': {
-        const selected = op.value !== undefined && (op.value as { selected?: boolean }).selected === true
+        const v = op.value !== undefined && typeof op.value === 'object' ? (op.value as { selected?: unknown; type?: unknown }) : undefined
+        const selected = v?.selected === true
+        const type = v?.type
         if (op.operator === 'is' && selected) bucket('poster').values.push('selected')
         else if (op.operator === 'isNot' && selected) bucket('poster').values.push('missing')
+        else if (op.operator === 'is' && (type === 'GENERATED' || type === 'SIDECAR' || type === 'USER_UPLOADED'))
+          bucket('poster').values.push(type)
         else return false
         return true
       }
@@ -270,6 +289,23 @@ export function searchToFilterState(search: BookSearch | SeriesSearch, target: S
         state.authors.push({ name: a.name, role: typeof a.role === 'string' ? a.role : '' })
         // marker for mode-conflict detection; state.authors carries the real values
         bucket('authors').values.push(a.name)
+        return true
+      }
+      case 'notableEntity': {
+        if (op.operator !== 'is' && op.operator !== 'isNot') return false
+        if (typeof op.value !== 'object' || op.value === null) return false
+        const e = op.value as { kind?: unknown; name?: unknown }
+        // kind and name are both optional on the backend: kind-only is the any/none-of-kind
+        // match, name-only matches across kinds and lands on the any-kind panel
+        if (e.kind !== undefined && typeof e.kind !== 'string') return false
+        if (e.name !== undefined && typeof e.name !== 'string') return false
+        state.notableEntities.push({
+          kind: (e.kind as string | undefined) ?? NOTABLE_ENTITY_ANYKIND,
+          name: (e.name as string | undefined) ?? '',
+          ...(op.operator === 'isNot' && { exclude: true as const }),
+        })
+        // marker for mode-conflict detection; state.notableEntities carries the real values
+        bucket('notableEntities').values.push(`${e.kind ?? ''},${e.name ?? ''}`)
         return true
       }
       case 'libraryId':
@@ -361,8 +397,8 @@ export function searchToFilterState(search: BookSearch | SeriesSearch, target: S
   }
 
   for (const [key, b] of buckets) {
-    // authors are structured objects already collected in state.authors; the bucket only tracks the mode
-    if (key !== 'authors') (state[key] as string[]) = [...new Set(b.values)]
+    // authors and notable entities are structured objects already collected in state; the bucket only tracks the mode
+    if (key !== 'authors' && key !== 'notableEntities') (state[key] as string[]) = [...new Set(b.values)]
     if (b.negated) state.exclude = [...state.exclude, key]
     if (b.mode === 'all') state.matchAll = [...state.matchAll, key]
   }

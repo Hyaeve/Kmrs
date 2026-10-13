@@ -3,7 +3,7 @@
 use super::{get_date, get_datetime, get_datetime_opt};
 use crate::error::Result;
 use crate::pool::Database;
-use komga_core::model::book::{Author, Book, BookMetadata, WebLink};
+use komga_core::model::book::{Author, Book, BookMetadata, NotableEntity, WebLink};
 use komga_core::time_codec;
 use komga_core::tsid::TsidFactory;
 use rusqlite::{params, Row};
@@ -13,9 +13,11 @@ const BOOK_COLUMNS: &str =
     "ID, NAME, URL, FILE_LAST_MODIFIED, SERIES_ID, LIBRARY_ID, FILE_SIZE, NUMBER, \
  FILE_HASH, FILE_HASH_KOREADER, DELETED_DATE, ONESHOT, CREATED_DATE, LAST_MODIFIED_DATE";
 
+// NOTABLE_ENTITIES_LOCK sits before the audit columns: update() drops the trailing
+// CREATED_DATE/LAST_MODIFIED_DATE params by position.
 const METADATA_COLUMNS: &str = "BOOK_ID, TITLE, TITLE_LOCK, SUMMARY, SUMMARY_LOCK, NUMBER, NUMBER_LOCK, \
  NUMBER_SORT, NUMBER_SORT_LOCK, RELEASE_DATE, RELEASE_DATE_LOCK, AUTHORS_LOCK, TAGS_LOCK, ISBN, ISBN_LOCK, \
- LINKS_LOCK, CREATED_DATE, LAST_MODIFIED_DATE";
+ LINKS_LOCK, NOTABLE_ENTITIES_LOCK, CREATED_DATE, LAST_MODIFIED_DATE";
 
 pub struct BookDao {
     db: Database,
@@ -397,9 +399,11 @@ impl BookMetadataDao {
             isbn: row.get(13)?,
             isbn_lock: row.get(14)?,
             links_lock: row.get(15)?,
-            created_date: get_datetime(row, 16)?,
-            last_modified_date: get_datetime(row, 17)?,
+            created_date: get_datetime(row, 17)?,
+            last_modified_date: get_datetime(row, 18)?,
+            notable_entities_lock: row.get(16)?,
             authors: Vec::new(), // filled in by the caller
+            notable_entities: Vec::new(),
             tags: Vec::new(),
             links: Vec::new(),
         })
@@ -419,6 +423,20 @@ impl BookMetadataDao {
                 })?
                 .collect::<std::result::Result<Vec<_>, _>>()?;
             authors
+        };
+        metadata.notable_entities = {
+            let mut stmt = conn.prepare(
+                "SELECT KIND, NAME FROM BOOK_METADATA_NOTABLE_ENTITIES WHERE BOOK_ID = ?",
+            )?;
+            let entities = stmt
+                .query_map([&metadata.book_id], |r| {
+                    Ok(NotableEntity::new(
+                        &r.get::<_, String>(0)?,
+                        &r.get::<_, String>(1)?,
+                    ))
+                })?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            entities
         };
         metadata.tags = {
             let mut stmt = conn.prepare("SELECT TAG FROM BOOK_METADATA_TAG WHERE BOOK_ID = ?")?;
@@ -479,7 +497,7 @@ impl BookMetadataDao {
         let mut conn = self.db.rw()?;
         let tx = conn.transaction()?;
         tx.execute(
-      &format!("INSERT INTO BOOK_METADATA ({METADATA_COLUMNS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"),
+      &format!("INSERT INTO BOOK_METADATA ({METADATA_COLUMNS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"),
       rusqlite::params_from_iter(metadata_params(metadata)),
     )?;
         self.insert_children(&tx, metadata)?;
@@ -548,6 +566,10 @@ impl BookMetadataDao {
             "DELETE FROM BOOK_METADATA_AUTHOR WHERE BOOK_ID = ?",
             [book_id],
         )?;
+        conn.execute(
+            "DELETE FROM BOOK_METADATA_NOTABLE_ENTITIES WHERE BOOK_ID = ?",
+            [book_id],
+        )?;
         conn.execute("DELETE FROM BOOK_METADATA_TAG WHERE BOOK_ID = ?", [book_id])?;
         conn.execute(
             "DELETE FROM BOOK_METADATA_LINK WHERE BOOK_ID = ?",
@@ -561,6 +583,12 @@ impl BookMetadataDao {
             conn.execute(
                 "INSERT INTO BOOK_METADATA_AUTHOR (NAME, ROLE, BOOK_ID) VALUES (?, ?, ?)",
                 params![author.name, author.role, metadata.book_id],
+            )?;
+        }
+        for entity in &metadata.notable_entities {
+            conn.execute(
+                "INSERT INTO BOOK_METADATA_NOTABLE_ENTITIES (KIND, NAME, BOOK_ID) VALUES (?, ?, ?)",
+                params![entity.kind, entity.name, metadata.book_id],
             )?;
         }
         for tag in &metadata.tags {
@@ -597,6 +625,7 @@ fn metadata_params(m: &BookMetadata) -> Vec<Box<dyn rusqlite::ToSql>> {
         Box::new(m.isbn.clone()),
         Box::new(m.isbn_lock),
         Box::new(m.links_lock),
+        Box::new(m.notable_entities_lock),
         Box::new(time_codec::format_datetime(m.created_date)),
         Box::new(time_codec::format_datetime(m.last_modified_date)),
     ]
@@ -806,6 +835,10 @@ mod tests {
                     role: "penciller".into(),
                 },
             ],
+            notable_entities: vec![
+                NotableEntity::new("character", "Guts"),
+                NotableEntity::new("Team", "Band of the Hawk"),
+            ],
             tags: vec!["action".into(), "fantasy".into()],
             isbn: "9781234567890".into(),
             links: vec![WebLink {
@@ -818,6 +851,7 @@ mod tests {
             number_sort_lock: false,
             release_date_lock: false,
             authors_lock: false,
+            notable_entities_lock: true,
             tags_lock: false,
             isbn_lock: false,
             links_lock: false,
@@ -850,6 +884,15 @@ mod tests {
         assert_eq!(found.authors.len(), 2);
         assert_eq!(found.authors[0].name, "Author A");
         assert_eq!(found.authors[1].role, "penciller");
+        // kind is normalized to lowercase, name trimmed
+        assert_eq!(
+            found.notable_entities,
+            vec![
+                NotableEntity::new("character", "Guts"),
+                NotableEntity::new("team", "Band of the Hawk"),
+            ]
+        );
+        assert!(found.notable_entities_lock);
         assert_eq!(found.tags, vec!["action", "fantasy"]);
         assert_eq!(found.isbn, "9781234567890");
         assert_eq!(found.links[0].url, "https://example.org");
@@ -862,6 +905,7 @@ mod tests {
             name: "Author C".into(),
             role: "editor".into(),
         }];
+        updated.notable_entities = vec![NotableEntity::new("location", "Midland")];
         updated.tags = vec![];
         dao.update(&updated).unwrap();
 
@@ -871,6 +915,10 @@ mod tests {
         assert_eq!(found.release_date, None);
         assert_eq!(found.authors.len(), 1);
         assert_eq!(found.authors[0].name, "Author C");
+        assert_eq!(
+            found.notable_entities,
+            vec![NotableEntity::new("location", "Midland")]
+        );
         assert!(found.tags.is_empty());
 
         dao.delete(&book_id).unwrap();
@@ -879,7 +927,7 @@ mod tests {
       .db
       .ro().unwrap()
       .query_row(
-        "SELECT (SELECT COUNT(*) FROM BOOK_METADATA_AUTHOR) + (SELECT COUNT(*) FROM BOOK_METADATA_TAG) + (SELECT COUNT(*) FROM BOOK_METADATA_LINK)",
+        "SELECT (SELECT COUNT(*) FROM BOOK_METADATA_AUTHOR) + (SELECT COUNT(*) FROM BOOK_METADATA_TAG) + (SELECT COUNT(*) FROM BOOK_METADATA_LINK) + (SELECT COUNT(*) FROM BOOK_METADATA_NOTABLE_ENTITIES)",
         [],
         |r| r.get(0),
       )

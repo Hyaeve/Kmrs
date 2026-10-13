@@ -10,7 +10,7 @@
 //! this test is its hermetic schema-level counterpart.
 
 use komga_db::migrate::Migrator;
-use komga_db::{main_migrations, tasks_migrations, Placeholders};
+use komga_db::{main_migrations, sessions_migrations, tasks_migrations, Placeholders};
 use rusqlite::Connection;
 use std::path::Path;
 
@@ -98,6 +98,19 @@ fn tasks_db_schema_matches_raw_migrations() {
         .unwrap();
 
     let expected = inventory(&oracle("migrations_tasks"));
+    let actual = inventory(&migrated);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn sessions_db_schema_matches_raw_migrations() {
+    let migrated = Connection::open_in_memory().unwrap();
+    let migrations = sessions_migrations();
+    Migrator::new(&migrations, Placeholders::default())
+        .migrate(&migrated)
+        .unwrap();
+
+    let expected = inventory(&oracle("migrations_sessions"));
     let actual = inventory(&migrated);
     assert_eq!(actual, expected);
 }

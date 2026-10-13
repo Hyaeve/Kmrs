@@ -1772,6 +1772,8 @@ mod tests {
             database: db_config(true),
             tasks_db: db_config(false),
             kmrs_db: db_config(false),
+            sessions_db: db_config(false),
+            jdbc_session_enabled: false,
             session_timeout: std::time::Duration::from_secs(3600),
             cors_allowed_origins: vec![],
             page_hashing: 3,

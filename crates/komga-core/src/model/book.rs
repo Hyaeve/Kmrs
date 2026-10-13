@@ -1,7 +1,7 @@
 //! Equivalent models for `Book.kt` / `BookMetadata.kt` / `Author.kt` / `WebLink.kt`.
 //! `url` is stored as a `file:/…` string (consistent with the DB URL column).
 
-pub use super::common::{Author, WebLink};
+pub use super::common::{Author, NotableEntity, WebLink};
 use time::{Date, OffsetDateTime};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -38,6 +38,7 @@ pub struct BookMetadata {
     pub number_sort: f32,
     pub release_date: Option<Date>,
     pub authors: Vec<Author>,
+    pub notable_entities: Vec<NotableEntity>,
     pub tags: Vec<String>,
     pub isbn: String,
     pub links: Vec<WebLink>,
@@ -47,6 +48,7 @@ pub struct BookMetadata {
     pub number_sort_lock: bool,
     pub release_date_lock: bool,
     pub authors_lock: bool,
+    pub notable_entities_lock: bool,
     pub tags_lock: bool,
     pub isbn_lock: bool,
     pub links_lock: bool,

@@ -64,5 +64,10 @@
     "matchCompleted": "매칭 완료",
     "postProcessing": "후처리 중…",
     "seriesFallback": "시리즈 매칭"
+  },
+  "notableEntityKind": {
+    "character": "캐릭터",
+    "team": "팀",
+    "location": "장소"
   }
 }

@@ -40,6 +40,12 @@ export function violationMessages(err: unknown): ViolationMessage[] {
 
 const PAIR_SUBFIELD: Record<string, 'a' | 'b'> = { label: 'a', name: 'a', url: 'b', title: 'b', role: 'b' }
 
+// per-list overrides: notable entities keep the kind in the a column and the name in b,
+// while authors keep the name in a
+const LIST_SUBFIELD: Record<string, Record<string, 'a' | 'b'>> = {
+  notableEntities: { kind: 'a', name: 'b' },
+}
+
 export interface MappedViolations {
   scalars: Record<string, string>
   pairs: Record<string, PairErrors>
@@ -53,10 +59,11 @@ export function mapViolations(err: unknown): MappedViolations {
   const rest: string[] = []
   for (const v of violationMessages(err)) {
     const m = v.field.match(/^(\w+)\[(\d+)\]\.(\w+)$/)
-    if (m && PAIR_SUBFIELD[m[3]]) {
-      const [, list, index, sub] = m
+    const subfield = m && (LIST_SUBFIELD[m[1]]?.[m[3]] ?? PAIR_SUBFIELD[m[3]])
+    if (m && subfield) {
+      const [, list, index] = m
       pairs[list] ??= {}
-      pairs[list][Number(index)] = { ...pairs[list][Number(index)], [PAIR_SUBFIELD[sub]]: v.message }
+      pairs[list][Number(index)] = { ...pairs[list][Number(index)], [subfield]: v.message }
     } else if (v.field && !v.field.includes('[')) {
       scalars[v.field] = v.message
     } else {

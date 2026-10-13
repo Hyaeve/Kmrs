@@ -1,8 +1,8 @@
-//! Migration integration test: runs all 92 main-database migrations plus the
+//! Migration integration test: runs all 94 main-database migrations plus the
 //! tasks-database migrations, and verifies the history table and final schema.
 
 use komga_db::migrate::{MigrateError, Migrator, Placeholders};
-use komga_db::{kmrs_migrations, main_migrations, tasks_migrations};
+use komga_db::{kmrs_migrations, main_migrations, sessions_migrations, tasks_migrations};
 use rusqlite::Connection;
 
 fn migrate_main(conn: &Connection) -> usize {
@@ -16,9 +16,9 @@ fn migrate_main(conn: &Connection) -> usize {
 fn fresh_db_applies_all_migrations() {
     let conn = Connection::open_in_memory().unwrap();
     let applied = migrate_main(&conn);
-    assert_eq!(applied, 92, "87 SQL + 5 JDBC migrations");
+    assert_eq!(applied, 94, "89 SQL + 5 JDBC migrations");
 
-    // history table: 92 rows all successful, 5 of them JDBC with NULL checksum
+    // history table: 94 rows all successful, 5 of them JDBC with NULL checksum
     let (total, jdbc, null_checksum): (i64, i64, i64) = conn
         .query_row(
             "SELECT COUNT(*), \
@@ -29,7 +29,7 @@ fn fresh_db_applies_all_migrations() {
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .unwrap();
-    assert_eq!(total, 92);
+    assert_eq!(total, 94);
     assert_eq!(jdbc, 5);
     assert_eq!(null_checksum, 5);
 
@@ -44,6 +44,8 @@ fn fresh_db_applies_all_migrations() {
         "BOOK",
         "BOOK_METADATA",
         "BOOK_METADATA_AGGREGATION",
+        "BOOK_METADATA_NOTABLE_ENTITIES",
+        "BOOK_METADATA_AGGREGATION_NOTABLE_ENTITIES",
         "BOOK_PROJECTION",
         "MEDIA",
         "MEDIA_PAGE",
@@ -160,7 +162,7 @@ fn tasks_db_migrations() {
     let applied = Migrator::new(&migrations, Placeholders::default())
         .migrate(&conn)
         .unwrap();
-    assert_eq!(applied, 1);
+    assert_eq!(applied, 2);
     let task_table: bool = conn
         .query_row(
             "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = 'TASK'",
@@ -191,6 +193,32 @@ fn kmrs_db_migrations() {
         "TRACKER_LINK",
         "TRACKER_PREFERENCES",
     ] {
+        let exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = ?",
+                [name],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(exists, "table {name} missing");
+    }
+}
+
+#[test]
+fn sessions_db_migrations() {
+    let conn = Connection::open_in_memory().unwrap();
+    let migrations = sessions_migrations();
+    let applied = Migrator::new(&migrations, Placeholders::default())
+        .migrate(&conn)
+        .unwrap();
+    assert_eq!(applied, 1);
+    // idempotent: running again leaves no pending migrations
+    let migrations = sessions_migrations();
+    let applied = Migrator::new(&migrations, Placeholders::default())
+        .migrate(&conn)
+        .unwrap();
+    assert_eq!(applied, 0);
+    for name in ["SPRING_SESSION", "SPRING_SESSION_ATTRIBUTES"] {
         let exists: bool = conn
             .query_row(
                 "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = ?",

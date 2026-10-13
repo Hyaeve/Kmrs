@@ -13,7 +13,9 @@
     "author": "著者: {{name}}",
     "search": "検索: {{q}}",
     "value": "{{group}}: {{value}}",
-    "value_negated": "{{group}}: {{value}} 以外"
+    "value_negated": "{{group}}: {{value}} 以外",
+    "notableEntity": "{{kind}}: {{name}}",
+    "notableEntity_negated": "{{kind}}: {{name}} 以外"
   },
   "mode": {
     "any": "いずれか",
@@ -47,7 +49,8 @@
     "poster": "ポスター",
     "libraries": "ライブラリ",
     "readlists": "読書リスト",
-    "collections": "コレクション"
+    "collections": "コレクション",
+    "notableEntities": "注目のエンティティ"
   },
   "option": {
     "readStatus": {
@@ -109,5 +112,12 @@
     "series": "シリーズを検索…",
     "collections": "コレクションを検索…",
     "readlists": "読書リストを検索…"
+  },
+  "notableEntities": {
+    "searchPlaceholder": "エンティティを検索",
+    "noMatch": "一致するエンティティがありません。",
+    "anyKind": "すべてのエンティティ",
+    "any": "任意",
+    "none": "なし"
   }
 }

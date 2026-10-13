@@ -13,6 +13,7 @@
 [server]
 # port = 25600 # env: SERVER_PORT; CLI: --port
 # session-timeout = "7d" # env: SERVER_SERVLET_SESSION_TIMEOUT; "500ms"/"10s"/"30m"/"1h"/"7d", bare integer = seconds
+# jdbc-session-enabled = true # env: KOMGA_JDBCSESSIONENABLED; persist sessions in [sessions-db] (Spring Session JDBC layout) so they survive restarts
 # context-path = "/" # env: SERVER_SERVLET_CONTEXT_PATH; URL prefix, empty = root
 # sort-locale = "zh-CN" # env: KOMGA_SORT_LOCALE; BCP47 language tag for ICU sorting, empty/absent = root collation
 
@@ -42,6 +43,9 @@
 
 [kmrs-db]
 # file = "<config-dir>/kmrs.sqlite" # kmrs-private state (per-book series metadata contributions, komf integration); env: KOMGA_KMRSDB_FILE; same keys as [database] but the read pool defaults to 2, env prefix KOMGA_KMRSDB
+
+[sessions-db]
+# file = "<config-dir>/sessions.sqlite" # only opened when jdbc-session-enabled = true; env: KOMGA_SESSIONSDB_FILE; same keys as [database] but the read pool defaults to 2, env prefix KOMGA_SESSIONSDB
 
 [search]
 # data-directory = "<config-dir>/lucene" # tantivy index; env: KOMGA_LUCENE_DATA_DIRECTORY

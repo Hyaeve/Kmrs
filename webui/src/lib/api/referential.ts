@@ -1,5 +1,5 @@
 import { api } from './client'
-import type { AuthorDto, Page } from './types'
+import type { AuthorDto, NotableEntityDto, Page } from './types'
 
 // v2 referential endpoints return paged payloads; filter UIs want the full list (unpaged).
 export interface ReferentialScope {
@@ -55,4 +55,19 @@ export const referentialApi = {
     api.get<Page<string>>('/api/v2/series/release-years', { ...lcParams(scope), ...unpaged }).then((p) => p.content),
   authors: (scope?: ReferentialScope) =>
     api.get<Page<AuthorDto>>('/api/v2/authors', { ...fullParams(scope), ...unpaged }).then((p) => p.content),
+  // komga 1.29 v3: distinct notable-entity pairs, full library/collection/series/read-list scope
+  notableEntities: (scope?: ReferentialScope) =>
+    api
+      .get<Page<NotableEntityDto>>('/api/v3/notable-entities', { ...fullParams(scope), ...unpaged })
+      .then((p) => p.content),
+  // name autocomplete within a kind; the server does the search, so large kinds stay cheap.
+  // kind omitted searches across kinds (the any-kind filter panel)
+  notableEntityNames: (kind: string | undefined, search?: string, scope?: ReferentialScope) =>
+    api
+      .get<Page<string>>('/api/v3/notable-entities/names', { kind, search, ...fullParams(scope), ...unpaged })
+      .then((p) => p.content),
+  notableEntityKinds: (scope?: ReferentialScope) =>
+    api
+      .get<Page<string>>('/api/v3/notable-entities/kinds', { ...fullParams(scope), ...unpaged })
+      .then((p) => p.content),
 }

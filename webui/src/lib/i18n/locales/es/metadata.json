@@ -23,7 +23,9 @@
     "totalBookCount": "Número total de libros",
     "alternateTitles": "Títulos alternativos",
     "sharingLabels": "Etiquetas para compartir",
-    "notSet": "Sin definir"
+    "notSet": "Sin definir",
+    "notableEntities": "Entidades destacadas",
+    "kind": "Tipo"
   },
   "tabs": {
     "general": "General",
@@ -33,7 +35,8 @@
     "links": "Enlaces",
     "sharing": "Compartir",
     "sharedFields": "Campos compartidos",
-    "perBook": "Por libro"
+    "perBook": "Por libro",
+    "entities": "Entidades"
   },
   "action": {
     "saveChanges": "Guardar cambios"
@@ -64,12 +67,23 @@
     "linkLabel": "Wiki",
     "addTag": "Añadir etiqueta…",
     "addGenre": "Añadir género…",
-    "addLabel": "Añadir etiqueta…"
+    "addLabel": "Añadir etiqueta…",
+    "entityKind": "personaje",
+    "entityName": "Guts"
   },
   "add": {
     "author": "Añadir autor",
     "link": "Añadir enlace",
-    "title": "Añadir título"
+    "title": "Añadir título",
+    "entity": "Añadir entidad",
+    "kind": "Añadir tipo"
+  },
+  "entities": {
+    "empty": "Aún no hay entidades destacadas.",
+    "customKind": "Tipo personalizado…",
+    "customKindLabel": "Nombre del tipo",
+    "noMatch": "No hay resultados para «{{search}}». Pulsa Intro o haz clic para crearlo.",
+    "removeName": "Quitar {{name}}"
   },
   "editBooks": {
     "dialogTitle_single": "Editar metadatos del libro",
@@ -93,7 +107,8 @@
       "isbnEmpty": "ISBN-13; vacío para borrar.",
       "authorsReplace": "Sustituye todos los autores; una lista vacía los borra.",
       "tagsReplace": "Sustituye todas las etiquetas; una lista vacía las borra.",
-      "linksReplace": "Sustituye todos los enlaces; una lista vacía los borra."
+      "linksReplace": "Sustituye todos los enlaces; una lista vacía los borra.",
+      "entitiesReplace": "Reemplaza todas las entidades destacadas; una lista vacía las elimina."
     }
   },
   "editSeries": {

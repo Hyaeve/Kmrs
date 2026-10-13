@@ -28,12 +28,32 @@ pub struct TaskProcessor;
 impl TaskProcessor {
     /// Disowns leftover tasks, then drives the queue in the background.
     /// The `notify` handle must be the one the `TaskEmitter` was built with.
+    /// Test shorthand for `start_with_shutdown` with a shutdown signal that never fires.
+    #[cfg(test)]
     pub fn start(state: AppState, notify: TaskNotify) -> tokio::task::JoinHandle<()> {
+        let (tx, rx) = tokio::sync::watch::channel(false);
+        // keep the sender alive for the supervisor's lifetime: dropping it would make
+        // `shutdown.changed()` resolve immediately and stop the loop
+        std::mem::forget(tx);
+        Self::start_with_shutdown(state, notify, rx)
+    }
+
+    /// Like `start`, but the supervisor also exits its wait when `shutdown` fires, letting
+    /// the caller join the handle after the current drain completes (komga 1.29's
+    /// `TaskProcessor.destroy` equivalent: stop looping, finish what is claimed).
+    pub fn start_with_shutdown(
+        state: AppState,
+        notify: TaskNotify,
+        mut shutdown: tokio::sync::watch::Receiver<bool>,
+    ) -> tokio::task::JoinHandle<()> {
         disown_at_startup(&state);
         tokio::spawn(async move {
             loop {
                 drain_queue(&state).await;
-                notify.notified().await;
+                tokio::select! {
+                    _ = notify.notified() => {}
+                    _ = shutdown.changed() => break,
+                }
             }
         })
     }
@@ -711,6 +731,57 @@ mod tests {
         dir
     }
 
+    #[tokio::test]
+    async fn shutdown_exits_supervisor_after_drain() {
+        let state = series_tests::test_state();
+        let notify: TaskNotify = std::sync::Arc::new(tokio::sync::Notify::new());
+        let (tx, rx) = tokio::sync::watch::channel(false);
+        let handle = TaskProcessor::start_with_shutdown(state.clone(), notify, rx);
+        // no tasks: the supervisor is parked on the notify/shutdown select
+        drop(tx);
+        tokio::time::timeout(std::time::Duration::from_secs(5), handle)
+            .await
+            .expect("supervisor did not exit on shutdown signal")
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn shutdown_lets_claimed_task_finish() {
+        let state = series_tests::test_state();
+        let root = tempfile::tempdir().unwrap();
+        let book_dir = root.path().join("books");
+        std::fs::create_dir_all(&book_dir).unwrap();
+        fixture_zip(&book_dir.join("v01.cbz"));
+        let library = test_library(
+            "lib-shutdown",
+            &format!("file:{}/", root.path().join("books").display()),
+        );
+        seed_library(&state.db, &library);
+
+        let notify: TaskNotify = std::sync::Arc::new(tokio::sync::Notify::new());
+        let emitter = crate::service::TaskEmitter::new(
+            state.db.clone(),
+            state.tasks_db.clone(),
+            notify.clone(),
+        );
+        let (tx, rx) = tokio::sync::watch::channel(false);
+        let handle = TaskProcessor::start_with_shutdown(state.clone(), notify, rx);
+        emitter
+            .scan_library("lib-shutdown", false, komga_core::task::HIGHEST_PRIORITY)
+            .unwrap();
+        // shut down immediately: the claimed scan chain still completes
+        drop(tx);
+        tokio::time::timeout(std::time::Duration::from_secs(30), handle)
+            .await
+            .expect("supervisor did not exit")
+            .unwrap();
+        assert!(
+            queue_empty(&state),
+            "queue must drain on shutdown; pending: {:?}",
+            task_ids(&state)
+        );
+    }
+
     async fn wait_until<F: Fn() -> bool>(f: F) -> bool {
         for _ in 0..400 {
             if f() {
@@ -1284,6 +1355,7 @@ mod tests {
                 number_sort: 0.0,
                 release_date: None,
                 authors: vec![],
+                notable_entities: vec![],
                 tags: vec![],
                 isbn: String::new(),
                 links: vec![],
@@ -1293,6 +1365,7 @@ mod tests {
                 number_sort_lock: false,
                 release_date_lock: false,
                 authors_lock: false,
+                notable_entities_lock: false,
                 tags_lock: false,
                 isbn_lock: false,
                 links_lock: false,

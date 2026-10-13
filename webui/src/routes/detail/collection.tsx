@@ -231,6 +231,7 @@ export function CollectionDetailPage() {
             activeCount={activeFilterCount(filters.state)}
             onToggleValue={filters.toggleValue}
             onToggleAuthor={filters.toggleAuthor}
+            onToggleNotableEntity={filters.toggleNotableEntity}
             onQChange={filters.setQ}
             onOpenFilters={() => setDrawerOpen(true)}
             sortOptions={COLLECTION_SERIES_SORT_OPTIONS}
@@ -285,6 +286,7 @@ export function CollectionDetailPage() {
         activeCount={activeFilterCount(filters.state)}
         onToggleValue={filters.toggleValue}
         onToggleAuthor={filters.toggleAuthor}
+        onToggleNotableEntity={filters.toggleNotableEntity}
         onSetMode={filters.setMode}
         onSetNegated={filters.setNegated}
         onSetExclusive={filters.setExclusive}

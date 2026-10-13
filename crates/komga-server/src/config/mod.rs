@@ -49,6 +49,13 @@ pub struct ServerConfig {
     pub database: DatabaseConfig,
     pub tasks_db: DatabaseConfig,
     pub kmrs_db: DatabaseConfig,
+    /// Spring Session JDBC store; opened and migrated only when
+    /// `jdbc_session_enabled` is true (like the Java sessions datasource)
+    pub sessions_db: DatabaseConfig,
+    /// komga.jdbc-session-enabled; when true, sessions persist in sessions.sqlite
+    /// (Spring Session JDBC row layout) and survive restarts instead of living
+    /// in per-node memory
+    pub jdbc_session_enabled: bool,
     /// defaults to 7 days
     pub session_timeout: Duration,
     pub cors_allowed_origins: Vec<String>,
@@ -264,6 +271,13 @@ impl ServerConfig {
             config_dir.join("kmrs.sqlite"),
             false,
         )?;
+        let sessions_db = merge_database(
+            file.and_then(|f| f.sessions_db.as_ref()),
+            env,
+            "KOMGA_SESSIONSDB",
+            config_dir.join("sessions.sqlite"),
+            false,
+        )?;
 
         let port = cli
             .port
@@ -312,6 +326,10 @@ impl ServerConfig {
             database,
             tasks_db,
             kmrs_db,
+            sessions_db,
+            jdbc_session_enabled: env_bool(env, "KOMGA_JDBCSESSIONENABLED")
+                .or_else(|| server.and_then(|s| s.jdbc_session_enabled))
+                .unwrap_or(true),
             session_timeout,
             sort_locale,
             cors_allowed_origins,
@@ -743,6 +761,42 @@ mod tests {
         let home = default_config_dir();
         assert_eq!(config.database.file, home.join("database.sqlite"));
         assert_eq!(config.lucene_dir, home.join("lucene"));
+    }
+
+    #[test]
+    fn sessions_db_defaults_file_and_env() {
+        // persisted sessions are the default on every install (upstream turns them
+        // on only in its Docker image); KOMGA_JDBCSESSIONENABLED=false opts out
+        let config = ServerConfig::resolve(None, &Cli::default(), &[]).unwrap();
+        assert!(config.jdbc_session_enabled);
+        assert_eq!(
+            config.sessions_db.file,
+            default_config_dir().join("sessions.sqlite")
+        );
+        assert!(!config.sessions_db.register_udfs);
+
+        // env var wins over the file
+        let config = resolve(
+            "[server]\njdbc-session-enabled = false\n[sessions-db]\nfile = \"/s/file.sqlite\"\n",
+            Cli::default(),
+            &env(&[
+                ("KOMGA_JDBCSESSIONENABLED", "true"),
+                ("KOMGA_SESSIONSDB_FILE", "/s/env.sqlite"),
+            ]),
+        );
+        assert!(config.jdbc_session_enabled);
+        assert_eq!(
+            config.sessions_db.file,
+            std::path::PathBuf::from("/s/env.sqlite")
+        );
+
+        // file value applies when no env var is set
+        let config = resolve(
+            "[server]\njdbc-session-enabled = true\n",
+            Cli::default(),
+            &[],
+        );
+        assert!(config.jdbc_session_enabled);
     }
 
     #[test]

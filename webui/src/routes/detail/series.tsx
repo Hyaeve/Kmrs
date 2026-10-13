@@ -51,7 +51,8 @@ import { DetailSkeleton } from '@/components/detail/DetailSkeleton'
 import { DetailError } from '@/components/detail/DetailError'
 import { DetailChipFlow } from '@/components/detail/DetailChipFlow'
 import { SeriesMetaLine } from '@/components/detail/SeriesMetaLine'
-import { creatorChipItems, genreChipItems, seriesTagChipItems, sharingLabelChipItems } from '@/components/detail/metadataChips'
+import { creatorChipItems, genreChipItems, notableEntityChipGroups, seriesTagChipItems, sharingLabelChipItems } from '@/components/detail/metadataChips'
+import { NotableEntityChipRows } from '@/components/detail/NotableEntityChipRows'
 import { Summary } from '@/components/detail/Summary'
 import { DownloadLink } from '@/components/detail/DownloadLink'
 import { AddToCollectionDialog } from '@/components/browse/AddToCollectionDialog'
@@ -210,9 +211,10 @@ export function SeriesDetailPage() {
 
   const creatorItems = creatorChipItems(md.publisher, series.booksMetadata.authors, '/series')
   const genreItems = genreChipItems(md.genres)
+  const entityGroups = notableEntityChipGroups(series.booksMetadata.notableEntities, '/series', i18n.language)
   const tagItems = seriesTagChipItems(md.tags, series.booksMetadata.tags, i18n.language)
   const sharingItems = sharingLabelChipItems(md.sharingLabels)
-  const hasMetadataFlows = genreItems.length + tagItems.length + sharingItems.length > 0
+  const hasMetadataFlows = genreItems.length + entityGroups.length + tagItems.length + sharingItems.length > 0
 
   return (
     <div>
@@ -331,6 +333,7 @@ export function SeriesDetailPage() {
       {hasMetadataFlows && (
         <div className="mt-4 space-y-2">
           <DetailChipFlow items={genreItems} />
+          <NotableEntityChipRows groups={entityGroups} />
           <DetailChipFlow items={tagItems} />
           <DetailChipFlow items={sharingItems} />
         </div>
@@ -400,6 +403,7 @@ export function SeriesDetailPage() {
           activeCount={activeFilterCount(filters.state)}
           onToggleValue={filters.toggleValue}
           onToggleAuthor={filters.toggleAuthor}
+          onToggleNotableEntity={filters.toggleNotableEntity}
           onQChange={filters.setQ}
           onOpenFilters={() => setDrawerOpen(true)}
           sortOptions={SERIES_BOOK_SORT_OPTIONS}
@@ -455,6 +459,7 @@ export function SeriesDetailPage() {
         activeCount={activeFilterCount(filters.state)}
         onToggleValue={filters.toggleValue}
         onToggleAuthor={filters.toggleAuthor}
+        onToggleNotableEntity={filters.toggleNotableEntity}
         onSetMode={filters.setMode}
         onSetNegated={filters.setNegated}
         onSetExclusive={filters.setExclusive}

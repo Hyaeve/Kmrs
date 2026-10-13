@@ -21,7 +21,10 @@
     "hidePasswordHelperWithCount_many": "Solo tiene efecto cuando hay al menos un proveedor de OAuth2 configurado ({{count}} configurados). Sin ninguno, el formulario de contraseña siempre se muestra para que nadie se quede fuera.",
     "hidePasswordHelperWithCount_other": "Solo tiene efecto cuando hay al menos un proveedor de OAuth2 configurado ({{count}} configurados). Sin ninguno, el formulario de contraseña siempre se muestra para que nadie se quede fuera.",
     "noProviderWarning": "No hay ningún proveedor de OAuth2 configurado, así que el formulario de contraseña sigue mostrándose en la página de inicio de sesión.",
-    "saveFailed": "No se pudo guardar el ajuste."
+    "saveFailed": "No se pudo guardar el ajuste.",
+    "oauthAuto": "Omitir la página de inicio de sesión y entrar directamente con el proveedor",
+    "oauthAutoHelper": "Redirige automáticamente al proveedor cuando el formulario de contraseña está oculto y hay exactamente un proveedor de OAuth2 configurado. Al cerrar sesión se vuelve una vez a la página de inicio de sesión.",
+    "oauthAutoNoSingleProvider": "El inicio de sesión automático solo funciona con exactamente un proveedor de OAuth2 configurado."
   },
   "stats": {
     "version": "Versión",

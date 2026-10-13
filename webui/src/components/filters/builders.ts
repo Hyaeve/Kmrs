@@ -1,5 +1,5 @@
 import type { BookSearch, ConditionLeaf, SearchCondition, SearchOperator, SeriesSearch } from '@/lib/api/types'
-import { AGE_RATING_UNSET, LETTERS, type AuthorFilter, type FilterState, type GroupKey, type GroupMode } from './types'
+import { AGE_RATING_UNSET, LETTERS, NOTABLE_ENTITY_ANYKIND, type AuthorFilter, type FilterState, type GroupKey, type GroupMode, type NotableEntityFilter } from './types'
 
 function leaf(key: string, operator: SearchOperator, value?: unknown): ConditionLeaf {
   return value === undefined ? { [key]: { operator } } : { [key]: { operator, value } }
@@ -30,6 +30,17 @@ function yearConditions(years: string[]): SearchCondition[] {
 
 function authorConditions(authors: AuthorFilter[]): SearchCondition[] {
   return authors.map((a) => leaf('author', 'is', a.role ? { name: a.name, role: a.role } : { name: a.name }))
+}
+
+function notableEntityConditions(entities: NotableEntityFilter[]): SearchCondition[] {
+  return entities.map((e) =>
+    leaf('notableEntity', e.exclude ? 'isNot' : 'is', {
+      // the any-kind panel omits kind to match across kinds; a nameless entry is the
+      // any/none match of its kind
+      ...(e.kind === NOTABLE_ENTITY_ANYKIND ? {} : { kind: e.kind }),
+      ...(e.name ? { name: e.name } : {}),
+    }),
+  )
 }
 
 /** boolean DSL leaves carry no value, just isTrue/isFalse */
@@ -90,6 +101,7 @@ export function buildSeriesSearch(state: FilterState, libraryId?: string, extra?
   push(conditions, combine(state.languages.map((v) => leaf('language', 'is', v)), mode('languages')))
   push(conditions, combine(yearConditions(state.releaseYears), mode('releaseYears')))
   push(conditions, combine(authorConditions(state.authors), mode('authors')))
+  push(conditions, combine(notableEntityConditions(state.notableEntities), mode('notableEntities')))
   push(conditions, libraryScopeCondition(state.libraries))
   push(
     conditions,
@@ -116,12 +128,19 @@ export function buildBookSearch(state: FilterState, libraryId?: string, extra?: 
   push(
     conditions,
     combine(
-      state.poster.map((v) => (v === 'missing' ? leaf('poster', 'isNot', { selected: true }) : leaf('poster', 'is', { selected: true }))),
+      state.poster.map((v) =>
+        v === 'missing'
+          ? leaf('poster', 'isNot', { selected: true })
+          : v === 'selected'
+            ? leaf('poster', 'is', { selected: true })
+            : leaf('poster', 'is', { type: v }),
+      ),
       mode('poster'),
     ),
   )
   push(conditions, combine(yearConditions(state.releaseYears), mode('releaseYears')))
   push(conditions, combine(authorConditions(state.authors), mode('authors')))
+  push(conditions, combine(notableEntityConditions(state.notableEntities), mode('notableEntities')))
   push(conditions, libraryScopeCondition(state.libraries))
   push(
     conditions,

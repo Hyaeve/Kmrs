@@ -1,5 +1,6 @@
 //! `SeriesDto.kt` / `SeriesMetadataDto` / `BookMetadataAggregationDto`.
 
+use super::book::NotableEntityDto;
 use super::common::{AlternateTitleDto, AuthorDto, WebLinkDto};
 use super::{dto_date, dto_datetime};
 use serde::{Deserialize, Serialize};
@@ -80,6 +81,7 @@ pub struct SeriesMetadataDto {
 #[serde(rename_all = "camelCase")]
 pub struct BookMetadataAggregationDto {
     pub authors: Vec<AuthorDto>,
+    pub notable_entities: Vec<NotableEntityDto>,
     pub tags: BTreeSet<String>,
     #[serde(with = "dto_date")]
     pub release_date: Option<Date>,
@@ -143,6 +145,7 @@ mod tests {
             },
             books_metadata: BookMetadataAggregationDto {
                 authors: vec![],
+                notable_entities: vec![],
                 tags: BTreeSet::new(),
                 release_date: None,
                 summary: String::new(),

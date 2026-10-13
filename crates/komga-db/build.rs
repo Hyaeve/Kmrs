@@ -1,5 +1,5 @@
-//! Registers the SQL files under migrations/ and migrations_tasks/ as a static
-//! migration list at build time.
+//! Registers the SQL files under migrations/, migrations_tasks/ and
+//! migrations_sessions/ as a static migration list at build time.
 //! Migration files are byte-for-byte copies of komga's Flyway migrations,
 //! reconciled by `cargo xtask sync-migrations`.
 
@@ -13,6 +13,7 @@ fn main() {
         ("migrations", "migrations_main.rs"),
         ("migrations_tasks", "migrations_tasks.rs"),
         ("migrations_kmrs", "migrations_kmrs.rs"),
+        ("migrations_sessions", "migrations_sessions.rs"),
     ] {
         let mut names: Vec<String> = fs::read_dir(dir)
             .unwrap_or_else(|e| panic!("cannot read {dir}: {e}"))

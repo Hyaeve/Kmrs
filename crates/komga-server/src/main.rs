@@ -71,6 +71,22 @@ async fn main() -> anyhow::Result<()> {
         Database::open(&config.database.aux_pools()).context("open task database pools")?;
     let tasks_db = Database::open(&config.tasks_db.aux_pools()).context("open tasks database")?;
     let kmrs_db = Database::open(&config.kmrs_db.aux_pools()).context("open kmrs database")?;
+    // Spring Session JDBC store: like the Java datasource and its Flyway
+    // initializer, only exists when komga.jdbc-session-enabled=true, and
+    // sessions are then persisted in sessions.sqlite (same row layout as Java).
+    let sessions_db = if config.jdbc_session_enabled {
+        let sessions_db =
+            Database::open(&config.sessions_db.aux_pools()).context("open sessions database")?;
+        Migrator::new(
+            &komga_db::sessions_migrations(),
+            config.migration_placeholders.clone(),
+        )
+        .migrate(&*sessions_db.rw()?)
+        .context("sessions db migration")?;
+        Some(sessions_db)
+    } else {
+        None
+    };
 
     {
         let migrations = komga_db::main_migrations();
@@ -108,7 +124,10 @@ async fn main() -> anyhow::Result<()> {
         Arc::new(komga_search::SearchIndex::open(&config.lucene_dir).context("open search index")?);
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let state = AppState {
-        sessions: auth::SessionStore::new(config.session_timeout),
+        sessions: match sessions_db {
+            Some(db) => auth::SessionStore::jdbc(db, config.session_timeout),
+            None => auth::SessionStore::new(config.session_timeout),
+        },
         settings: Arc::new(settings::SettingsProvider::load(db.clone())),
         tsid: Arc::new(komga_core::tsid::TsidFactory::new_random_node()),
         events: events::event_bus(),
@@ -128,10 +147,20 @@ async fn main() -> anyhow::Result<()> {
         config: Arc::new(config.clone()),
     };
 
-    service::processor::TaskProcessor::start(state.clone(), task_notify);
+    // the task processor outlives the HTTP server and is joined after the graceful
+    // shutdown signal, so claimed tasks finish instead of being dropped mid-run
+    let (processor_shutdown_tx, processor_shutdown_rx) = tokio::sync::watch::channel(false);
+    let processor = service::processor::TaskProcessor::start_with_shutdown(
+        state.clone(),
+        task_notify,
+        processor_shutdown_rx,
+    );
     service::scheduler::ScanScheduler::start(state.clone());
     service::maintenance::MaintenanceScheduler::start_auth_activity_cleanup(state.clone());
     service::maintenance::MaintenanceScheduler::start_history_cleanup(state.clone());
+    if config.jdbc_session_enabled {
+        service::maintenance::MaintenanceScheduler::start_session_cleanup(state.clone());
+    }
     // Thumbnail file storage: migrate existing blobs to files in the background. The
     // orphan sweep starts only after the migration — freshly written files are
     // referenced once their row is updated, and a concurrent sweep would delete them.
@@ -170,6 +199,16 @@ async fn main() -> anyhow::Result<()> {
     )
     .with_graceful_shutdown(shutdown_signal(shutdown_rx))
     .await?;
+
+    // stop the supervisor between drains, then give the claimed tasks a bounded grace
+    // period before aborting (a hung task must not prevent the process from exiting)
+    drop(processor_shutdown_tx);
+    if tokio::time::timeout(std::time::Duration::from_secs(30), processor)
+        .await
+        .is_err()
+    {
+        tracing::warn!("task processor did not finish within 30s, aborting");
+    }
     Ok(())
 }
 

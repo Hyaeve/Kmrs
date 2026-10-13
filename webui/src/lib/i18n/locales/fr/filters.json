@@ -21,7 +21,9 @@
     "author": "Auteur : {{name}}",
     "search": "Recherche : {{q}}",
     "value": "{{group}} : {{value}}",
-    "value_negated": "{{group}} : sauf {{value}}"
+    "value_negated": "{{group}} : sauf {{value}}",
+    "notableEntity": "{{kind}} : {{name}}",
+    "notableEntity_negated": "{{kind}} : sauf {{name}}"
   },
   "mode": {
     "any": "Au moins un",
@@ -55,7 +57,8 @@
     "poster": "Affiche",
     "libraries": "Bibliothèques",
     "readlists": "Listes de lecture",
-    "collections": "Collections"
+    "collections": "Collections",
+    "notableEntities": "Entités marquantes"
   },
   "option": {
     "readStatus": {
@@ -117,5 +120,12 @@
     "series": "Rechercher des séries…",
     "collections": "Rechercher des collections…",
     "readlists": "Rechercher des listes de lecture…"
+  },
+  "notableEntities": {
+    "searchPlaceholder": "Rechercher des entités",
+    "noMatch": "Aucune entité correspondante.",
+    "anyKind": "Toutes les entités",
+    "any": "Tous",
+    "none": "Aucun"
   }
 }

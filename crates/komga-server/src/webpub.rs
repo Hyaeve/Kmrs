@@ -786,6 +786,8 @@ mod tests {
                     },
                 ],
                 authors_lock: false,
+                notable_entities: vec![],
+                notable_entities_lock: false,
                 tags: ["seinen"]
                     .into_iter()
                     .map(String::from)

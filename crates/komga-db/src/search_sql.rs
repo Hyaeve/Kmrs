@@ -500,6 +500,24 @@ fn series_condition_internal(
             };
             SqlWhere::bind(format!("SERIES.ID {kw} ({sql})"), params)
         }
+        SearchConditionSeries::NotableEntity { notable_entity } => {
+            let (Equality::Is { value } | Equality::IsNot { value }) = notable_entity;
+            let mut sql = "SELECT SERIES_ID FROM BOOK_METADATA_AGGREGATION_NOTABLE_ENTITIES WHERE 1 = 1".to_string();
+            let mut params = vec![];
+            if let Some(name) = &value.name {
+                sql.push_str(&format!(" AND {} = ?", unicode1("BOOK_METADATA_AGGREGATION_NOTABLE_ENTITIES.NAME")));
+                params.push(Value::Text(name.clone()));
+            }
+            if let Some(kind) = &value.kind {
+                sql.push_str(&format!(" AND {} = ?", unicode1("BOOK_METADATA_AGGREGATION_NOTABLE_ENTITIES.KIND")));
+                params.push(Value::Text(kind.clone()));
+            }
+            let kw = match notable_entity {
+                Equality::Is { .. } => "IN",
+                Equality::IsNot { .. } => "NOT IN",
+            };
+            SqlWhere::bind(format!("SERIES.ID {kw} ({sql})"), params)
+        }
         SearchConditionSeries::OneShot { operator } => boolean_op("SERIES.ONESHOT", operator),
         SearchConditionSeries::AgeRating { operator } => {
             let mut w = numeric_nullable_i32("SERIES_METADATA.AGE_RATING", operator);
@@ -789,6 +807,31 @@ fn book_condition_internal(
                 params.push(Value::Text(role.clone()));
             }
             let kw = match author {
+                Equality::Is { .. } => "IN",
+                Equality::IsNot { .. } => "NOT IN",
+            };
+            SqlWhere::bind(format!("BOOK.ID {kw} ({sql})"), params)
+        }
+        SearchConditionBook::NotableEntity { notable_entity } => {
+            let (Equality::Is { value } | Equality::IsNot { value }) = notable_entity;
+            let mut sql =
+                "SELECT BOOK_ID FROM BOOK_METADATA_NOTABLE_ENTITIES WHERE 1 = 1".to_string();
+            let mut params = vec![];
+            if let Some(name) = &value.name {
+                sql.push_str(&format!(
+                    " AND {} = ?",
+                    unicode1("BOOK_METADATA_NOTABLE_ENTITIES.NAME")
+                ));
+                params.push(Value::Text(name.clone()));
+            }
+            if let Some(kind) = &value.kind {
+                sql.push_str(&format!(
+                    " AND {} = ?",
+                    unicode1("BOOK_METADATA_NOTABLE_ENTITIES.KIND")
+                ));
+                params.push(Value::Text(kind.clone()));
+            }
+            let kw = match notable_entity {
                 Equality::Is { .. } => "IN",
                 Equality::IsNot { .. } => "NOT IN",
             };
@@ -1132,6 +1175,41 @@ mod tests {
         assert_eq!(
             w.sql,
             "BOOK.ID IN (SELECT BOOK_ID FROM BOOK_METADATA_AUTHOR WHERE 1 = 1 AND BOOK_METADATA_AUTHOR.NAME COLLATE COLLATION_UNICODE_1 = ?)"
+        );
+    }
+
+    #[test]
+    fn notable_entity_conditions() {
+        let w = book_condition(
+            Some(&parse_book(
+                r#"{"notableEntity":{"operator":"is","value":{"kind":"character","name":"Guts"}}}"#,
+            )),
+            &ctx(None),
+        );
+        assert_eq!(
+            w.sql,
+            "BOOK.ID IN (SELECT BOOK_ID FROM BOOK_METADATA_NOTABLE_ENTITIES WHERE 1 = 1 \
+             AND BOOK_METADATA_NOTABLE_ENTITIES.NAME COLLATE COLLATION_UNICODE_1 = ? \
+             AND BOOK_METADATA_NOTABLE_ENTITIES.KIND COLLATE COLLATION_UNICODE_1 = ?)"
+        );
+        assert_eq!(
+            w.params,
+            vec![
+                Value::Text("Guts".to_string()),
+                Value::Text("character".to_string())
+            ]
+        );
+
+        let w = series_condition(
+            Some(&parse_series(
+                r#"{"notableEntity":{"operator":"isNot","value":{"kind":"team"}}}"#,
+            )),
+            &ctx(None),
+        );
+        assert_eq!(
+            w.sql,
+            "SERIES.ID NOT IN (SELECT SERIES_ID FROM BOOK_METADATA_AGGREGATION_NOTABLE_ENTITIES WHERE 1 = 1 \
+             AND BOOK_METADATA_AGGREGATION_NOTABLE_ENTITIES.KIND COLLATE COLLATION_UNICODE_1 = ?)"
         );
     }
 

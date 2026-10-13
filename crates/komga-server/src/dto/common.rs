@@ -1,4 +1,5 @@
-//! Common DTO types: the default Jackson serialization shape of Spring Data `PageImpl`.
+//! Common DTO types: the default Jackson serialization shape of Spring Data `PageImpl`
+//! (v1/v2), and komga 1.29's flat `PageResponse` (v3).
 
 use serde::Serialize;
 
@@ -141,6 +142,44 @@ impl<T: Serialize> Page<T> {
     }
 }
 
+/// komga 1.29 v3 `PageResponse` JSON (`application/query/PageResponse.kt`): a flat shape
+/// without the `PageImpl` pageable/sort baggage.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PageResponse<T: Serialize> {
+    pub content: Vec<T>,
+    pub page: u32,
+    pub size: u32,
+    pub total_elements: u64,
+    pub total_pages: u32,
+    pub first: bool,
+    pub last: bool,
+}
+
+impl<T: Serialize> PageResponse<T> {
+    /// `PageResult.toPageResponse`: unpaged reports page=0, size=fetched count, and a single
+    /// page (0 when empty) — the total is the fetched size since unpaged queries skip COUNT.
+    pub fn of_dto(dto: komga_db::dto_dao::DtoPage<T>, pageable: &Pageable) -> Self {
+        let fetched = dto.items.len();
+        let total = dto.total.max(0) as u64;
+        let (page, size, total_pages) = if pageable.unpaged {
+            (0, fetched as u32, if total == 0 { 0 } else { 1 })
+        } else {
+            let size = pageable.size.max(1);
+            (pageable.page, size, total.div_ceil(size as u64) as u32)
+        };
+        Self {
+            content: dto.items,
+            page,
+            size,
+            total_elements: total,
+            total_pages,
+            first: page == 0,
+            last: page >= total_pages.saturating_sub(1) || total_pages == 0,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -225,5 +264,59 @@ mod tests {
         let json = serde_json::to_value(&page).unwrap();
         assert_eq!(json["pageable"]["pageSize"], 30);
         assert_eq!(json["size"], 30);
+    }
+
+    #[test]
+    fn page_response_shape() {
+        let dto = |items: Vec<i32>, total| komga_db::dto_dao::DtoPage {
+            items,
+            total,
+            sorted: false,
+        };
+
+        // unpaged: page=0, size=fetched count, single page
+        let json = serde_json::to_value(PageResponse::of_dto(
+            dto(vec![1, 2], 2),
+            &Pageable {
+                unpaged: true,
+                ..Default::default()
+            },
+        ))
+        .unwrap();
+        assert_eq!(json["page"], 0);
+        assert_eq!(json["size"], 2);
+        assert_eq!(json["totalPages"], 1);
+        assert_eq!(json["first"], true);
+        assert_eq!(json["last"], true);
+        assert!(json.get("pageable").is_none());
+
+        // unpaged empty: totalPages=0, last=true
+        let json = serde_json::to_value(PageResponse::of_dto(
+            dto(vec![], 0),
+            &Pageable {
+                unpaged: true,
+                ..Default::default()
+            },
+        ))
+        .unwrap();
+        assert_eq!(json["size"], 0);
+        assert_eq!(json["totalPages"], 0);
+        assert_eq!(json["last"], true);
+
+        // paged middle page: neither first nor last
+        let json = serde_json::to_value(PageResponse::of_dto(
+            dto(vec![4, 5, 6], 8),
+            &Pageable {
+                page: 1,
+                size: 3,
+                sort: vec![],
+                unpaged: false,
+            },
+        ))
+        .unwrap();
+        assert_eq!(json["page"], 1);
+        assert_eq!(json["totalPages"], 3);
+        assert_eq!(json["first"], false);
+        assert_eq!(json["last"], false);
     }
 }

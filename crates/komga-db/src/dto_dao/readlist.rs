@@ -58,7 +58,9 @@ impl ReadListDtoDao {
 
         let conn = self.db.ro()?;
 
-        let total: i64 = if needs_query_ids {
+        let total: Option<i64> = if page.unpaged {
+            None
+        } else if needs_query_ids {
             let w = make_conditions();
             let sql = format!(
                 "SELECT COUNT(*) FROM (SELECT DISTINCT READLIST.ID FROM READLIST \
@@ -67,11 +69,11 @@ impl ReadListDtoDao {
                 sd_join(restrictions.is_restricted()),
                 where_sql(&w)
             );
-            conn.query_row(&sql, rusqlite::params_from_iter(w.params), |r| r.get(0))?
+            Some(conn.query_row(&sql, rusqlite::params_from_iter(w.params), |r| r.get(0))?)
         } else {
             let w = make_conditions();
             let sql = format!("SELECT COUNT(*) FROM READLIST{}", where_sql(&w));
-            conn.query_row(&sql, rusqlite::params_from_iter(w.params), |r| r.get(0))?
+            Some(conn.query_row(&sql, rusqlite::params_from_iter(w.params), |r| r.get(0))?)
         };
 
         let (order_sql, order_params) = order_by(&page.sort, &ids);
@@ -116,6 +118,7 @@ impl ReadListDtoDao {
         drop(conn);
 
         let readlists = self.fetch_and_map(rows, authorized_library_ids, restrictions)?;
+        let total = total.unwrap_or(readlists.len() as i64);
         Ok(DtoPage {
             items: readlists.iter().map(ReadListDto::from).collect(),
             total,

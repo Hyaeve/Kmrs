@@ -5,8 +5,8 @@ use super::{get_date, get_datetime, get_datetime_opt};
 use crate::error::Result;
 use crate::pool::Database;
 use komga_core::model::series::{
-    AlternateTitle, Author, BookMetadataAggregation, ReadingDirection, Series, SeriesMetadata,
-    SeriesStatus, WebLink,
+    AlternateTitle, Author, BookMetadataAggregation, NotableEntity, ReadingDirection, Series,
+    SeriesMetadata, SeriesStatus, WebLink,
 };
 use komga_core::time_codec;
 use komga_core::tsid::TsidFactory;
@@ -569,6 +569,7 @@ impl BookMetadataAggregationDao {
                     created_date: get_datetime(row, 4)?,
                     last_modified_date: get_datetime(row, 5)?,
                     authors: Vec::new(),
+                    notable_entities: Vec::new(),
                     tags: BTreeSet::new(),
                 })
             })?
@@ -585,6 +586,14 @@ impl BookMetadataAggregationDao {
         )?
         .into_iter()
         .map(|(name, role)| Author { name, role })
+        .collect();
+        aggregation.notable_entities = query_pairs(
+            &conn,
+            "SELECT KIND, NAME FROM BOOK_METADATA_AGGREGATION_NOTABLE_ENTITIES WHERE SERIES_ID = ?",
+            series_id,
+        )?
+        .into_iter()
+        .map(|(kind, name)| NotableEntity::new(&kind, &name))
         .collect();
         aggregation.tags = query_string_set(
             &conn,
@@ -648,10 +657,20 @@ impl BookMetadataAggregationDao {
             "DELETE FROM BOOK_METADATA_AGGREGATION_TAG WHERE SERIES_ID = ?",
             [series_id],
         )?;
+        conn.execute(
+            "DELETE FROM BOOK_METADATA_AGGREGATION_NOTABLE_ENTITIES WHERE SERIES_ID = ?",
+            [series_id],
+        )?;
         for author in &metadata.authors {
             conn.execute(
         "INSERT INTO BOOK_METADATA_AGGREGATION_AUTHOR (SERIES_ID, NAME, ROLE) VALUES (?, ?, ?)",
         params![series_id, author.name, author.role],
+      )?;
+        }
+        for entity in &metadata.notable_entities {
+            conn.execute(
+        "INSERT INTO BOOK_METADATA_AGGREGATION_NOTABLE_ENTITIES (SERIES_ID, KIND, NAME) VALUES (?, ?, ?)",
+        params![series_id, entity.kind, entity.name],
       )?;
         }
         for tag in &metadata.tags {
@@ -806,6 +825,10 @@ mod tests {
         BookMetadataAggregation {
             series_id: series_id.into(),
             authors: vec![Author::new("Kentaro Miura", "writer")],
+            notable_entities: vec![
+                NotableEntity::new("character", "Guts"),
+                NotableEntity::new("location", "Midland"),
+            ],
             tags: ["seinen"].into_iter().map(String::from).collect(),
             release_date: Date::from_calendar_date(1990, time::Month::January, 1).ok(),
             summary: "Guts".into(),
@@ -1018,6 +1041,13 @@ mod tests {
         assert_eq!(found.authors.len(), 1);
         assert_eq!(found.authors[0].name, "Kentaro Miura");
         assert_eq!(found.authors[0].role, "writer");
+        assert_eq!(
+            found.notable_entities,
+            vec![
+                NotableEntity::new("character", "Guts"),
+                NotableEntity::new("location", "Midland"),
+            ]
+        );
         assert_eq!(found.summary_number, "1");
         assert_eq!(
             found.release_date,
@@ -1036,6 +1066,7 @@ mod tests {
             Author::new("Kentaro Miura", "writer"),
             Author::new("Studio Gaga", "penciller"),
         ];
+        updated.notable_entities = vec![NotableEntity::new("team", "Band of the Hawk")];
         updated.tags = BTreeSet::new();
         updated.release_date = None;
         updated.summary = "new summary".into();
@@ -1044,6 +1075,10 @@ mod tests {
         let found = dao.find_by_id(&series_id).unwrap().unwrap();
         assert_eq!(found.authors.len(), 2);
         assert_eq!(found.authors[1].role, "penciller");
+        assert_eq!(
+            found.notable_entities,
+            vec![NotableEntity::new("team", "Band of the Hawk")]
+        );
         assert!(found.tags.is_empty());
         assert_eq!(found.release_date, None);
         assert_eq!(found.summary, "new summary");

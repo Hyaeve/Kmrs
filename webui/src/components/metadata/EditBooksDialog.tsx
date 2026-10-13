@@ -14,15 +14,17 @@ import { TextField } from '@/components/ui/TextField'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { LabelListEditor } from '@/components/admin/users/LabelListEditor'
 import { BatchField, FormErrorBanner, LockToggle, PairListEditor, TextAreaField, TextInput, type Pair, type PairErrors } from './fields'
+import { NotableEntitiesEditor } from './NotableEntitiesEditor'
 import { isValidIsbn13, isValidUrl, mapViolations } from './validation'
 
 const GENERAL_FIELDS = ['title', 'summary', 'number', 'numberSort', 'releaseDate', 'isbn']
 
-type Tab = 'general' | 'authors' | 'tags' | 'links'
+type Tab = 'general' | 'authors' | 'entities' | 'tags' | 'links'
 
 const TAB_OF_FIELD: Record<string, Tab> = {
   ...Object.fromEntries(GENERAL_FIELDS.map((f) => [f, 'general' as Tab])),
   authors: 'authors',
+  notableEntities: 'entities',
   tags: 'tags',
   links: 'links',
 }
@@ -93,6 +95,7 @@ function SingleBookForm({ book, onClose }: { book: BookDto; onClose: () => void 
   const [releaseDate, setReleaseDate] = useState(md.releaseDate ?? '')
   const [isbn, setIsbn] = useState(md.isbn)
   const [authors, setAuthors] = useState<Pair[]>(md.authors.map((a) => ({ a: a.name, b: a.role })))
+  const [notableEntities, setNotableEntities] = useState<Pair[]>(md.notableEntities.map((e) => ({ a: e.kind, b: e.name })))
   const [tags, setTags] = useState<string[]>(md.tags)
   const [links, setLinks] = useState<Pair[]>(md.links.map((l) => ({ a: l.label, b: l.url })))
   const [locks, setLocks] = useState({
@@ -103,6 +106,7 @@ function SingleBookForm({ book, onClose }: { book: BookDto; onClose: () => void 
     releaseDate: md.releaseDateLock,
     isbn: md.isbnLock,
     authors: md.authorsLock,
+    notableEntities: md.notableEntitiesLock,
     tags: md.tagsLock,
     links: md.linksLock,
   })
@@ -111,7 +115,7 @@ function SingleBookForm({ book, onClose }: { book: BookDto; onClose: () => void 
   // editing a field locks it, mirroring komga: manual edits are protected from metadata refresh
   const autoLock = (key: LockKey) => setLocks((p) => (p[key] ? p : { ...p, [key]: true }))
   const [errors, setErrors] = useState<Record<string, string>>({})
-  const [pairErrors, setPairErrors] = useState<{ authors: PairErrors; links: PairErrors }>({ authors: {}, links: {} })
+  const [pairErrors, setPairErrors] = useState<{ authors: PairErrors; notableEntities: PairErrors; links: PairErrors }>({ authors: {}, notableEntities: {}, links: {} })
   const [formErrors, setFormErrors] = useState<string[]>([])
 
   const save = useMutation({
@@ -134,6 +138,7 @@ function SingleBookForm({ book, onClose }: { book: BookDto; onClose: () => void 
       setErrors(scalars)
       setPairErrors((p) => ({
         authors: { ...p.authors, ...mapped.pairs.authors },
+        notableEntities: { ...p.notableEntities, ...mapped.pairs.notableEntities },
         links: { ...p.links, ...mapped.pairs.links },
       }))
       setFormErrors(rest.length > 0 ? rest : [err instanceof Error ? err.message : t('saveFailed')])
@@ -158,11 +163,12 @@ function SingleBookForm({ book, onClose }: { book: BookDto; onClose: () => void 
     if (!numberSort.trim() || Number.isNaN(Number(numberSort))) e.numberSort = t('validation.number')
     if (isbn.trim() && !isValidIsbn13(isbn)) e.isbn = t('validation.isbn')
     const ae = validatePairs(authors, authorCheck, t('validation.notBlank'))
+    const ne = validatePairs(notableEntities, authorCheck, t('validation.notBlank'))
     const le = validatePairs(links, urlCheck, t('validation.notBlank'))
     setErrors(e)
-    setPairErrors({ authors: ae, links: le })
+    setPairErrors({ authors: ae, notableEntities: ne, links: le })
     setFormErrors([])
-    const failed = [...Object.keys(e), ...(Object.keys(ae).length > 0 ? ['authors'] : []), ...(Object.keys(le).length > 0 ? ['links'] : [])]
+    const failed = [...Object.keys(e), ...(Object.keys(ae).length > 0 ? ['authors'] : []), ...(Object.keys(ne).length > 0 ? ['notableEntities'] : []), ...(Object.keys(le).length > 0 ? ['links'] : [])]
     if (failed.length > 0) {
       jumpToError(failed)
       return
@@ -182,6 +188,8 @@ function SingleBookForm({ book, onClose }: { book: BookDto; onClose: () => void 
       isbnLock: locks.isbn,
       authors: authors.map((p) => ({ name: p.a.trim(), role: p.b.trim() })),
       authorsLock: locks.authors,
+      notableEntities: notableEntities.map((p) => ({ kind: p.a.trim(), name: p.b.trim() })),
+      notableEntitiesLock: locks.notableEntities,
       tags,
       tagsLock: locks.tags,
       links: links.map((p) => ({ label: p.a.trim(), url: p.b.trim() })),
@@ -204,6 +212,7 @@ function SingleBookForm({ book, onClose }: { book: BookDto; onClose: () => void 
           options={[
             { value: 'general', label: t('tabs.general') },
             { value: 'authors', label: t('tabs.authors') },
+            { value: 'entities', label: t('tabs.entities') },
             { value: 'tags', label: t('tabs.tags') },
             { value: 'links', label: t('tabs.links') },
           ]}
@@ -283,6 +292,16 @@ function SingleBookForm({ book, onClose }: { book: BookDto; onClose: () => void 
           />
         )}
 
+        {tab === 'entities' && (
+          <NotableEntitiesEditor
+            label={t('field.notableEntities')}
+            pairs={notableEntities}
+            onChange={(p) => { setNotableEntities(p); autoLock('notableEntities') }}
+            errors={pairErrors.notableEntities}
+            trailing={<LockToggle locked={locks.notableEntities} onChange={() => toggleLock('notableEntities')} label={t('field.notableEntities')} />}
+          />
+        )}
+
         {tab === 'tags' && (
           <LabelListEditor
             label={t('field.tags')}
@@ -321,7 +340,7 @@ function SingleBookForm({ book, onClose }: { book: BookDto; onClose: () => void 
   )
 }
 
-type BatchKey = 'summary' | 'releaseDate' | 'isbn' | 'authors' | 'tags' | 'links'
+type BatchKey = 'summary' | 'releaseDate' | 'isbn' | 'authors' | 'notableEntities' | 'tags' | 'links'
 type PerBookKey = 'title' | 'number' | 'numberSort' | 'releaseDate' | 'isbn'
 
 interface BookRow {
@@ -405,10 +424,11 @@ function BatchBooksForm({ ids, onClose }: { ids: string[]; onClose: () => void }
   const [releaseDate, setReleaseDate] = useState('')
   const [isbn, setIsbn] = useState('')
   const [authors, setAuthors] = useState<Pair[]>([])
+  const [notableEntities, setNotableEntities] = useState<Pair[]>([])
   const [tags, setTags] = useState<string[]>([])
   const [links, setLinks] = useState<Pair[]>([])
   const [errors, setErrors] = useState<Record<string, string>>({})
-  const [pairErrors, setPairErrors] = useState<{ authors: PairErrors; links: PairErrors }>({ authors: {}, links: {} })
+  const [pairErrors, setPairErrors] = useState<{ authors: PairErrors; notableEntities: PairErrors; links: PairErrors }>({ authors: {}, notableEntities: {}, links: {} })
   const [formErrors, setFormErrors] = useState<string[]>([])
   const [rowErrors, setRowErrors] = useState<Record<string, Partial<Record<PerBookKey, string>>>>({})
   const [edits, setEdits] = useState<Record<string, BookRow> | null>(null)
@@ -543,6 +563,7 @@ function BatchBooksForm({ ids, onClose }: { ids: string[]; onClose: () => void }
     const e: Record<string, string> = {}
     if (enabled.isbn && isbn.trim() && !isValidIsbn13(isbn)) e.isbn = t('validation.isbn')
     const ae = enabled.authors ? validatePairs(authors, authorCheck, t('validation.notBlank')) : {}
+    const ne = enabled.notableEntities ? validatePairs(notableEntities, authorCheck, t('validation.notBlank')) : {}
     const le = enabled.links ? validatePairs(links, urlCheck, t('validation.notBlank')) : {}
     const re: Record<string, Partial<Record<PerBookKey, string>>> = {}
     if (rows) {
@@ -556,10 +577,10 @@ function BatchBooksForm({ ids, onClose }: { ids: string[]; onClose: () => void }
       }
     }
     setErrors(e)
-    setPairErrors({ authors: ae, links: le })
+    setPairErrors({ authors: ae, notableEntities: ne, links: le })
     setRowErrors(re)
     setFormErrors([])
-    if (Object.keys(e).length > 0 || Object.keys(ae).length > 0 || Object.keys(le).length > 0 || Object.keys(re).length > 0) {
+    if (Object.keys(e).length > 0 || Object.keys(ae).length > 0 || Object.keys(ne).length > 0 || Object.keys(le).length > 0 || Object.keys(re).length > 0) {
       setTab(Object.keys(re).length > 0 ? 'perBook' : 'shared')
       return
     }
@@ -580,6 +601,10 @@ function BatchBooksForm({ ids, onClose }: { ids: string[]; onClose: () => void }
     if (enabled.authors) {
       shared.authors = authors.map((p) => ({ name: p.a.trim(), role: p.b.trim() }))
       shared.authorsLock = sharedLocks.authors ?? true
+    }
+    if (enabled.notableEntities) {
+      shared.notableEntities = notableEntities.map((p) => ({ kind: p.a.trim(), name: p.b.trim() }))
+      shared.notableEntitiesLock = sharedLocks.notableEntities ?? true
     }
     if (enabled.tags) {
       shared.tags = tags
@@ -657,6 +682,19 @@ function BatchBooksForm({ ids, onClose }: { ids: string[]; onClose: () => void }
                 bPlaceholder={t('placeholder.authorRole')}
                 addLabel={t('add.author')}
                 errors={pairErrors.authors}
+              />
+            </BatchField>
+
+            <BatchField label={t('field.notableEntities')} enabled={!!enabled.notableEntities} onEnabledChange={toggle('notableEntities')} hint={t('editBooks.hint.entitiesReplace')} locked={sharedLocks.notableEntities ?? true} onLockedChange={toggleSharedLock('notableEntities')}>
+              <PairListEditor
+                pairs={notableEntities}
+                onChange={setNotableEntities}
+                aLabel={t('field.kind')}
+                bLabel={t('field.name')}
+                aPlaceholder={t('placeholder.entityKind')}
+                bPlaceholder={t('placeholder.entityName')}
+                addLabel={t('add.entity')}
+                errors={pairErrors.notableEntities}
               />
             </BatchField>
 

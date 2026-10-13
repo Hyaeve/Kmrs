@@ -23,7 +23,9 @@
     "totalBookCount": "Total book count",
     "alternateTitles": "Alternate titles",
     "sharingLabels": "Sharing labels",
-    "notSet": "Not set"
+    "notSet": "Not set",
+    "notableEntities": "Notable entities",
+    "kind": "Kind"
   },
   "tabs": {
     "general": "General",
@@ -33,7 +35,8 @@
     "links": "Links",
     "sharing": "Sharing",
     "sharedFields": "Shared fields",
-    "perBook": "Per book"
+    "perBook": "Per book",
+    "entities": "Entities"
   },
   "action": {
     "saveChanges": "Save changes"
@@ -64,12 +67,23 @@
     "linkLabel": "Wiki",
     "addTag": "Add tag…",
     "addGenre": "Add genre…",
-    "addLabel": "Add label…"
+    "addLabel": "Add label…",
+    "entityKind": "character",
+    "entityName": "Guts"
   },
   "add": {
     "author": "Add author",
     "link": "Add link",
-    "title": "Add title"
+    "title": "Add title",
+    "entity": "Add entity",
+    "kind": "Add kind"
+  },
+  "entities": {
+    "empty": "No notable entities yet.",
+    "customKind": "Custom kind…",
+    "customKindLabel": "Kind name",
+    "noMatch": "No results matching “{{search}}”. Press Enter or click to create it.",
+    "removeName": "Remove {{name}}"
   },
   "editBooks": {
     "dialogTitle_single": "Edit book metadata",
@@ -91,7 +105,8 @@
       "isbnEmpty": "ISBN-13, empty to clear.",
       "authorsReplace": "Replaces all authors; an empty list clears them.",
       "tagsReplace": "Replaces all tags; an empty list clears them.",
-      "linksReplace": "Replaces all links; an empty list clears them."
+      "linksReplace": "Replaces all links; an empty list clears them.",
+      "entitiesReplace": "Replaces all notable entities; an empty list clears them."
     }
   },
   "editSeries": {

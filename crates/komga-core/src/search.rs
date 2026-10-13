@@ -43,6 +43,14 @@ pub struct AuthorMatch {
     pub role: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotableEntityMatch {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PosterType {
     #[serde(rename = "GENERATED")]
@@ -344,6 +352,10 @@ pub enum SearchConditionBook {
     Author {
         author: Equality<AuthorMatch>,
     },
+    NotableEntity {
+        #[serde(rename = "notableEntity")]
+        notable_entity: Equality<NotableEntityMatch>,
+    },
     Poster {
         poster: Equality<PosterMatch>,
     },
@@ -419,6 +431,10 @@ pub enum SearchConditionSeries {
     },
     Author {
         author: Equality<AuthorMatch>,
+    },
+    NotableEntity {
+        #[serde(rename = "notableEntity")]
+        notable_entity: Equality<NotableEntityMatch>,
     },
 }
 

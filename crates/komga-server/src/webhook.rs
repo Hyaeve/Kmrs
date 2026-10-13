@@ -979,6 +979,7 @@ mod tests {
                 number_sort: 0.0,
                 release_date: None,
                 authors: vec![],
+                notable_entities: vec![],
                 tags: vec![],
                 isbn: String::new(),
                 links: vec![],
@@ -988,6 +989,7 @@ mod tests {
                 number_sort_lock: false,
                 release_date_lock: false,
                 authors_lock: false,
+                notable_entities_lock: false,
                 tags_lock: false,
                 isbn_lock: false,
                 links_lock: false,
@@ -1034,6 +1036,7 @@ mod tests {
             .insert(&komga_core::model::series::BookMetadataAggregation {
                 series_id: "s1".into(),
                 authors: vec![],
+                notable_entities: vec![],
                 tags: Default::default(),
                 release_date: None,
                 summary: String::new(),

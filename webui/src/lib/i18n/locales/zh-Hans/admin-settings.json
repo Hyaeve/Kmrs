@@ -19,7 +19,10 @@
     "hidePasswordHelper": "至少配置一个 OAuth2 提供方后才会生效。未配置时密码表单会始终显示，以免有人无法登录。",
     "hidePasswordHelperWithCount_other": "至少配置一个 OAuth2 提供方后才会生效（已配置 {{count}} 个）。未配置时密码表单会始终显示，以免有人无法登录。",
     "noProviderWarning": "尚未配置 OAuth2 提供方，登录页面仍会显示密码表单。",
-    "saveFailed": "无法保存设置。"
+    "saveFailed": "无法保存设置。",
+    "oauthAuto": "跳过登录页，直接使用提供商登录",
+    "oauthAutoHelper": "当密码表单隐藏且只配置了一个 OAuth2 提供商时，自动跳转到提供商。登出后会先回到登录页一次。",
+    "oauthAutoNoSingleProvider": "自动登录仅在只配置了一个 OAuth2 提供商时生效。"
   },
   "stats": {
     "version": "版本",

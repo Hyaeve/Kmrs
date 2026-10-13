@@ -70,5 +70,10 @@
     "matchCompleted": "сопоставление завершено",
     "postProcessing": "Постобработка…",
     "seriesFallback": "Совпадение серии"
+  },
+  "notableEntityKind": {
+    "character": "Персонаж",
+    "team": "Команда",
+    "location": "Локация"
   }
 }
