@@ -5,8 +5,48 @@
 //! supplies the UTF-8 bytes where present).
 
 use crate::error::{MediaError, Result};
+use crate::lru::{file_key, key_error, FileKey, Lru};
 use std::io::Read;
 use std::path::Path;
+use std::sync::{Mutex, OnceLock};
+
+/// Open archives kept process-wide (the `zip` crate is pure Rust and `Send`, so one
+/// global cache beats per-thread multiplication of file descriptors). The per-archive
+/// footprint is just the parsed central directory; the mutex is held for the duration of
+/// an entry read, so reads serialize process-wide, across books too — a small trade for
+/// not keeping several descriptors of the same archive around.
+const ARCHIVE_CACHE_CAP: usize = 16;
+
+static ARCHIVES: OnceLock<Mutex<Lru<FileKey, zip::ZipArchive<std::fs::File>>>> = OnceLock::new();
+
+fn archives() -> &'static Mutex<Lru<FileKey, zip::ZipArchive<std::fs::File>>> {
+    ARCHIVES.get_or_init(|| Mutex::new(Lru::new(ARCHIVE_CACHE_CAP)))
+}
+
+fn open_archive(path: &Path) -> Result<zip::ZipArchive<std::fs::File>> {
+    let file = std::fs::File::open(path).map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound => MediaError::NoSuchFile(path.display().to_string()),
+        _ => MediaError::Other(e.into()),
+    })?;
+    zip::ZipArchive::new(file)
+        .map_err(|e| MediaError::unsupported(format!("could not open zip archive: {e}")))
+}
+
+/// Runs `f` against the cached archive for `path`, opening (and possibly evicting) as
+/// needed. A poisoned lock is recovered, not surfaced: one panicking book must not take
+/// page serving down for every other book.
+fn with_archive<R>(
+    path: &Path,
+    f: impl FnOnce(&mut zip::ZipArchive<std::fs::File>) -> Result<R>,
+) -> Result<R> {
+    let key = file_key(path).map_err(|e| key_error(path, e))?;
+    let mut archives = archives().lock().unwrap_or_else(|e| e.into_inner());
+    if archives.get(&key).is_none() {
+        archives.insert(key.clone(), open_archive(path)?);
+    }
+    let archive = archives.get_mut(&key).expect("just ensured");
+    f(archive)
+}
 
 /// The commons-compress (`NioZipEncoding`) entry-name decoding: UTF-8, with a literal `?`
 /// replacing each malformed unit (a whole surrogate sequence counts as one). Page names are
@@ -130,13 +170,9 @@ pub struct ZipEntries {
 
 impl ZipEntries {
     pub fn open(path: &Path) -> Result<Self> {
-        let file = std::fs::File::open(path).map_err(|e| match e.kind() {
-            std::io::ErrorKind::NotFound => MediaError::NoSuchFile(path.display().to_string()),
-            _ => MediaError::Other(e.into()),
-        })?;
-        let archive = zip::ZipArchive::new(file)
-            .map_err(|e| MediaError::unsupported(format!("could not open zip archive: {e}")))?;
-        Ok(Self { archive })
+        Ok(Self {
+            archive: open_archive(path)?,
+        })
     }
 
     /// Reads one entry on the held archive; repeated calls reuse the same handle.
@@ -145,17 +181,21 @@ impl ZipEntries {
     }
 }
 
-/// Returns the bytes of `entry_name` inside the zip at `path`.
+/// Returns the bytes of `entry_name` inside the zip at `path`, on the cached archive.
 pub fn get_entry_bytes(path: &Path, entry_name: &str) -> Result<Vec<u8>> {
-    ZipEntries::open(path)?.read(entry_name)
+    with_archive(path, |archive| read_entry(archive, entry_name))
 }
 
 /// Reads several entries with a single archive open, in the order given. Network mounts
 /// charge per open, so hashing the first and last pages must not reopen the archive for
 /// every page.
 pub fn get_entries_bytes(path: &Path, entry_names: &[&str]) -> Result<Vec<Vec<u8>>> {
-    let mut entries = ZipEntries::open(path)?;
-    entry_names.iter().map(|name| entries.read(name)).collect()
+    with_archive(path, |archive| {
+        entry_names
+            .iter()
+            .map(|name| read_entry(archive, name))
+            .collect()
+    })
 }
 
 /// `ZipArchive::by_name` matches the raw central-directory bytes, which the stored name
@@ -311,6 +351,35 @@ mod tests {
             get_entries_bytes(&path, &["nope.png"]),
             Err(MediaError::EntryNotFound(_))
         ));
+    }
+
+    /// Concurrent readers of the same archive get identical bytes; the global cache
+    /// serializes them on the archive mutex, so this pins output, not speed.
+    #[test]
+    fn concurrent_reads_same_archive() {
+        let path = archives().join("zip.zip");
+        let expected = get_entry_bytes(&path, "komga.png").unwrap();
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                let path = path.clone();
+                std::thread::spawn(move || get_entry_bytes(&path, "komga.png").unwrap())
+            })
+            .collect();
+        for h in handles {
+            assert_eq!(h.join().unwrap(), expected);
+        }
+    }
+
+    /// The cache's correctness contract: a replaced file (different size or mtime) is a
+    /// different key, so it must be reopened — never served from the stale handle.
+    #[test]
+    fn replaced_file_is_served_fresh() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("book.cbz");
+        write_zip_raw(&path, &[(b"a.png", b"first")]);
+        assert_eq!(get_entry_bytes(&path, "a.png").unwrap(), b"first");
+        write_zip_raw(&path, &[(b"a.png", b"second, longer")]);
+        assert_eq!(get_entry_bytes(&path, "a.png").unwrap(), b"second, longer");
     }
 
     /// Expected values produced by commons-compress 1.28.0 (`NioZipEncoding`: UTF-8 with

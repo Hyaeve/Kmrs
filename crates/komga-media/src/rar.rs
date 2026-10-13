@@ -6,34 +6,108 @@
 //! so the analyzer files them under ERR_1008 like junrar's exceptions.
 
 use crate::error::{MediaError, Result};
+#[cfg(unix)]
+use crate::lru::Lru;
+use crate::lru::{file_key, key_error, FileKey};
+#[cfg(unix)]
+use std::cell::RefCell;
 use std::path::Path;
 
-/// Returns the bytes of `entry_name` inside the RAR archive at `path`.
+/// Open archives kept per thread, each resting at its current cursor position. RAR has
+/// no random access, but a cached cursor still serves the dominant pattern — forward
+/// page flipping — without a reopen: skips are seeks on non-solid archives, and on solid
+/// archives the dictionary stays warm so each page is decompressed once instead of
+/// O(position) per request.
+///
+/// Unix only: unrar opens archives without `FILE_SHARE_DELETE`, so on Windows a cached
+/// handle would block deleting or renaming the book until eviction; Unix fds never block
+/// unlink/rename. The cap stays low because a solid handle also carries dictionary
+/// buffers. The `unrar` handle is native state and never crosses threads.
+#[cfg(unix)]
+const HANDLE_CACHE_CAP: usize = 2;
+
+type Rested = unrar::OpenArchive<unrar::Process, unrar::CursorBeforeHeader>;
+
+#[cfg(unix)]
+thread_local! {
+    static HANDLES: RefCell<Lru<FileKey, Rested>> = RefCell::new(Lru::new(HANDLE_CACHE_CAP));
+}
+
+/// Returns the cached resting handle for `key`, if any. Never on Windows: holding the
+/// unrar handle there blocks deleting the book (unrar opens without delete sharing).
+#[cfg(unix)]
+fn take_cached(key: &FileKey) -> Option<Rested> {
+    HANDLES.with(|handles| handles.borrow_mut().remove(key))
+}
+
+#[cfg(not(unix))]
+fn take_cached(
+    _key: &FileKey,
+) -> Option<unrar::OpenArchive<unrar::Process, unrar::CursorBeforeHeader>> {
+    None
+}
+
+/// Returns the handle to the cache, or drops it. Errors already dropped it above.
+#[cfg(unix)]
+fn cache_rest(key: FileKey, rested: Rested) {
+    HANDLES.with(|handles| handles.borrow_mut().insert(key, rested));
+}
+
+#[cfg(not(unix))]
+fn cache_rest(
+    _key: FileKey,
+    _rested: unrar::OpenArchive<unrar::Process, unrar::CursorBeforeHeader>,
+) {
+}
+
+/// Returns the bytes of `entry_name` inside the RAR archive at `path`. With duplicate
+/// entry names (malformed archives) a warmed cursor yields the first occurrence at or
+/// after its position, not necessarily the archive's first.
 pub fn get_entry_bytes(path: &Path, entry_name: &str) -> Result<Vec<u8>> {
-    check_multipart(path)?;
-    let mut archive = open(path)?;
+    let key = file_key(path).map_err(|e| key_error(path, e))?;
+    let outcome = match take_cached(&key) {
+        Some(archive) => match scan_forward(archive, entry_name) {
+            // the cursor already passed the entry: rescan from zero, exactly like a
+            // fresh open, so EntryNotFound keeps meaning "absent after one full pass"
+            Ok(None) => scan_forward(open_checked(path)?, entry_name),
+            other => other,
+        },
+        None => scan_forward(open_checked(path)?, entry_name),
+    };
+    match outcome {
+        Ok(Some((bytes, rested))) => {
+            cache_rest(key, rested);
+            Ok(bytes)
+        }
+        Ok(None) => Err(MediaError::EntryNotFound(entry_name.to_string())),
+        // a read error consumes the cursor; the handle is dropped, not returned
+        Err(e) => Err(e),
+    }
+}
+
+/// Advances the archive until `entry_name` is found and read, returning the bytes and
+/// the rested handle for reuse. `Ok(None)` marks end-of-archive without a hit.
+fn scan_forward(mut archive: Rested, entry_name: &str) -> Result<Option<(Vec<u8>, Rested)>> {
     loop {
         let header = match archive.read_header() {
             Ok(Some(h)) => h,
-            Ok(None) => break,
+            Ok(None) => return Ok(None),
             Err(e) => return Err(map_unrar_error(e)),
         };
-        let e = header.entry();
-        if e.is_directory() {
-            archive = header
+        let entry = header.entry();
+        archive = if entry.is_directory() {
+            header
                 .skip()
-                .map_err(|e| MediaError::Other(anyhow::anyhow!(e)))?;
-            continue;
-        }
-        if e.filename.to_string_lossy() == entry_name {
-            let (bytes, _) = header.read().map_err(map_unrar_error)?;
-            return Ok(bytes);
-        }
-        archive = header
-            .skip()
-            .map_err(|e| MediaError::Other(anyhow::anyhow!(e)))?;
+                .map_err(|e| MediaError::Other(anyhow::anyhow!(e)))?
+        } else if entry.filename.to_string_lossy() == entry_name {
+            let (bytes, rested) = header.read().map_err(map_unrar_error)?;
+            return Ok(Some((bytes, rested)));
+        } else {
+            header
+                .skip()
+                .map_err(|e| MediaError::Other(anyhow::anyhow!(e)))?
+        };
     }
-    Err(MediaError::EntryNotFound(entry_name.to_string()))
 }
 
 /// Reads several entries with a single sequential pass over the archive. RAR cannot seek,
@@ -184,7 +258,12 @@ fn check_multipart(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn open(path: &Path) -> Result<unrar::OpenArchive<unrar::Process, unrar::CursorBeforeHeader>> {
+fn open_checked(path: &Path) -> Result<Rested> {
+    check_multipart(path)?;
+    open(path)
+}
+
+fn open(path: &Path) -> Result<Rested> {
     unrar::Archive::new(path)
         .open_for_processing()
         .map_err(map_unrar_error)
@@ -312,6 +391,22 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Sequential single-entry reads are the page-flipping pattern the cached cursor
+    /// exists for; a backward jump forces the rescan path. Both must match fresh scans.
+    #[test]
+    fn sequential_and_backward_reads_match_fresh_scan() {
+        let path = archives().join("rar4.rar");
+        let expected: Vec<Vec<u8>> = ["komga-1.png", "komga-2.png", "komga-3.png"]
+            .iter()
+            .map(|name| get_entry_bytes(&path, name).unwrap())
+            .collect();
+        // backward jump: the cursor rests after the third entry, the first sits before it
+        assert_eq!(get_entry_bytes(&path, "komga-1.png").unwrap(), expected[0]);
+        // forward again from the rescanned cursor
+        assert_eq!(get_entry_bytes(&path, "komga-2.png").unwrap(), expected[1]);
+        assert_eq!(get_entry_bytes(&path, "komga-3.png").unwrap(), expected[2]);
     }
 
     #[test]

@@ -3,14 +3,32 @@
 //! libpdfium is a runtime dependency: it is looked up in `KOMGA_PDFIUM_PATH`, next to the
 //! executable, then through the system library search. When unavailable, every operation
 //! returns `MediaError::Unsupported`.
+//!
+//! Threading: pdfium-render 0.9 holds a single process-wide bindings object, and its
+//! `thread_safe` feature (kept on) serializes every FFI call behind one mutex — parallel
+//! rasterization across cores is not available from this dependency. What is controlled
+//! here is how often documents are reopened: the render cache is a global LRU because
+//! `thread_safe` also makes `PdfDocument` `Sync`, and one global entry per hot book beats
+//! per-thread copies on both hit rate (serving threads share it) and memory (one handle
+//! per book, not per thread). Do not disable `thread_safe` while the cache is global:
+//! without the feature the type is not `Sync`.
+//!
+//! One-shot consumers — analysis page listing, barcode scan (`PdfPages`), and the raw
+//! page extraction's target document — open without entering the cache.
 
 use crate::error::{MediaError, Result};
 use crate::image;
+use crate::lru::{file_key, key_error, FileKey, Lru};
 use pdfium_render::prelude::*;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 const RESOLUTION: f32 = 3200.0;
+/// Open documents kept process-wide. Page serving revisits the same book constantly;
+/// reopening re-parses xref/page tree and drops pdfium's per-document caches. The
+/// footprint is parsed structures, not file bytes, so a handful of entries covers the
+/// hot set (a reader flips through one book at a time).
+const DOC_CACHE_CAP: usize = 4;
 
 /// Process-wide Pdfium binding, resolved at most once. Binding loads the shared library
 /// and resolves its whole symbol table, so repeating it per operation is pure overhead.
@@ -70,46 +88,74 @@ pub fn pdf_available() -> bool {
     pdfium().is_ok()
 }
 
-fn load<'a>(pdfium: &'a Pdfium, path: &Path) -> Result<PdfDocument<'a>> {
-    pdfium.load_pdf_from_file(path, None).map_err(|e| {
-        if matches!(e, PdfiumError::IoError(_)) && !path.exists() {
+fn load(pdfium: &'static Pdfium, path: &Path) -> Result<PdfDocument<'static>> {
+    // opened here rather than `load_pdf_from_file` so a missing file maps to NoSuchFile
+    let file = std::fs::File::open(path).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
             MediaError::NoSuchFile(path.display().to_string())
         } else {
             MediaError::unsupported(format!("could not open pdf document: {e}"))
         }
-    })
+    })?;
+    pdfium
+        .load_pdf_from_reader(file, None)
+        .map_err(|e| MediaError::unsupported(format!("could not open pdf document: {e}")))
+}
+
+/// Opens a document without entering the render cache; for one-shot consumers.
+pub fn open_document(path: &Path) -> Result<PdfDocument<'static>> {
+    let pdfium = pdfium()?;
+    load(pdfium, path)
+}
+
+static DOCS: OnceLock<Mutex<Lru<FileKey, PdfDocument<'static>>>> = OnceLock::new();
+
+fn docs() -> &'static Mutex<Lru<FileKey, PdfDocument<'static>>> {
+    DOCS.get_or_init(|| Mutex::new(Lru::new(DOC_CACHE_CAP)))
+}
+
+/// Runs `f` against the cached document for `path`, opening (and possibly evicting) as
+/// needed. A poisoned lock is recovered, not surfaced: one panicking book must not take
+/// page serving down for every other book.
+fn with_cached_document<R>(
+    path: &Path,
+    f: impl FnOnce(&PdfDocument<'static>) -> Result<R>,
+) -> Result<R> {
+    let key = file_key(path).map_err(|e| key_error(path, e))?;
+    let mut docs = docs().lock().unwrap_or_else(|e| e.into_inner());
+    let document = docs.get_or_insert_with(&key, || load(pdfium()?, path))?;
+    f(document)
 }
 
 /// `PdfExtractor.getPageContentAsImage`: render the page at `3200 / min(cropBox.w, cropBox.h)`
-/// and encode as JPEG.
+/// and encode as JPEG. Serves from the render cache.
 pub fn get_page_content_as_image(path: &Path, page_number: usize) -> Result<Vec<u8>> {
-    let pdfium = pdfium()?;
-    let document = load(pdfium, path)?;
-    render_page(&document, page_number)
+    with_cached_document(path, |document| render_page(document, page_number))
 }
 
 /// Renders several pages with a single document open, in the order given. Network mounts
 /// charge per open, so hashing the first and last pages must not reopen the PDF per page.
 pub fn get_pages_content_as_images(path: &Path, page_numbers: &[usize]) -> Result<Vec<Vec<u8>>> {
-    let pdfium = pdfium()?;
-    let document = load(pdfium, path)?;
-    page_numbers
-        .iter()
-        .map(|&n| render_page(&document, n))
-        .collect()
+    with_cached_document(path, |document| {
+        page_numbers
+            .iter()
+            .map(|&n| render_page(document, n))
+            .collect()
+    })
 }
 
 /// A PDF document opened once, rendering pages on demand from the same handle. Consumers
 /// that must stop early (barcode scan) use this instead of the eager batch render.
+/// One-shot by design: a scan touches each book once, so the handle never enters the cache.
 pub struct PdfPages {
     document: PdfDocument<'static>,
 }
 
 impl PdfPages {
     pub fn open(path: &Path) -> Result<Self> {
-        let pdfium = pdfium()?;
-        let document = load(pdfium, path)?;
-        Ok(Self { document })
+        Ok(Self {
+            document: open_document(path)?,
+        })
     }
 
     /// Renders one page from the held document; only this page is materialized.
@@ -140,19 +186,21 @@ fn render_page(document: &PdfDocument<'_>, page_number: usize) -> Result<Vec<u8>
 }
 
 /// `PdfExtractor.getPageContentAsPdf`: a new document containing only the requested page.
+/// The source page comes from the render cache.
 pub fn get_page_content_as_pdf(path: &Path, page_number: usize) -> Result<Vec<u8>> {
     let pdfium = pdfium()?;
-    let source = load(pdfium, path)?;
-    let mut extracted = pdfium
-        .create_new_pdf()
-        .map_err(|e| MediaError::unsupported(format!("could not create pdf document: {e}")))?;
-    extracted
-        .pages_mut()
-        .copy_pages_from_document(&source, &page_number.to_string(), 0)
-        .map_err(|_| MediaError::PageOutOfBounds(page_number))?;
-    extracted
-        .save_to_bytes()
-        .map_err(|e| MediaError::unsupported(format!("could not save pdf document: {e}")))
+    with_cached_document(path, |source| {
+        let mut extracted = pdfium
+            .create_new_pdf()
+            .map_err(|e| MediaError::unsupported(format!("could not create pdf document: {e}")))?;
+        extracted
+            .pages_mut()
+            .copy_pages_from_document(source, &page_number.to_string(), 0)
+            .map_err(|_| MediaError::PageOutOfBounds(page_number))?;
+        extracted
+            .save_to_bytes()
+            .map_err(|e| MediaError::unsupported(format!("could not save pdf document: {e}")))
+    })
 }
 
 /// `PdfExtractor.scaleDimension`: dimensions after applying the render scale
@@ -209,6 +257,24 @@ mod tests {
         assert_eq!(batch[0], batch[1]);
     }
 
+    /// Renders from several threads at once must be correct and deterministic (FFI calls
+    /// serialize on pdfium-render's `thread_safe` mutex; this pins the contract, not speed).
+    #[test]
+    fn render_from_multiple_threads() {
+        if !pdf_available() {
+            eprintln!("libpdfium not available, skipping");
+            return;
+        }
+        let handles: Vec<_> = (0..4)
+            .map(|_| std::thread::spawn(|| get_page_content_as_image(&fixture(), 1).unwrap()))
+            .collect();
+        let renders: Vec<Vec<u8>> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        for bytes in &renders {
+            assert_eq!(&bytes[0..3], b"\xFF\xD8\xFF");
+        }
+        assert!(renders.windows(2).all(|w| w[0] == w[1]));
+    }
+
     #[test]
     fn extract_single_page_pdf() {
         if !pdf_available() {
@@ -228,6 +294,20 @@ mod tests {
         assert!(matches!(
             get_page_content_as_image(&fixture(), 999),
             Err(MediaError::PageOutOfBounds(999)) | Err(MediaError::Unsupported { .. })
+        ));
+    }
+
+    #[test]
+    fn missing_file_is_no_such_file() {
+        if !pdf_available() {
+            eprintln!("libpdfium not available, skipping");
+            return;
+        }
+        let missing =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/resources/pdf/nope.pdf");
+        assert!(matches!(
+            get_page_content_as_image(&missing, 1),
+            Err(MediaError::NoSuchFile(_))
         ));
     }
 

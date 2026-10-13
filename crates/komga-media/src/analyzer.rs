@@ -898,14 +898,7 @@ fn map_unrar_error(e: unrar::error::UnrarError) -> MediaError {
 
 /// `PdfExtractor.getPages`: page name is the 1-based index; dimensions come from the crop box
 fn get_pdf_pages(book_path: &Path, analyze_dimensions: bool) -> Result<Vec<BookPage>> {
-    let pdfium = pdf::pdfium()?;
-    let document = pdfium.load_pdf_from_file(book_path, None).map_err(|e| {
-        if !book_path.exists() {
-            MediaError::NoSuchFile(book_path.display().to_string())
-        } else {
-            MediaError::unsupported(format!("could not open pdf document: {e}"))
-        }
-    })?;
+    let document = pdf::open_document(book_path)?;
     let mut pages = vec![];
     for index in 0..document.pages().len() {
         let page = document
