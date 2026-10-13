@@ -199,8 +199,8 @@ pub fn delete_thumbnail(state: &AppState, thumbnail: &ThumbnailReadList) -> komg
 }
 
 /// `ReadListLifecycle.getThumbnailBytes`: the selected thumbnail, or a collage of the first
-/// member books' thumbnails; kmrs uses an adaptive crop-filled grid instead of komga's fixed
-/// 2x2 mosaic, and never repeats a cover to fill cells
+/// member books' thumbnails; kmrs uses a diagonal-mirrored 2x2 grid instead of komga's fixed
+/// 2x2 mosaic, reusing covers across the diagonal when there are fewer than four
 pub fn get_thumbnail_bytes(state: &AppState, readlist: &ReadList) -> komga_db::Result<Vec<u8>> {
     if let Some(selected) =
         ThumbnailReadListDao::new(state.db.clone()).find_selected_by_read_list_id(&readlist.id)?

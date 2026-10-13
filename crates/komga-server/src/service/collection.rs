@@ -194,8 +194,8 @@ pub fn delete_thumbnail(
 }
 
 /// `SeriesCollectionLifecycle.getThumbnailBytes`: the selected thumbnail, or a collage of the
-/// first member series' covers; kmrs uses an adaptive crop-filled grid instead of komga's fixed
-/// 2x2 mosaic, and never repeats a cover to fill cells
+/// first member series' covers; kmrs uses a diagonal-mirrored 2x2 grid instead of komga's
+/// fixed 2x2 mosaic, reusing covers across the diagonal when there are fewer than four
 pub fn get_thumbnail_bytes(
     state: &AppState,
     collection: &SeriesCollection,
@@ -236,9 +236,10 @@ fn thumbnails_house_keeping(state: &AppState, collection_id: &str) -> komga_db::
 /// Adaptive collage of up to 4 covers, JPEG output; width = round(height * 0.7066666667).
 /// The canvas is a blurred, dimmed blowup of the first cover (neutral gray when there is
 /// none), so the frame reads as ambient background on both light and dark UI themes.
-/// Every cover is center-cropped to fill its cell: 1 cover full-size, 2 side by side,
-/// 3 as one tall cell plus two stacked, 4 in a 2x2 grid, inside a wide margin with
-/// narrower gaps between cells.
+/// Every cover is center-cropped to fill its cell: 1 cover full-size, 2 mirrored across
+/// the diagonal (top-left + bottom-right, top-right + bottom-left), 3 with the first
+/// cover on the diagonal and the other two on the off-diagonal, 4 or more in a plain
+/// 2x2 grid, inside a wide margin with narrower gaps between cells.
 pub(crate) fn create_mosaic(images: &[Vec<u8>], max_edge: u32) -> komga_db::Result<Vec<u8>> {
     let height = max_edge;
     let width = (height as f64 * 0.7066666667).round() as u32;
@@ -248,34 +249,33 @@ pub(crate) fn create_mosaic(images: &[Vec<u8>], max_edge: u32) -> komga_db::Resu
     let cell_h = (height - 2 * margin - gap) / 2;
     let right = width - margin - cell_w;
     let bottom = height - margin - cell_h;
-    let rects: &[(u32, u32, u32, u32)] = match images.len().min(4) {
-        0 => &[],
-        1 => &[(margin, margin, width - 2 * margin, height - 2 * margin)],
-        2 => &[
-            (margin, margin, cell_w, height - 2 * margin),
-            (right, margin, cell_w, height - 2 * margin),
-        ],
-        3 => &[
-            (margin, margin, cell_w, height - 2 * margin),
-            (right, margin, cell_w, cell_h),
-            (right, bottom, cell_w, cell_h),
-        ],
-        _ => &[
-            (margin, margin, cell_w, cell_h),
-            (right, margin, cell_w, cell_h),
-            (margin, bottom, cell_w, cell_h),
-            (right, bottom, cell_w, cell_h),
-        ],
-    };
+    let grid = [
+        (margin, margin, cell_w, cell_h),
+        (right, margin, cell_w, cell_h),
+        (margin, bottom, cell_w, cell_h),
+        (right, bottom, cell_w, cell_h),
+    ];
     let mut decoded = Vec::new();
-    for bytes in images.iter().take(rects.len()) {
+    for bytes in images.iter().take(4) {
         decoded.push(image::load_from_memory(bytes).map_err(|e| {
             komga_db::Error::EnumValue(format!("could not decode mosaic image: {e}"))
         })?);
     }
+    type Cell = (u32, u32, u32, u32);
+    // partial grids mirror covers across the diagonal instead of leaving cells empty
+    let (order, rects): (&[usize], &[Cell]) = match decoded.len() {
+        0 => (&[], &[]),
+        1 => (
+            &[0],
+            &[(margin, margin, width - 2 * margin, height - 2 * margin)],
+        ),
+        2 => (&[0, 1, 1, 0], &grid),
+        3 => (&[0, 1, 2, 0], &grid),
+        _ => (&[0, 1, 2, 3], &grid),
+    };
     let mut mosaic = backdrop(decoded.first(), width, height);
-    for (img, &(x, y, w, h)) in decoded.iter().zip(rects) {
-        let thumb = img.resize_to_fill(w, h, image::imageops::FilterType::Lanczos3);
+    for (&idx, &(x, y, w, h)) in order.iter().zip(rects) {
+        let thumb = decoded[idx].resize_to_fill(w, h, image::imageops::FilterType::Lanczos3);
         image::imageops::overlay(&mut mosaic, &thumb.to_rgb8(), x as i64, y as i64);
     }
     let mut out = std::io::Cursor::new(Vec::new());
