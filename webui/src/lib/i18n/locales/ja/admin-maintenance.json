@@ -43,6 +43,7 @@
     "deleteFailed": "ライブラリを削除できませんでした。",
     "scanInterval": {
       "disabled": "無効",
+      "realTime": "リアルタイム",
       "hourly": "毎時",
       "every6h": "6 時間ごと",
       "every12h": "12 時間ごと",

@@ -51,6 +51,7 @@
     "deleteFailed": "Impossibile eliminare la libreria.",
     "scanInterval": {
       "disabled": "Disattivato",
+      "realTime": "Tempo reale",
       "hourly": "Ogni ora",
       "every6h": "Ogni 6 ore",
       "every12h": "Ogni 12 ore",

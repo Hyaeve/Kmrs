@@ -1,7 +1,7 @@
 import { cn } from '@/lib/utils/cn'
 
 interface SegmentedControlProps<T extends string> {
-  options: Array<{ value: T; label: string }>
+  options: Array<{ value: T; label: string; disabled?: boolean }>
   value: T
   onChange: (v: T) => void
   className?: string
@@ -15,11 +15,18 @@ export function SegmentedControl<T extends string>({ options, value, onChange, c
         <button
           key={opt.value}
           type="button"
-          onClick={() => onChange(opt.value)}
+          disabled={opt.disabled}
+          onClick={() => {
+            if (!opt.disabled) onChange(opt.value)
+          }}
           className={cn(
             'cursor-pointer rounded-md font-medium whitespace-nowrap transition-all duration-150',
             size === 'sm' ? 'px-2.5 py-1 text-xs' : 'px-3 py-1.5 text-[13px]',
-            value === opt.value ? 'bg-raised text-ink shadow-sm' : 'text-ink-3 hover:text-ink-2',
+            opt.disabled
+              ? 'cursor-not-allowed text-ink-3/40'
+              : value === opt.value
+                ? 'bg-raised text-ink shadow-sm'
+                : 'text-ink-3 hover:text-ink-2',
           )}
         >
           {opt.label}

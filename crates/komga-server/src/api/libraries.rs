@@ -7,7 +7,7 @@ use crate::state::AppState;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::{routing, Json, Router};
-use komga_core::dto::library::LibraryDto;
+use komga_core::dto::library::{LibraryDto, ScanIntervalDto};
 use komga_core::model::library::Library;
 use komga_core::task::{BookMetadataPatchCapability, HIGHEST_PRIORITY, HIGH_PRIORITY};
 use komga_core::time_codec::now_utc;
@@ -64,16 +64,18 @@ async fn get_libraries(
             .collect()
     };
     libraries.sort_by_key(|l| l.name.to_lowercase());
-    let scan_strm_libraries =
-        LibrarySettingDao::new(state.kmrs_db.clone()).scan_strm_library_ids()?;
+    let settings_dao = LibrarySettingDao::new(state.kmrs_db.clone());
+    let scan_strm_libraries = settings_dao.scan_strm_library_ids()?;
+    let real_time_libraries = settings_dao.real_time_scan_library_ids()?;
     Ok(Json(
         libraries
             .iter()
             .map(|l| {
-                LibraryDto::of_with_scan_strm(
+                LibraryDto::of_with_settings(
                     l,
                     user.is_admin(),
                     scan_strm_libraries.contains(&l.id),
+                    real_time_libraries.contains(&l.id),
                 )
             })
             .collect(),
@@ -92,13 +94,12 @@ async fn get_library_by_id(
     if !user.can_access_library(&library.id) {
         return Err(ApiError::forbidden(""));
     }
-    let scan_strm = LibrarySettingDao::new(state.kmrs_db.clone())
-        .get(&library.id)?
-        .scan_strm;
-    Ok(Json(LibraryDto::of_with_scan_strm(
+    let settings = LibrarySettingDao::new(state.kmrs_db.clone()).get(&library.id)?;
+    Ok(Json(LibraryDto::of_with_settings(
         &library,
         user.is_admin(),
-        scan_strm,
+        settings.scan_strm,
+        settings.real_time_scan,
     )))
 }
 
@@ -135,11 +136,18 @@ async fn add_library(
     if body.root.trim().is_empty() {
         violations.push(blank_violation("root", "must not be blank"));
     }
+    let scan_strm = body.scan_strm;
+    let real_time_scan = body.scan_interval == ScanIntervalDto::RealTime;
+    if real_time_scan && !scan_strm {
+        violations.push(blank_violation(
+            "scanInterval",
+            "Real-time scan requires scanning STRM",
+        ));
+    }
     if !violations.is_empty() {
         return Err(ApiError::Violations(violations));
     }
 
-    let scan_strm = body.scan_strm;
     let library = Library {
         id: String::new(),
         name: body.name,
@@ -178,11 +186,17 @@ async fn add_library(
     let created = crate::service::library::add_library_with_settings(
         &state,
         &library,
-        LibrarySettings { scan_strm },
+        LibrarySettings {
+            scan_strm,
+            real_time_scan,
+        },
     )
     .map_err(map_library_error)?;
-    Ok(Json(LibraryDto::of_with_scan_strm(
-        &created, true, scan_strm,
+    Ok(Json(LibraryDto::of_with_settings(
+        &created,
+        true,
+        scan_strm,
+        real_time_scan,
     )))
 }
 
@@ -215,6 +229,21 @@ async fn update_library_by_id(
     };
     let current_settings = LibrarySettingDao::new(state.kmrs_db.clone()).get(&library_id)?;
     let scan_strm = body.scan_strm.unwrap_or(current_settings.scan_strm);
+    let requested_interval = body.scan_interval;
+    let requested_real_time = requested_interval == Some(ScanIntervalDto::RealTime);
+    if requested_real_time && !scan_strm {
+        return Err(ApiError::Violations(vec![blank_violation(
+            "scanInterval",
+            "Real-time scan requires scanning STRM",
+        )]));
+    }
+    let real_time_scan = if requested_real_time {
+        true
+    } else if requested_interval.is_some() {
+        false
+    } else {
+        current_settings.real_time_scan && scan_strm
+    };
 
     let to_update = Library {
         name: body.name.unwrap_or_else(|| existing.name.clone()),
@@ -254,10 +283,15 @@ async fn update_library_by_id(
             .scan_force_modified_time
             .unwrap_or(existing.scan_force_modified_time),
         scan_on_startup: body.scan_on_startup.unwrap_or(existing.scan_on_startup),
-        scan_interval: body
-            .scan_interval
+        scan_interval: requested_interval
             .map(|i| i.to_domain())
-            .unwrap_or(existing.scan_interval),
+            .unwrap_or_else(|| {
+                if real_time_scan {
+                    komga_core::model::library::ScanInterval::Disabled
+                } else {
+                    existing.scan_interval
+                }
+            }),
         scan_cbx: body.scan_cbx.unwrap_or(existing.scan_cbx),
         scan_pdf: body.scan_pdf.unwrap_or(existing.scan_pdf),
         scan_epub: body.scan_epub.unwrap_or(existing.scan_epub),
@@ -290,7 +324,10 @@ async fn update_library_by_id(
     crate::service::library::update_library_with_settings(
         &state,
         &to_update,
-        LibrarySettings { scan_strm },
+        LibrarySettings {
+            scan_strm,
+            real_time_scan,
+        },
     )
     .map_err(map_library_error)?;
     Ok(StatusCode::NO_CONTENT)
@@ -1017,6 +1054,84 @@ mod tests {
         let all = tasks().find_all().unwrap();
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].unique_id(), format!("SCAN_LIBRARY_{id}_DEEP_false"));
+    }
+
+    #[tokio::test]
+    async fn real_time_scan_requires_strm_and_round_trips() {
+        use komga_db::dao::library_setting::LibrarySettingDao;
+
+        let (app, key) = admin_app();
+        let dir = tempfile::tempdir().unwrap();
+        let invalid_root = dir.path().join("invalid");
+        std::fs::create_dir(&invalid_root).unwrap();
+        let (status, body) = app
+            .request_json(
+                "POST",
+                "/api/v1/libraries",
+                &key,
+                Some(serde_json::json!({
+                    "name":"Invalid",
+                    "root":invalid_root.to_str().unwrap(),
+                    "scanInterval":"REAL_TIME"
+                })),
+            )
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+
+        let root = dir.path().join("manga");
+        std::fs::create_dir(&root).unwrap();
+        let (status, body) = app
+            .request_json(
+                "POST",
+                "/api/v1/libraries",
+                &key,
+                Some(serde_json::json!({
+                    "name":"Manga",
+                    "root":root.to_str().unwrap(),
+                    "scanStrm":true,
+                    "scanInterval":"REAL_TIME"
+                })),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["scanInterval"], "REAL_TIME");
+        let id = body["id"].as_str().unwrap().to_string();
+
+        let scan_interval: String = app
+            .state
+            .db
+            .ro()
+            .unwrap()
+            .query_row(
+                "SELECT SCAN_INTERVAL FROM LIBRARY WHERE ID = ?",
+                [&id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(scan_interval, "DISABLED");
+        let settings = LibrarySettingDao::new(app.state.kmrs_db.clone())
+            .get(&id)
+            .unwrap();
+        assert!(settings.scan_strm);
+        assert!(settings.real_time_scan);
+
+        let (status, _) = app
+            .request_json(
+                "PATCH",
+                &format!("/api/v1/libraries/{id}"),
+                &key,
+                Some(serde_json::json!({"scanInterval":"HOURLY"})),
+            )
+            .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let (_, body) = app.get_json(&format!("/api/v1/libraries/{id}"), &key).await;
+        assert_eq!(body["scanInterval"], "HOURLY");
+        assert!(
+            !LibrarySettingDao::new(app.state.kmrs_db.clone())
+                .get(&id)
+                .unwrap()
+                .real_time_scan
+        );
     }
 
     #[tokio::test]

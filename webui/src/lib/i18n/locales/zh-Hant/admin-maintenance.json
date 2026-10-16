@@ -43,6 +43,7 @@
     "deleteFailed": "無法刪除書庫。",
     "scanInterval": {
       "disabled": "已停用",
+      "realTime": "即時監控",
       "hourly": "每小時",
       "every6h": "每 6 小時",
       "every12h": "每 12 小時",

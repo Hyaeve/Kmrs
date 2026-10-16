@@ -51,6 +51,7 @@
     "deleteFailed": "Impossible de supprimer la bibliothèque.",
     "scanInterval": {
       "disabled": "Désactivé",
+      "realTime": "Temps réel",
       "hourly": "Toutes les heures",
       "every6h": "Toutes les 6 h",
       "every12h": "Toutes les 12 h",

@@ -43,6 +43,7 @@
     "deleteFailed": "라이브러리를 삭제할 수 없습니다.",
     "scanInterval": {
       "disabled": "사용 안 함",
+      "realTime": "실시간",
       "hourly": "매시간",
       "every6h": "6시간마다",
       "every12h": "12시간마다",

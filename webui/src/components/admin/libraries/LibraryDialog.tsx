@@ -144,14 +144,28 @@ export function LibraryDialog({ open, onOpenChange, library }: LibraryDialogProp
                       <span className="text-sm text-ink-2">{t('libraries.scanIntervalLabel')}</span>
                       <SegmentedControl<ScanInterval>
                         size="sm"
-                        options={SCAN_INTERVAL_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
+                        options={SCAN_INTERVAL_OPTIONS.map((o) => ({
+                          value: o.value,
+                          label: t(o.labelKey),
+                          disabled: o.value === 'REAL_TIME' && !form.scanStrm,
+                        }))}
                         value={form.scanInterval}
                         onChange={(v) => set('scanInterval', v)}
                       />
                     </div>
                     <div className="grid gap-x-8 sm:grid-cols-2">
                       {SCAN_SWITCH_FIELDS.map(({ key, labelKey }) => (
-                        <SwitchRow key={key} label={t(labelKey)} checked={form[key]} onChange={(v) => set(key, v)} />
+                        <SwitchRow
+                          key={key}
+                          label={t(labelKey)}
+                          checked={form[key]}
+                          onChange={(v) => {
+                            set(key, v)
+                            if (key === 'scanStrm' && !v && form.scanInterval === 'REAL_TIME') {
+                              set('scanInterval', 'DISABLED')
+                            }
+                          }}
+                        />
                       ))}
                     </div>
                     <ExclusionsEditor value={form.scanDirectoryExclusions} onChange={(v) => set('scanDirectoryExclusions', v)} />

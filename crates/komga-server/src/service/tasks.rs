@@ -77,8 +77,13 @@ impl TaskEmitter {
         ))
     }
 
-    /// UNKNOWN and OUTDATED books of the library, sorted by (seriesId, number)
-    pub fn analyze_unknown_and_outdated_books(&self, library: &Library) -> komga_db::Result<()> {
+    /// UNKNOWN and OUTDATED books of the library, sorted by (seriesId, number).
+    /// STRM books are included only for real-time monitored libraries.
+    pub fn analyze_unknown_and_outdated_books(
+        &self,
+        library: &Library,
+        include_strm: bool,
+    ) -> komga_db::Result<()> {
         use komga_core::search::*;
         let books = komga_db::dao::book::BookDao::new(self.db.clone()).find_all_by_condition(
             Some(&SearchConditionBook::AllOf {
@@ -118,7 +123,7 @@ impl TaskEmitter {
         )?;
         let tasks: Vec<Task> = books
             .iter()
-            .filter(|b| !b.is_strm())
+            .filter(|b| include_strm || !b.is_strm())
             .map(|b| Task::analyze_book(&b.id, DEFAULT_PRIORITY, b.series_id.clone()))
             .collect();
         self.submit_many(&tasks)

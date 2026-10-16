@@ -52,6 +52,15 @@ impl LibraryDto {
     }
 
     pub fn of_with_scan_strm(library: &Library, include_root: bool, scan_strm: bool) -> Self {
+        Self::of_with_settings(library, include_root, scan_strm, false)
+    }
+
+    pub fn of_with_settings(
+        library: &Library,
+        include_root: bool,
+        scan_strm: bool,
+        real_time_scan: bool,
+    ) -> Self {
         Self {
             id: library.id.clone(),
             name: library.name.clone(),
@@ -71,7 +80,11 @@ impl LibraryDto {
             import_local_artwork: library.import_local_artwork,
             import_barcode_isbn: library.import_barcode_isbn,
             scan_force_modified_time: library.scan_force_modified_time,
-            scan_interval: ScanIntervalDto::from(library.scan_interval),
+            scan_interval: if real_time_scan {
+                ScanIntervalDto::RealTime
+            } else {
+                ScanIntervalDto::from(library.scan_interval)
+            },
             scan_on_startup: library.scan_on_startup,
             scan_cbx: library.scan_cbx,
             scan_pdf: library.scan_pdf,
@@ -96,6 +109,8 @@ impl LibraryDto {
 pub enum ScanIntervalDto {
     #[serde(rename = "DISABLED")]
     Disabled,
+    #[serde(rename = "REAL_TIME")]
+    RealTime,
     #[serde(rename = "HOURLY")]
     Hourly,
     #[serde(rename = "EVERY_6H")]
@@ -124,12 +139,16 @@ impl From<ScanInterval> for ScanIntervalDto {
 impl ScanIntervalDto {
     /// `ScanIntervalDto.toDomain()`
     pub fn to_domain(self) -> ScanInterval {
-        ScanInterval::from_str(self.as_str()).unwrap_or(ScanInterval::Disabled)
+        match self {
+            ScanIntervalDto::RealTime => ScanInterval::Disabled,
+            other => ScanInterval::from_str(other.as_str()).unwrap_or(ScanInterval::Disabled),
+        }
     }
 
     pub fn as_str(self) -> &'static str {
         match self {
             ScanIntervalDto::Disabled => "DISABLED",
+            ScanIntervalDto::RealTime => "REAL_TIME",
             ScanIntervalDto::Hourly => "HOURLY",
             ScanIntervalDto::Every6H => "EVERY_6H",
             ScanIntervalDto::Every12H => "EVERY_12H",
@@ -244,6 +263,10 @@ mod tests {
     #[test]
     fn enum_domain_mapping() {
         assert_eq!(ScanIntervalDto::Every6H.to_domain(), ScanInterval::Every6H);
+        assert_eq!(
+            ScanIntervalDto::RealTime.to_domain(),
+            ScanInterval::Disabled
+        );
         assert_eq!(
             SeriesCoverDto::FirstUnreadOrLast.to_domain(),
             SeriesCover::FirstUnreadOrLast

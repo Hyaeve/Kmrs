@@ -47,6 +47,7 @@
     "deleteFailed": "Could not delete the library.",
     "scanInterval": {
       "disabled": "Disabled",
+      "realTime": "Real-time",
       "hourly": "Hourly",
       "every6h": "Every 6h",
       "every12h": "Every 12h",

@@ -135,6 +135,7 @@ export const BATCH_ENABLE_KEYS = ['hashFiles', 'hashPages', 'hashKoreader', 'rep
 
 export const SCAN_INTERVAL_OPTIONS: { value: ScanInterval; labelKey: string }[] = [
   { value: 'DISABLED', labelKey: 'admin-maintenance:libraries.scanInterval.disabled' },
+  { value: 'REAL_TIME', labelKey: 'admin-maintenance:libraries.scanInterval.realTime' },
   { value: 'HOURLY', labelKey: 'admin-maintenance:libraries.scanInterval.hourly' },
   { value: 'EVERY_6H', labelKey: 'admin-maintenance:libraries.scanInterval.every6h' },
   { value: 'EVERY_12H', labelKey: 'admin-maintenance:libraries.scanInterval.every12h' },
@@ -153,6 +154,8 @@ export function scanIntervalBadgeKey(interval: ScanInterval): string | null {
   switch (interval) {
     case 'DISABLED':
       return null
+    case 'REAL_TIME':
+      return 'admin-maintenance:libraries.scanInterval.realTime'
     case 'HOURLY':
       return 'admin-maintenance:libraries.scanInterval.hourly'
     case 'EVERY_6H':

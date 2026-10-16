@@ -43,6 +43,7 @@
     "deleteFailed": "无法删除库。",
     "scanInterval": {
       "disabled": "已停用",
+      "realTime": "实时监控",
       "hourly": "每小时",
       "every6h": "每 6 小时",
       "every12h": "每 12 小时",
