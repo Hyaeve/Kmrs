@@ -1,0 +1,47 @@
+{
+  "title": "Smarte Listen",
+  "create": "Neue smarte Liste",
+  "createTitle": "Neue smarte Liste",
+  "editTitle": "Smarte Liste bearbeiten",
+  "deleteTitle": "Smarte Liste löschen?",
+  "nameLabel": "Name",
+  "summaryLabel": "Zusammenfassung",
+  "targetLabel": "Ziel",
+  "target": {
+    "book": "Bücher",
+    "series": "Serien"
+  },
+  "filtersEmpty": "Keine Filter — stimmt mit allem überein",
+  "filtersActive_one": "{{count, number}} Filter aktiv",
+  "filtersActive_other": "{{count, number}} Filter aktiv",
+  "filtersStepTitle": "Filter",
+  "next": "Weiter",
+  "visibilityLabel": "Sichtbarkeit",
+  "visibility": {"private": "Privat", "public": "Öffentlich", "shared": "Geteilt"},
+  "sharedWithLabel": "Geteilt mit",
+  "loadingUsers": "Benutzer werden geladen…",
+  "noOtherUsers": "Keine anderen Benutzer",
+  "ownerFilterLabel": "Eigentümerfilter",
+  "ownerFilter": {"all": "Alle Listen", "mine": "Eigene Listen"},
+  "lossyWarning": "Die Filter dieser Liste enthalten Bedingungen, die der Editor nicht anzeigen kann. Beim Speichern werden sie vereinfacht.",
+  "loadError": "Smarte Listen konnten nicht geladen werden",
+  "loadItemsError": "Elemente konnten nicht geladen werden",
+  "empty": "Noch keine smarten Listen",
+  "notFound": "Smarte Liste nicht gefunden",
+  "read": "Lesen",
+  "peek": "Vorschau",
+  "peekTooltip": "Lesen ohne Fortschritt zu speichern",
+  "managePosters": "Poster verwalten",
+  "moreActions": "Weitere Aktionen",
+  "count": {
+    "book_one": "{{count, number}} Buch",
+    "book_other": "{{count, number}} Bücher",
+    "series_one": "{{count, number}} Serie",
+    "series_other": "{{count, number}} Serien"
+  },
+  "emptyState": {
+    "books": "Aktuell stimmen keine Bücher mit dieser Liste überein",
+    "series": "Aktuell stimmen keine Serien mit dieser Liste überein",
+    "filtered": "Keine Elemente stimmen mit den aktiven Filtern überein"
+  }
+}

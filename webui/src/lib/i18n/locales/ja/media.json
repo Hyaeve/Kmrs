@@ -1,0 +1,42 @@
+{
+  "card": {
+    "actionsFor": "{{title}} の操作",
+    "continueReading": "{{title}} の続きを読む",
+    "pageCount_other": "{{count}} ページ"
+  },
+  "menu": {
+    "select": "選択",
+    "read": "読む",
+    "peek": "プレビュー",
+    "bookDetails": "本の詳細",
+    "markAsRead": "既読にする",
+    "markAsUnread": "未読にする",
+    "addToReadList": "読書リストに追加",
+    "addToCollection": "コレクションに追加",
+    "download": "ダウンロード",
+    "editMetadata": "メタデータを編集",
+    "deleteFile": "ファイルを削除",
+    "deleteFiles": "ファイルを削除",
+    "identifyWithKomf": "komf で識別"
+  },
+  "identifyQueued": "識別をキューに追加しました",
+  "select": {
+    "select": "{{title}} を選択",
+    "deselect": "{{title}} の選択を解除"
+  },
+  "series": {
+    "progressSummary_other": "{{pct}}% · {{count}} 冊",
+    "unreadSummary": "{{total}} 冊中 {{unread}} 冊未読",
+    "booksCount_other": "{{count}} 冊"
+  },
+  "collection": {
+    "seriesCount_other": "{{count}} シリーズ"
+  },
+  "readList": {
+    "bookCount_other": "{{count}} 冊"
+  },
+  "row": {
+    "scrollLeft": "左にスクロール",
+    "scrollRight": "右にスクロール"
+  }
+}

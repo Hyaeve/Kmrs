@@ -1,0 +1,47 @@
+{
+  "card": {
+    "actionsFor": "Actions for {{title}}",
+    "continueReading": "Continue reading {{title}}",
+    "pageCount_one": "{{count}} page",
+    "pageCount_other": "{{count}} pages"
+  },
+  "menu": {
+    "select": "Select",
+    "read": "Read",
+    "peek": "Peek",
+    "bookDetails": "Book details",
+    "markAsRead": "Mark as read",
+    "markAsUnread": "Mark as unread",
+    "addToReadList": "Add to read list",
+    "addToCollection": "Add to collection",
+    "download": "Download",
+    "editMetadata": "Edit metadata",
+    "deleteFile": "Delete file",
+    "deleteFiles": "Delete files",
+    "identifyWithKomf": "Identify with komf"
+  },
+  "identifyQueued": "Identify queued",
+  "select": {
+    "select": "Select {{title}}",
+    "deselect": "Deselect {{title}}"
+  },
+  "series": {
+    "progressSummary_one": "{{pct}}% · {{count}} book",
+    "progressSummary_other": "{{pct}}% · {{count}} books",
+    "unreadSummary": "{{unread}} of {{total}} unread",
+    "booksCount_one": "{{count}} book",
+    "booksCount_other": "{{count}} books"
+  },
+  "collection": {
+    "seriesCount_one": "{{count}} series",
+    "seriesCount_other": "{{count}} series"
+  },
+  "readList": {
+    "bookCount_one": "{{count}} book",
+    "bookCount_other": "{{count}} books"
+  },
+  "row": {
+    "scrollLeft": "Scroll left",
+    "scrollRight": "Scroll right"
+  }
+}

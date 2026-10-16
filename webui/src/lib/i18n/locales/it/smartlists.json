@@ -1,0 +1,47 @@
+{
+  "title": "Liste intelligenti",
+  "create": "Nuova lista intelligente",
+  "createTitle": "Nuova lista intelligente",
+  "editTitle": "Modifica lista intelligente",
+  "deleteTitle": "Eliminare la lista intelligente?",
+  "nameLabel": "Nome",
+  "summaryLabel": "Riassunto",
+  "targetLabel": "Destinazione",
+  "target": {
+    "book": "Libri",
+    "series": "Serie"
+  },
+  "filtersEmpty": "Nessun filtro — corrisponde a tutto",
+  "filtersActive_one": "{{count, number}} filtro attivo",
+  "filtersActive_other": "{{count, number}} filtri attivi",
+  "filtersStepTitle": "Filtri",
+  "next": "Avanti",
+  "visibilityLabel": "Visibilità",
+  "visibility": {"private": "Privata", "public": "Pubblica", "shared": "Condivisa"},
+  "sharedWithLabel": "Condivisa con",
+  "loadingUsers": "Caricamento utenti…",
+  "noOtherUsers": "Nessun altro utente",
+  "ownerFilterLabel": "Filtro per proprietario",
+  "ownerFilter": {"all": "Tutte le liste", "mine": "Le mie liste"},
+  "lossyWarning": "I filtri di questa lista includono condizioni che l'editor non può mostrare. Il salvataggio le semplificherà.",
+  "loadError": "Impossibile caricare le liste intelligenti",
+  "loadItemsError": "Impossibile caricare gli elementi",
+  "empty": "Nessuna lista intelligente al momento",
+  "notFound": "Lista intelligente non trovata",
+  "read": "Leggi",
+  "peek": "Anteprima",
+  "peekTooltip": "Leggi senza salvare i progressi",
+  "managePosters": "Gestisci copertine",
+  "moreActions": "Altre azioni",
+  "count": {
+    "book_one": "{{count, number}} libro",
+    "book_other": "{{count, number}} libri",
+    "series_one": "{{count, number}} serie",
+    "series_other": "{{count, number}} serie"
+  },
+  "emptyState": {
+    "books": "Nessun libro corrisponde attualmente a questa lista",
+    "series": "Nessuna serie corrisponde attualmente a questa lista",
+    "filtered": "Nessun elemento corrisponde ai filtri attivi"
+  }
+}

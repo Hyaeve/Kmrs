@@ -1,0 +1,94 @@
+{
+  "books": {
+    "title": "Bücher importieren",
+    "subtitle": "Dateien von außerhalb deiner Bibliotheken in eine bestehende Serie importieren",
+    "folderLabel": "Ordner auf dem Server",
+    "browse": "Durchsuchen",
+    "scan": "Scannen",
+    "queued_one": "Import für {{count}} Buch eingereiht",
+    "queued_other": "Import für {{count}} Bücher eingereiht",
+    "queuedBody": "Importe laufen als Hintergrundaufgaben. Verfolge den Fortschritt auf der <link>Server-Seite</link>.",
+    "importMore": "Weitere Dateien importieren",
+    "emptyTitle": "Keine importierbaren Dateien",
+    "emptyBody": "Der Ordner enthält keine Buchdateien.",
+    "copyMode": {
+      "move": "Verschieben",
+      "copy": "Kopieren",
+      "hardlink": "Hardlink"
+    },
+    "selectedCount_one": "{{checked}} von {{count}} Datei ausgewählt",
+    "selectedCount_other": "{{checked}} von {{count}} Dateien ausgewählt",
+    "importSelected": "Ausgewählte importieren",
+    "missingSeries_one": "Wähle für jede markierte Datei eine Serie ({{count}} Zeile fehlt).",
+    "missingSeries_other": "Wähle für jede markierte Datei eine Serie ({{count}} Zeilen fehlen).",
+    "selectAll": "Alle auswählen",
+    "importFile": "{{fileName}} importieren",
+    "table": {
+      "sourceFile": "Quelldatei",
+      "series": "Serie",
+      "number": "Nummer",
+      "destinationName": "Zielname",
+      "analyze": "Analysieren"
+    },
+    "status": {
+      "analyzed": "Analysiert",
+      "notAnalyzed": "Nicht analysiert"
+    },
+    "selectedSeries": "Ausgewählte Serie",
+    "change": "Ändern",
+    "selectSeries": "Serie auswählen…",
+    "analyze": "Analysieren",
+    "pickerTitle": "Serie auswählen",
+    "pickerConfirm": "Diese Serie verwenden"
+  },
+  "readlist": {
+    "title": "Leseliste importieren",
+    "subtitle": "Eine Leseliste aus einer ComicRack-.cbl-Datei erstellen",
+    "chooseFile": "Datei auswählen",
+    "noFileChosen": "Keine Datei ausgewählt",
+    "match": "Mit Bibliothek abgleichen",
+    "nameLabel": "Name der Leseliste",
+    "nameConflict": "Eine Leseliste mit diesem Namen existiert bereits",
+    "summary": {
+      "matched": "{{count}} zugeordnet",
+      "multiple": "{{count}} mehrdeutig",
+      "noMatch": "{{count}} ohne Treffer"
+    },
+    "startOver": "Von vorne beginnen",
+    "create_one": "Leseliste erstellen ({{count}} Buch)",
+    "create_other": "Leseliste erstellen ({{count}} Bücher)",
+    "skippedNote": "Einträge ohne zugeordnetes Buch werden übersprungen.",
+    "filter": {
+      "all": "Alle ({{count}})",
+      "matched": "Zugeordnet ({{count}})",
+      "multiple": "Mehrdeutig ({{count}})",
+      "noMatch": "Ohne Treffer ({{count}})"
+    },
+    "emptyTitle": "Nichts hier",
+    "emptyBody": "Keine Einträge mit diesem Status.",
+    "table": {
+      "requested": "Angefragt",
+      "matchedBook": "Zugeordnetes Buch",
+      "status": "Status",
+      "action": "Aktion"
+    },
+    "unknownSeries": "Unbekannte Serie",
+    "manual": "manuell",
+    "chooseBook": "Buch auswählen…",
+    "noLibraryMatch": "Kein Bibliotheks-Treffer",
+    "status": {
+      "matched": "Zugeordnet",
+      "ambiguous": "Mehrdeutig",
+      "unmatched": "Ohne Treffer"
+    },
+    "change": "Ändern",
+    "pickBook": "Buch auswählen",
+    "pageInfo": "Seite {{page}} von {{pages}}",
+    "previous": "Zurück",
+    "next": "Weiter",
+    "pickerTitle": "Buch auswählen für {{series}} #{{number}}",
+    "pickerEntry": "Eintrag",
+    "pickerTitleDefault": "Buch auswählen",
+    "pickerConfirm": "Dieses Buch verwenden"
+  }
+}

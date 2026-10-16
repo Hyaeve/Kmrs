@@ -1,0 +1,89 @@
+{
+  "libraryFallback": "라이브러리",
+  "errorFallback": "문제가 발생했습니다.",
+  "emptyFilterHint": "필터를 조정해 보세요.",
+  "tryDifferentSearch": "다른 검색어를 시도해 보세요.",
+  "tabs": {
+    "series": "시리즈",
+    "books": "책",
+    "collections": "컬렉션",
+    "readlists": "읽기 목록"
+  },
+  "namePlaceholder": "이름",
+  "bookCount_other": "책 {{count}}권",
+  "seriesCount_other": "시리즈 {{count}}개",
+  "books": {
+    "all": "모든 책",
+    "loadError": "책을 불러올 수 없습니다",
+    "empty": "책을 찾을 수 없음"
+  },
+  "series": {
+    "all": "모든 시리즈",
+    "loadError": "시리즈를 불러올 수 없습니다",
+    "empty": "시리즈를 찾을 수 없음"
+  },
+  "collections": {
+    "title": "컬렉션",
+    "loadError": "컬렉션을 불러올 수 없습니다",
+    "empty": "아직 컬렉션 없음",
+    "count_other": "컬렉션"
+  },
+  "readlists": {
+    "title": "읽기 목록",
+    "loadError": "읽기 목록을 불러올 수 없습니다",
+    "empty": "아직 읽기 목록 없음",
+    "count_other": "읽기 목록"
+  },
+  "alphabet": {
+    "ariaLabel": "첫 글자로 찾아보기"
+  },
+  "addToCollection": {
+    "title_other": "시리즈 {{count}}개를 컬렉션에 추가",
+    "filterPlaceholder": "컬렉션 필터…",
+    "noMatch": "일치하는 컬렉션 없음",
+    "newLabel": "새 컬렉션",
+    "added": "'{{name}}'에 추가됨",
+    "created": "'{{name}}' 생성됨",
+    "addFailed": "컬렉션에 추가할 수 없습니다",
+    "createFailed": "컬렉션을 만들 수 없습니다"
+  },
+  "addToReadList": {
+    "title_other": "책 {{count}}권을 읽기 목록에 추가",
+    "filterPlaceholder": "읽기 목록 필터…",
+    "noMatch": "일치하는 읽기 목록 없음",
+    "newLabel": "새 읽기 목록",
+    "added": "'{{name}}'에 추가됨",
+    "created": "'{{name}}' 생성됨",
+    "addFailed": "읽기 목록에 추가할 수 없습니다",
+    "createFailed": "읽기 목록을 만들 수 없습니다"
+  },
+  "deleteConfirm": {
+    "body_book_other": "책 <num>{{count}}</num>권의 파일을 삭제하시겠습니까? 파일은 디스크에서 제거되며 되돌릴 수 없습니다.",
+    "body_series_other": "시리즈 <num>{{count}}</num>개의 파일을 삭제하시겠습니까? 파일은 디스크에서 제거되며 되돌릴 수 없습니다."
+  },
+  "selection": {
+    "working": "{{total}}개 중 {{done}}개 처리 중…",
+    "selected_other": "<num>{{count}}</num>개 선택됨",
+    "selectAll": "모두 선택",
+    "clear": "지우기",
+    "moreActions": "더 많은 작업",
+    "markRead": "읽음으로 표시",
+    "markUnread": "읽지 않음으로 표시",
+    "addToReadList": "읽기 목록에 추가",
+    "addToCollection": "컬렉션에 추가",
+    "editMetadata": "메타데이터 편집",
+    "matchKomf": "komf로 매칭",
+    "deleteFiles": "파일 삭제",
+    "markBooksAs_read_other": "책 {{count}}권을 읽음으로 표시함",
+    "markBooksAs_unread_other": "책 {{count}}권을 읽지 않음으로 표시함",
+    "markSeriesAs_read_other": "시리즈 {{count}}개를 읽음으로 표시함",
+    "markSeriesAs_unread_other": "시리즈 {{count}}개를 읽지 않음으로 표시함",
+    "markBooksFailed_other": "책 {{total}}권 중 {{failed}}권 실패",
+    "markSeriesFailed_other": "시리즈 {{total}}개 중 {{failed}}개 실패",
+    "matchKomfQueued_other": "시리즈 {{count}}개의 komf 매칭을 큐에 추가함",
+    "matchKomfFailed_other": "시리즈 {{total}}개 중 {{failed}}개 실패",
+    "deleteBooksFiles_other": "책 {{count}}권의 파일을 삭제함",
+    "deleteSeriesFiles_other": "시리즈 {{count}}개의 파일을 삭제함",
+    "deleteFilesFailed": "{{total}}개 중 {{failed}}개 실패"
+  }
+}

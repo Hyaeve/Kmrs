@@ -1,0 +1,77 @@
+{
+  "title": "Usuarios",
+  "subtitle_one": "{{count}} usuario · roles, acceso a bibliotecas y restricciones de contenido",
+  "subtitle_many": "{{count}} usuarios · roles, acceso a bibliotecas y restricciones de contenido",
+  "subtitle_other": "{{count}} usuarios · roles, acceso a bibliotecas y restricciones de contenido",
+  "subtitleEmpty": "Roles, acceso a bibliotecas y restricciones de contenido",
+  "addUser": "Añadir usuario",
+  "loadFailed": "No se pudieron cargar los usuarios.",
+  "emptyTitle": "Aún no hay usuarios",
+  "emptyBody": "Añade un usuario para dar a alguien acceso a este servidor.",
+  "you": "tú",
+  "user": "Usuario",
+  "rowActions": "Acciones para {{email}}",
+  "selfEditHint": "No puedes editar tu propia cuenta aquí",
+  "selfDeleteHint": "No puedes eliminar tu propia cuenta",
+  "table": {
+    "restrictions": "Restricciones",
+    "actions": "Acciones"
+  },
+  "restrictions": {
+    "ageAllow": "Edad ≤ {{age}}",
+    "ageExclude": "Edad > {{age}} excluida",
+    "labelsAllowed_one": "{{count}} etiqueta permitida",
+    "labelsAllowed_many": "{{count}} etiquetas permitidas",
+    "labelsAllowed_other": "{{count}} etiquetas permitidas",
+    "labelsExcluded_one": "{{count}} etiqueta excluida",
+    "labelsExcluded_many": "{{count}} etiquetas excluidas",
+    "labelsExcluded_other": "{{count}} etiquetas excluidas"
+  },
+  "roles": {
+    "adminDesc": "Acceso total, incluidos los ajustes del servidor",
+    "fileDownloadDesc": "Descargar archivos de libros",
+    "pageStreamingDesc": "Transmitir páginas para leer en línea",
+    "koboSyncDesc": "Sincronizar con lectores electrónicos Kobo",
+    "koreaderSyncDesc": "Sincronizar el progreso de lectura con KOReader"
+  },
+  "form": {
+    "editTitle": "Editar usuario",
+    "saveFailed": "No se pudo guardar el usuario.",
+    "sectionAccount": "Cuenta",
+    "password": "Contraseña",
+    "sectionLibraryAccess": "Acceso a bibliotecas",
+    "allLibrariesDesc": "Compartir todas las bibliotecas, incluidas las que se creen después",
+    "sectionContentRestrictions": "Restricciones de contenido",
+    "ageRestriction": "Restricción de edad",
+    "age": "Edad",
+    "ageMode": {
+      "none": "Ninguna",
+      "allow": "Permitir solo",
+      "exclude": "Excluir"
+    },
+    "ageInvalid": "Introduce un número entero de 0 o más.",
+    "ageAllowHint": "Mostrar solo contenido con una clasificación de edad igual o inferior a esta edad.",
+    "ageExcludeHint": "Ocultar contenido con una clasificación de edad superior a esta edad.",
+    "allowedLabels": "Etiquetas permitidas",
+    "excludedLabels": "Etiquetas excluidas"
+  },
+  "changePassword": {
+    "body": "Establece una nueva contraseña para <email>{{email}}</email>. Se cerrarán todas sus sesiones."
+  },
+  "deleteDialog": {
+    "title": "Eliminar usuario",
+    "body": "¿Eliminar a <email>{{email}}</email>? Su progreso de lectura, claves API y sesiones se eliminarán permanentemente. Esta acción no se puede deshacer.",
+    "failed": "No se pudo eliminar el usuario."
+  },
+  "labelList": {
+    "remove": "Quitar {{label}}"
+  },
+  "activity": {
+    "title": "Actividad de autenticación",
+    "events_one": "{{count, number}} evento",
+    "events_many": "{{count, number}} eventos",
+    "events_other": "{{count, number}} eventos",
+    "loadFailed": "No se pudo cargar la actividad de autenticación.",
+    "empty": "Aún no hay actividad."
+  }
+}

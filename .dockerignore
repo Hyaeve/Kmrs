@@ -1,0 +1,8 @@
+.git
+.github
+target
+docs
+tests
+examples
+webui/node_modules
+webui/dist

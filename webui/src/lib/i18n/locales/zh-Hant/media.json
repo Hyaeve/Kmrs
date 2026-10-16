@@ -1,0 +1,42 @@
+{
+  "card": {
+    "actionsFor": "{{title}} 的動作",
+    "continueReading": "繼續閱讀 {{title}}",
+    "pageCount_other": "{{count}} 頁"
+  },
+  "menu": {
+    "select": "選取",
+    "read": "閱讀",
+    "peek": "預覽",
+    "bookDetails": "書籍詳細資訊",
+    "markAsRead": "標記為已讀",
+    "markAsUnread": "標記為未讀",
+    "addToReadList": "加入閱讀清單",
+    "addToCollection": "加入收藏",
+    "download": "下載",
+    "editMetadata": "編輯詮釋資料",
+    "deleteFile": "刪除檔案",
+    "deleteFiles": "刪除檔案",
+    "identifyWithKomf": "以 komf 識別"
+  },
+  "identifyQueued": "已排入識別",
+  "select": {
+    "select": "選取 {{title}}",
+    "deselect": "取消選取 {{title}}"
+  },
+  "series": {
+    "progressSummary_other": "{{pct}}% · {{count}} 本書",
+    "unreadSummary": "{{total}} 本中有 {{unread}} 本未讀",
+    "booksCount_other": "{{count}} 本書"
+  },
+  "collection": {
+    "seriesCount_other": "{{count}} 個系列"
+  },
+  "readList": {
+    "bookCount_other": "{{count}} 本書"
+  },
+  "row": {
+    "scrollLeft": "向左捲動",
+    "scrollRight": "向右捲動"
+  }
+}

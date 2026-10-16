@@ -1,0 +1,39 @@
+{
+  "title": "儀表板",
+  "scope": {
+    "all": "全部"
+  },
+  "sections": {
+    "keepReading": "繼續閱讀",
+    "onDeck": "待讀",
+    "recentlyReleasedBooks": "近期發行的書籍",
+    "recentlyAddedBooks": "最近加入的書籍",
+    "recentlyAddedSeries": "最近加入的系列",
+    "recentlyUpdatedSeries": "最近更新的系列",
+    "recentlyRead": "最近讀過"
+  },
+  "customizeSections": "自訂區塊",
+  "allHidden": {
+    "title": "所有區塊都已隱藏",
+    "body": "此檢視已隱藏所有儀表板區塊。"
+  },
+  "empty": {
+    "title": "還沒有內容",
+    "body": "伺服器有內容後，書籍與系列就會顯示在這裡。"
+  },
+  "pinnedEmpty": {
+    "title": "沒有釘選的書庫",
+    "body": "「全部」儀表板只顯示釘選書庫的內容。釘選幾個書庫來組成你的儀表板，或重設以再次看到所有書庫。",
+    "action": "選擇書庫"
+  },
+  "rowError": "無法載入此區塊。",
+  "loadError": "無法載入",
+  "bookCount_other": "{{count}} 本書",
+  "seriesCount_other": "{{count}} 個系列",
+  "sectionsDialog": {
+    "bodyAll": "僅套用於「全部」儀表板檢視。拖曳即可重新排序，或隱藏你用不到的區塊。",
+    "bodyLibrary": "僅套用於此書庫檢視。拖曳即可重新排序，或隱藏你用不到的區塊。",
+    "reorder": "重新排序 {{title}}",
+    "reset": "重設為預設"
+  }
+}

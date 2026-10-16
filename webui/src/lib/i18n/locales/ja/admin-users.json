@@ -1,0 +1,69 @@
+{
+  "title": "ユーザー",
+  "subtitle_other": "{{count}} 人のユーザー · ロール、ライブラリアクセス、コンテンツ制限",
+  "subtitleEmpty": "ロール、ライブラリアクセス、コンテンツ制限",
+  "addUser": "ユーザーを追加",
+  "loadFailed": "ユーザーを読み込めませんでした。",
+  "emptyTitle": "ユーザーがまだいません",
+  "emptyBody": "ユーザーを追加して、このサーバーへのアクセスを許可しましょう。",
+  "you": "あなた",
+  "user": "ユーザー",
+  "rowActions": "{{email}} の操作",
+  "selfEditHint": "ここでは自分のアカウントを編集できません",
+  "selfDeleteHint": "自分のアカウントは削除できません",
+  "table": {
+    "restrictions": "制限",
+    "actions": "操作"
+  },
+  "restrictions": {
+    "ageAllow": "{{age}} 歳以下",
+    "ageExclude": "{{age}} 歳超を除外",
+    "labelsAllowed_other": "{{count}} 個のラベルを許可",
+    "labelsExcluded_other": "{{count}} 個のラベルを除外"
+  },
+  "roles": {
+    "adminDesc": "サーバー設定を含むフルアクセス",
+    "fileDownloadDesc": "本のファイルをダウンロード",
+    "pageStreamingDesc": "オンライン閲覧用にページをストリーミング",
+    "koboSyncDesc": "Kobo 電子書籍リーダーと同期",
+    "koreaderSyncDesc": "KOReader と読書進捗を同期"
+  },
+  "form": {
+    "editTitle": "ユーザーを編集",
+    "saveFailed": "ユーザーを保存できませんでした。",
+    "sectionAccount": "アカウント",
+    "password": "パスワード",
+    "sectionLibraryAccess": "ライブラリアクセス",
+    "allLibrariesDesc": "後から作成されるものも含め、すべてのライブラリを共有",
+    "sectionContentRestrictions": "コンテンツ制限",
+    "ageRestriction": "年齢制限",
+    "age": "年齢",
+    "ageMode": {
+      "none": "なし",
+      "allow": "許可のみ",
+      "exclude": "除外"
+    },
+    "ageInvalid": "0 以上の整数を入力してください。",
+    "ageAllowHint": "対象年齢がこの年齢以下のコンテンツのみ表示します。",
+    "ageExcludeHint": "対象年齢がこの年齢を超えるコンテンツを非表示にします。",
+    "allowedLabels": "許可ラベル",
+    "excludedLabels": "除外ラベル"
+  },
+  "changePassword": {
+    "body": "<email>{{email}}</email> の新しいパスワードを設定します。このユーザーのすべてのセッションがログアウトされます。"
+  },
+  "deleteDialog": {
+    "title": "ユーザーを削除",
+    "body": "<email>{{email}}</email> を削除しますか？読書進捗、API キー、セッションは完全に削除されます。この操作は取り消せません。",
+    "failed": "ユーザーを削除できませんでした。"
+  },
+  "labelList": {
+    "remove": "{{label}} を取り除く"
+  },
+  "activity": {
+    "title": "認証履歴",
+    "events_other": "{{count, number}} 件のイベント",
+    "loadFailed": "認証履歴を読み込めませんでした。",
+    "empty": "履歴はまだありません。"
+  }
+}

@@ -1,0 +1,128 @@
+# kmrs configuration file.
+#
+# Always loaded from <config-dir>/config.toml; there is no flag to point elsewhere.
+# The config dir itself comes from --config-dir / KOMGA_CONFIG_DIR, default ~/.komga.
+# On first start the file is generated automatically — with values migrated from a
+# Java komga application.yml/application.yaml found in the same directory — so you
+# normally never write it by hand.
+#
+# Every key below is commented out at its default value; uncomment to change it.
+# Precedence (lowest to highest): defaults < this file < env vars < CLI flags.
+# Env vars keep the komga/Spring names (e.g. `database.file` -> KOMGA_DATABASE_FILE).
+
+[server]
+# port = 25600 # env: SERVER_PORT; CLI: --port
+# session-timeout = "7d" # env: SERVER_SERVLET_SESSION_TIMEOUT; "500ms"/"10s"/"30m"/"1h"/"7d", bare integer = seconds
+# jdbc-session-enabled = true # env: KOMGA_JDBCSESSIONENABLED; persist sessions in [sessions-db] (Spring Session JDBC layout) so they survive restarts
+# context-path = "/" # env: SERVER_SERVLET_CONTEXT_PATH; URL prefix, empty = root
+# sort-locale = "zh-CN" # env: KOMGA_SORT_LOCALE; BCP47 language tag for ICU sorting, empty/absent = root collation
+
+[cors]
+# allowed-origins = [] # env: KOMGA_CORS_ALLOWEDORIGINS (comma-separated)
+
+[database]
+# file = "<config-dir>/database.sqlite" # env: KOMGA_DATABASE_FILE
+# pool-size = 8 # read pool size; default min(CPU cores, max-pool-size). env: KOMGA_DATABASE_POOLSIZE
+# max-pool-size = 16 # env: KOMGA_DATABASE_MAXPOOLSIZE
+# journal-mode = "WAL" # WAL/DELETE/TRUNCATE/PERSIST/MEMORY/OFF; env: KOMGA_DATABASE_JOURNALMODE
+# busy-timeout = "30s" # default 30s when unset; env: KOMGA_DATABASE_BUSYTIMEOUT
+# Task execution (library scan / analysis / hashing / conversion / maintenance)
+# uses a dedicated read/write pool over the same database file, so background
+# tasks never contend with HTTP/API connections for pool slots. The task write
+# pool is a second writer on the file; keep a busy timeout (default 30s) so
+# concurrent writes wait instead of failing. The task read pool defaults to 2
+# connections — task work is serial per worker (TASK_POOL_SIZE defaults to 2);
+# an explicit pool-size applies to the task pool too.
+# [database.pragmas] # extra SQLite pragmas, TOML only. synchronous defaults to NORMAL in WAL mode, FULL otherwise
+# synchronous = "FULL"
+# journal_size_limit = "67108864" # WAL file size cap in bytes; default 64 MiB in WAL mode, unlimited otherwise (autocheckpoint rewinds but never shrinks the WAL)
+# cache_size = "-1820" # page cache per connection, negative = KiB. Default: a 16 MiB budget per database divided evenly between its (read + write) connections, clamped to 512..2048 KiB
+
+[tasks-db]
+# file = "<config-dir>/tasks.sqlite" # env: KOMGA_TASKSDB_FILE; same keys as [database] but the read pool defaults to 2, env prefix KOMGA_TASKSDB
+
+[kmrs-db]
+# file = "<config-dir>/kmrs.sqlite" # kmrs-private state (per-book series metadata contributions, komf integration); env: KOMGA_KMRSDB_FILE; same keys as [database] but the read pool defaults to 2, env prefix KOMGA_KMRSDB
+
+[sessions-db]
+# file = "<config-dir>/sessions.sqlite" # only opened when jdbc-session-enabled = true; env: KOMGA_SESSIONSDB_FILE; same keys as [database] but the read pool defaults to 2, env prefix KOMGA_SESSIONSDB
+
+[search]
+# data-directory = "<config-dir>/lucene" # tantivy index; env: KOMGA_LUCENE_DATA_DIRECTORY
+
+[fonts]
+# data-directory = "<config-dir>/fonts" # env: KOMGA_FONTS_DATA_DIRECTORY
+
+[books]
+# page-hashing = 3 # env: KOMGA_PAGEHASHING
+# epub-divina-letter-count-threshold = 15 # env: KOMGA_EPUBDIVINALETTERCOUNTTHRESHOLD
+
+[libraries]
+# only consulted when database migrations run (fresh or upgraded data directory)
+# file-hashing = true # env: KOMGA_FILEHASHING
+# scan-on-startup = false # env: KOMGA_LIBRARIESSCANSTARTUP
+# delete-empty-collections = true # env: KOMGA_DELETEEMPTYCOLLECTIONS
+# delete-empty-read-lists = true # env: KOMGA_DELETEEMPTYREADLISTS
+
+[kobo]
+# sync-item-limit = 100 # env: KOMGA_KOBO_SYNCITEMLIMIT
+# kepubify-path = "/usr/local/bin/kepubify" # env: KOMGA_KOBO_KEPUBIFYPATH
+
+
+[webhooks]
+# generic JSON POST webhooks on library events (kmrs enhancement, no Java equivalent)
+# Per-endpoint configuration (each endpoint has its own URL, events, secret):
+# [[webhooks.endpoints]]
+# url = "https://example.com/webhook1"
+# events = ["BookAdded", "SeriesAdded"]  # empty = all events
+# secret = "hmac-secret"  # empty = unsigned
+#
+# [[webhooks.endpoints]]
+# url = "https://example.com/webhook2"
+# events = ["BookAdded"]
+# secret = ""
+#
+# timeout = "10s" # per-request POST timeout. env: KOMGA_WEBHOOKS_TIMEOUT
+#
+# Precedence: [[webhooks.endpoints]] in TOML file takes priority.
+# If no endpoints are defined in the file, env vars are used as fallback:
+# KOMGA_WEBHOOKS_URLS (comma-separated), KOMGA_WEBHOOKS_EVENTS,
+# KOMGA_WEBHOOKS_SECRET, KOMGA_WEBHOOKS_TIMEOUT
+
+[oauth2]
+# account-creation = false # env: KOMGA_OAUTH2ACCOUNTCREATION
+# oidc-email-verification = true # env: KOMGA_OIDCMAILVERIFICATION
+# One table per provider; setting `issuer-uri` switches it to OIDC discovery mode.
+# env vars SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_<ID>_*/PROVIDER_<ID>_* override single fields.
+#
+# [oauth2.registrations.github]
+# client-id = "..."
+# client-secret = "..."
+# client-name = "GitHub" # defaults to the registration id
+# authorization-grant-type = "authorization_code"
+# redirect-uri = "{baseUrl}/login/oauth2/code/{registrationId}"
+# scopes = ["read:user", "user:email"]
+# issuer-uri = "https://accounts.google.com"
+# authorization-uri = "..."
+# token-uri = "..."
+# user-info-uri = "..."
+# user-name-attribute = "..."
+
+[komf]
+# komf metadata fetcher integration (kmrs enhancement, no Java equivalent);
+# pre-fills the setup form in the admin UI — nothing is provisioned until an admin confirms
+# set auth-key when komf-rs runs behind its KOMF_AUTH_KEY gate; without a key, only
+# point this at a trusted network — komf's API then has no authentication
+# url = "http://komf:8085" # env: KOMGA_KOMF_URL
+# base-url = "http://kmrs:25600" # env: KOMGA_KOMF_BASEURL
+# auth-key = "..." # only when komf requires it; env: KOMGA_KOMF_AUTHKEY
+
+[history]
+# retention for the history event table (kmrs enhancement; the Java version keeps events forever)
+# retention-days = 180 # 0 = keep forever; env: KOMGA_HISTORY_RETENTIONDAYS
+
+[thumbnails]
+# where book/series thumbnail bytes live (kmrs enhancement; Java always uses DB blobs)
+# storage = "db" # db = blobs in the database, file = files under <config-dir>/thumbnails; env: KOMGA_THUMBNAILS_STORAGE
+# answer If-None-Match from the thumbnail row instead of hashing the body (kmrs enhancement; Java always hashes)
+# deep-etag = true # false = hash the body like the Java version; env: KOMGA_THUMBNAILS_DEEPETAG

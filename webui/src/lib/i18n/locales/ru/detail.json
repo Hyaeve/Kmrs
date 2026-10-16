@@ -1,0 +1,152 @@
+{
+  "read": "Читать",
+  "peek": "Просмотр",
+  "peekTooltip": "Читать без сохранения прогресса",
+  "continue": "Продолжить",
+  "continueWithPage": "Продолжить · страница {{page}}",
+  "markAsRead": "Отметить прочитанным",
+  "markAsUnread": "Отметить непрочитанным",
+  "moreActions": "Ещё действия",
+  "addToReadList": "Добавить в список чтения",
+  "addToCollection": "Добавить в коллекцию",
+  "addSeries": "Добавить серии",
+  "addBooks": "Добавить книги",
+  "removeFromCollection": "Убрать из {{name}}",
+  "removeFromReadList": "Убрать из {{name}}",
+  "rename": "Переименовать",
+  "nameLabel": "Название",
+  "summaryLabel": "Описание",
+  "previous": "Назад",
+  "next": "Вперёд",
+  "inCollections": "В коллекциях",
+  "inReadLists": "В списках чтения",
+  "booksHeading": "Книги",
+  "bookCount_one": "{{count}} книга",
+  "bookCount_few": "{{count}} книги",
+  "bookCount_many": "{{count}} книг",
+  "bookCount_other": "{{count}} книги",
+  "seriesCount": "Серии: {{count}}",
+  "selectedCount": "Выбрано: {{count}}",
+  "menu": {
+    "editMetadata": "Изменить метаданные",
+    "editBookMetadata": "Изменить метаданные книги",
+    "managePosters": "Управление постерами",
+    "analyze": "Анализировать",
+    "refreshMetadata": "Обновить метаданные",
+    "identifyKomf": "Определить через komf",
+    "matchKomf": "Сопоставить с komf",
+    "resetKomf": "Сбросить метаданные через komf",
+    "deleteFile": "Удалить файл",
+    "previousBook": "Предыдущая книга",
+    "nextBook": "Следующая книга",
+    "editDetails": "Изменить детали"
+  },
+  "toast": {
+    "analysisQueued": "Анализ поставлен в очередь",
+    "queueAnalysisFailed": "Не удалось поставить анализ в очередь",
+    "refreshQueued": "Обновление метаданных поставлено в очередь",
+    "queueRefreshFailed": "Не удалось поставить обновление в очередь",
+    "identifyQueued": "Определение поставлено в очередь",
+    "metadataReset": "Метаданные сброшены",
+    "resetMetadataFailed": "Не удалось сбросить метаданные",
+    "queueMatchFailed": "Не удалось поставить сопоставление в очередь",
+    "deleteFileFailed": "Не удалось удалить файл",
+    "deleteFilesFailed": "Не удалось удалить файлы",
+    "removedFromCollection": "Убрано из {{name}}",
+    "removedFromReadList": "Убрано из {{name}}",
+    "collectionDeleted": "Коллекция удалена",
+    "readListDeleted": "Список чтения удалён",
+    "removeFromCollectionFailed": "Не удалось убрать из коллекции",
+    "removeFromReadListFailed": "Не удалось убрать из списка чтения"
+  },
+  "notFound": {
+    "book": "Книга не найдена",
+    "series": "Серия не найдена",
+    "collection": "Коллекция не найдена",
+    "readList": "Список чтения не найден"
+  },
+  "field": {
+    "pages": "Страницы",
+    "size": "Размер",
+    "format": "Формат",
+    "profile": "Профиль",
+    "releaseDate": "Дата выхода",
+    "file": "Файл",
+    "added": "Добавлено"
+  },
+  "progress": {
+    "completed": "Прочитано",
+    "pageOf": "Страница {{page}} из {{total}}"
+  },
+  "stats": {
+    "books_one": "<num>{{count}}</num> книга",
+    "books_few": "<num>{{count}}</num> книги",
+    "books_many": "<num>{{count}}</num> книг",
+    "books_other": "<num>{{count}}</num> книги",
+    "read": "<num>{{count}}</num> прочитано",
+    "unread": "<num>{{count}}</num> непрочитано"
+  },
+  "empty": {
+    "loadBooksFailed": "Не удалось загрузить книги",
+    "loadSeriesFailed": "Не удалось загрузить серии",
+    "noBooks": "Нет книг",
+    "noBooksFiltered": "Ни одна книга не подходит под фильтры.",
+    "seriesEmpty": "В этой серии нет книг.",
+    "noSeries": "Нет серий",
+    "noSeriesFiltered": "Ни одна серия не подходит под фильтры.",
+    "collectionEmpty": "Эта коллекция пуста.",
+    "readListEmpty": "Этот список чтения пуст.",
+    "noBook": "Нет книги",
+    "oneshotNoBook": "У этого ваншота пока нет книги."
+  },
+  "confirmDelete": {
+    "body": "Удалить <name>{{name}}</name>? Это нельзя отменить."
+  },
+  "error": {
+    "title": "Что-то пошло не так",
+    "unknown": "Неизвестная ошибка",
+    "notFoundBody": "Возможно, объект удалён, или у вас нет к нему доступа."
+  },
+  "addToReadListDialog": {
+    "empty": "Списков чтения пока нет"
+  },
+  "collection": {
+    "renameTitle": "Переименовать коллекцию",
+    "deleteTitle": "Удалить коллекцию",
+    "editMembersEmpty": "В коллекции должна быть хотя бы одна серия. Удалите её, вместо того чтобы опустошить.",
+    "selectedSeriesCount_one": "Выбрано: {{count}}",
+    "selectedSeriesCount_few": "Выбрано: {{count}}",
+    "selectedSeriesCount_many": "Выбрано: {{count}}",
+    "selectedSeriesCount_other": "Выбрано: {{count}}"
+  },
+  "readList": {
+    "editTitle": "Изменить список чтения",
+    "deleteTitle": "Удалить список чтения"
+  },
+  "deleteDialog": {
+    "bookFileTitle": "Удалить файл книги",
+    "bookFileName": "файл {{name}}",
+    "seriesFilesTitle": "Удалить файлы серии",
+    "seriesFilesName": "все файлы {{name}}"
+  },
+  "picker": {
+    "searchPlaceholder": "Поиск книг…",
+    "searchSeriesPlaceholder": "Поиск серий…",
+    "noBooksFound": "Книги не найдены",
+    "noSeriesFound": "Серии не найдены",
+    "tryDifferentSearch": "Попробуйте другой запрос.",
+    "addedBadge": "Добавлено",
+    "pickOne": "Выберите одну книгу",
+    "pickOneSeries": "Выберите одну серию",
+    "noneSelected": "Ничего не выбрано"
+  },
+  "editBooks": {
+    "selectAll": "Выбрать все",
+    "clearSelection": "Снять выбор",
+    "removeSelected": "Убрать выбранные",
+    "manualOrdering": "Ручной порядок",
+    "emptyNotAllowed": "В списке чтения должна быть хотя бы одна книга. Удалите его, вместо того чтобы опустошить.",
+    "selectRow": "Выбрать строку",
+    "dragToReorder": "Перетащите, чтобы изменить порядок"
+  }
+}

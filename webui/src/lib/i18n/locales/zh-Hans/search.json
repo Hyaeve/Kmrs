@@ -1,0 +1,27 @@
+{
+  "title": "搜索",
+  "titleWithQuery": "搜索：{{q}}",
+  "scope": {
+    "all": "所有库",
+    "pinned": "固定的库",
+    "library": "库",
+    "ariaLabel": "搜索范围：{{label}}"
+  },
+  "tabs": {
+    "all": "全部",
+    "series": "系列",
+    "books": "书籍",
+    "collections": "合集",
+    "readlists": "阅读列表"
+  },
+  "placeholderTop": "搜索系列、书籍、作者…",
+  "placeholderPage": "搜索系列、书籍、合集、阅读列表…",
+  "clear": "清除搜索",
+  "emptyTitle": "搜索你的书库",
+  "emptyBody": "查找系列、书籍、合集和阅读列表，也支持 title:berserk AND tag:seinen 这样的字段查询。",
+  "viewAll": "查看全部",
+  "noResultsTitle": "没有找到“{{q}}”的结果",
+  "noResultsBody": "换个关键词试试，或在单个分类中搜索。",
+  "failedTitle": "搜索失败",
+  "failedBody": "出了点问题。"
+}

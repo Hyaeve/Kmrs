@@ -1,0 +1,88 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/komga-core",
+    "crates/komga-db",
+    "crates/komga-media",
+    "crates/komga-search",
+    "crates/komga-server",
+    "xtask",
+]
+
+[workspace.package]
+version = "0.21.1"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/kmworks/kmrs"
+
+[workspace.dependencies]
+# async runtime
+tokio = { version = "1", features = ["full"] }
+# http
+axum = { version = "0.8", features = ["multipart"] }
+tower = "0.5"
+tower-http = { version = "0.7", features = ["cors", "trace"] }
+# db
+rusqlite = { version = "0.32", features = ["bundled", "collation", "functions", "trace"] }
+r2d2 = "0.8"
+r2d2_sqlite = "0.25"
+# serde
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+quick-xml = { version = "0.42", features = ["serialize"] }
+# crypto / hash
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+md5 = "0.8"
+sha2 = "0.11"
+hex = "0.4"
+bcrypt = "0.19"
+flate2 = "1"
+crc32fast = "1"
+# time
+time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"] }
+# icu
+icu_collator = "2"
+icu_normalizer = "2"
+icu_locale = "2"
+# cli / config
+clap = { version = "4", features = ["derive"] }
+toml = "1.1"
+serde_yaml = "0.9"
+# utils
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+anyhow = "1"
+thiserror = "2"
+libc = "0.2"
+uuid = { version = "1", features = ["v4"] }
+regex = "1"
+form_urlencoded = "1"
+image = "0.25"
+moka = { version = "0.12", features = ["future", "sync"] }
+sysinfo = { version = "0.39", default-features = false, features = ["system", "disk"] }
+jiff = "0.2"
+zip = { version = "8", default-features = false, features = ["deflate"] }
+roxmltree = "0.21"
+scraper = "0.27"
+compress-tools = { version = "0.16", default-features = false, features = ["static"] }
+# `thread_safe` (default) stays on: pdfium-render 0.9 allows exactly one bindings object
+# per process and serializes every FFI call behind a mutex, so per-thread bindings are
+# impossible; the global PDF document cache in komga-media relies on it for Sync
+pdfium-render = "0.9"
+tantivy = "0.26.2"
+# opt-in heap profiling (komga-server `profiling` feature)
+tikv-jemallocator = { version = "0.6", features = ["profiling"] }
+tikv-jemalloc-ctl = { version = "0.6", features = ["profiling"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+
+# release + line tables: heap profiles (komga-server `profiling` feature) are symbolized
+# against the binary, which `strip = "symbols"` would gut
+[profile.profiling]
+inherits = "release"
+debug = 1
+strip = "debuginfo"

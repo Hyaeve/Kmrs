@@ -1,0 +1,74 @@
+{
+  "title": "Статистика чтения",
+  "subtitle": "Ваше чтение по всем библиотекам",
+  "failed": "Не удалось загрузить статистику чтения.",
+  "library": {
+    "all": "Все библиотеки",
+    "ariaLabel": "Статистика: {{label}}"
+  },
+  "summary": {
+    "booksRead": "Книг прочитано",
+    "ofTotal_one": "из {{total}} книги",
+    "ofTotal_few": "из {{total}} книг",
+    "ofTotal_many": "из {{total}} книг",
+    "ofTotal_other": "из {{total}} книги",
+    "inProgress": "Читается",
+    "pagesRead": "Страниц прочитано",
+    "readingDays": "Дней чтения",
+    "currentStreak": "Текущая серия",
+    "longestStreak": "Самая длинная серия",
+    "avgPages": "Сред. страниц на книгу",
+    "lastRead": "Последнее чтение",
+    "never": "Никогда",
+    "days_one": "{{count}} день",
+    "days_few": "{{count}} дня",
+    "days_many": "{{count}} дней",
+    "days_other": "{{count}} дня"
+  },
+  "heatmap": {
+    "title": "Активность чтения",
+    "range3m": "Последние 3 месяца",
+    "range6m": "Последние 6 месяцев",
+    "range1y": "Последние 12 месяцев",
+    "empty": "За этот период нет активности чтения.",
+    "less": "Меньше",
+    "more": "Больше",
+    "pages_one": "{{count}} страница",
+    "pages_few": "{{count}} страницы",
+    "pages_many": "{{count}} страниц",
+    "pages_other": "{{count}} страницы",
+    "completed_one": "прочитана {{count}} книга",
+    "completed_few": "прочитаны {{count}} книги",
+    "completed_many": "прочитано {{count}} книг",
+    "completed_other": "прочитано {{count}} книги",
+    "noActivity": "Нет чтения",
+    "dayLabel": "{{date}}: {{activity}}"
+  },
+  "status": {
+    "title": "Книги по статусу",
+    "read": "Прочитано",
+    "inProgress": "Читается",
+    "unread": "Непрочитано",
+    "empty": "Книг пока нет."
+  },
+  "chart": {
+    "tooltip": "{{label}}: {{value}}"
+  },
+  "weekday": {
+    "title": "По дням недели"
+  },
+  "hourly": {
+    "title": "По часам дня"
+  },
+  "tops": {
+    "title": "Чаще всего читаемое",
+    "authors": "Авторы",
+    "genres": "Жанры",
+    "tags": "Теги",
+    "series_one": "{{count}} серия",
+    "series_few": "{{count}} серии",
+    "series_many": "{{count}} серий",
+    "series_other": "{{count}} серии",
+    "empty": "Прочитайте несколько книг, чтобы увидеть самых читаемых авторов, жанры и теги."
+  }
+}

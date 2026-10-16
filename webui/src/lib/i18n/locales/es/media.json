@@ -1,0 +1,52 @@
+{
+  "card": {
+    "actionsFor": "Acciones para {{title}}",
+    "continueReading": "Seguir leyendo {{title}}",
+    "pageCount_one": "{{count}} página",
+    "pageCount_many": "{{count}} páginas",
+    "pageCount_other": "{{count}} páginas"
+  },
+  "menu": {
+    "select": "Seleccionar",
+    "read": "Leer",
+    "peek": "Vistazo",
+    "bookDetails": "Detalles del libro",
+    "markAsRead": "Marcar como leído",
+    "markAsUnread": "Marcar como no leído",
+    "addToReadList": "Añadir a lista de lectura",
+    "addToCollection": "Añadir a colección",
+    "download": "Descargar",
+    "editMetadata": "Editar metadatos",
+    "deleteFile": "Eliminar archivo",
+    "deleteFiles": "Eliminar archivos",
+    "identifyWithKomf": "Identificar con komf"
+  },
+  "identifyQueued": "Identificación en cola",
+  "select": {
+    "select": "Seleccionar {{title}}",
+    "deselect": "Deseleccionar {{title}}"
+  },
+  "series": {
+    "progressSummary_one": "{{pct}} % · {{count}} libro",
+    "progressSummary_many": "{{pct}} % · {{count}} libros",
+    "progressSummary_other": "{{pct}} % · {{count}} libros",
+    "unreadSummary": "{{unread}} de {{total}} sin leer",
+    "booksCount_one": "{{count}} libro",
+    "booksCount_many": "{{count}} libros",
+    "booksCount_other": "{{count}} libros"
+  },
+  "collection": {
+    "seriesCount_one": "{{count}} serie",
+    "seriesCount_many": "{{count}} series",
+    "seriesCount_other": "{{count}} series"
+  },
+  "readList": {
+    "bookCount_one": "{{count}} libro",
+    "bookCount_many": "{{count}} libros",
+    "bookCount_other": "{{count}} libros"
+  },
+  "row": {
+    "scrollLeft": "Desplazar a la izquierda",
+    "scrollRight": "Desplazar a la derecha"
+  }
+}

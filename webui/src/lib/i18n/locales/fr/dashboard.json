@@ -1,0 +1,43 @@
+{
+  "title": "Tableau de bord",
+  "scope": {
+    "all": "Tout"
+  },
+  "sections": {
+    "keepReading": "Continuer la lecture",
+    "onDeck": "À lire ensuite",
+    "recentlyReleasedBooks": "Livres récemment sortis",
+    "recentlyAddedBooks": "Livres récemment ajoutés",
+    "recentlyAddedSeries": "Séries récemment ajoutées",
+    "recentlyUpdatedSeries": "Séries récemment mises à jour",
+    "recentlyRead": "Récemment lus"
+  },
+  "customizeSections": "Personnaliser les sections",
+  "allHidden": {
+    "title": "Toutes les sections sont masquées",
+    "body": "Chaque section du tableau de bord est masquée pour cette vue."
+  },
+  "empty": {
+    "title": "Rien ici pour le moment",
+    "body": "Les livres et séries apparaîtront ici une fois que votre serveur aura du contenu."
+  },
+  "pinnedEmpty": {
+    "title": "Aucune bibliothèque épinglée",
+    "body": "Le tableau de bord Tout n'affiche que le contenu de vos bibliothèques épinglées. Épinglez-en pour composer votre tableau de bord, ou réinitialisez pour revoir toutes les bibliothèques.",
+    "action": "Choisir les bibliothèques"
+  },
+  "rowError": "Impossible de charger cette section.",
+  "loadError": "Impossible de charger",
+  "bookCount_one": "{{count}} livre",
+  "bookCount_many": "{{count}} livres",
+  "bookCount_other": "{{count}} livres",
+  "seriesCount_one": "{{count}} série",
+  "seriesCount_many": "{{count}} séries",
+  "seriesCount_other": "{{count}} séries",
+  "sectionsDialog": {
+    "bodyAll": "S'applique uniquement à la vue Tout du tableau de bord. Glissez pour réordonner, ou masquez les sections que vous n'utilisez pas.",
+    "bodyLibrary": "S'applique uniquement à cette vue de bibliothèque. Glissez pour réordonner, ou masquez les sections que vous n'utilisez pas.",
+    "reorder": "Réordonner {{title}}",
+    "reset": "Réinitialiser"
+  }
+}

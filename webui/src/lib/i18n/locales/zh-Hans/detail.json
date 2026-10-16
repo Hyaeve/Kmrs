@@ -1,0 +1,143 @@
+{
+  "read": "阅读",
+  "peek": "试读",
+  "peekTooltip": "阅读但不保存进度",
+  "continue": "继续阅读",
+  "continueWithPage": "继续阅读 · 第 {{page}} 页",
+  "markAsRead": "标记为已读",
+  "markAsUnread": "标记为未读",
+  "moreActions": "更多操作",
+  "addToReadList": "添加到阅读列表",
+  "addToCollection": "添加到合集",
+  "addSeries": "添加系列",
+  "addBooks": "添加书籍",
+  "removeFromCollection": "从《{{name}}》移除",
+  "removeFromReadList": "从《{{name}}》移除",
+  "rename": "重命名",
+  "nameLabel": "名称",
+  "summaryLabel": "简介",
+  "previous": "上一本",
+  "next": "下一本",
+  "inCollections": "所属合集",
+  "inReadLists": "所属阅读列表",
+  "booksHeading": "书籍",
+  "bookCount_other": "{{count}} 本书",
+  "seriesCount": "{{count}} 个系列",
+  "selectedCount": "已选 {{count}} 本",
+  "menu": {
+    "editMetadata": "编辑元数据",
+    "editBookMetadata": "编辑书籍元数据",
+    "managePosters": "管理海报",
+    "analyze": "分析",
+    "refreshMetadata": "刷新元数据",
+    "identifyKomf": "用 komf 识别",
+    "matchKomf": "用 komf 匹配",
+    "resetKomf": "用 komf 重置元数据",
+    "deleteFile": "删除文件",
+    "previousBook": "上一本",
+    "nextBook": "下一本",
+    "editDetails": "编辑详情"
+  },
+  "toast": {
+    "analysisQueued": "分析已加入队列",
+    "queueAnalysisFailed": "无法将分析加入队列",
+    "refreshQueued": "元数据刷新已加入队列",
+    "queueRefreshFailed": "无法将刷新加入队列",
+    "identifyQueued": "识别已加入队列",
+    "metadataReset": "元数据已重置",
+    "resetMetadataFailed": "无法重置元数据",
+    "queueMatchFailed": "无法将匹配加入队列",
+    "deleteFileFailed": "无法删除文件",
+    "deleteFilesFailed": "无法删除文件",
+    "removedFromCollection": "已从《{{name}}》移除",
+    "removedFromReadList": "已从《{{name}}》移除",
+    "collectionDeleted": "合集已删除",
+    "readListDeleted": "阅读列表已删除",
+    "removeFromCollectionFailed": "无法从合集移除",
+    "removeFromReadListFailed": "无法从阅读列表移除"
+  },
+  "notFound": {
+    "book": "找不到这本书",
+    "series": "找不到该系列",
+    "collection": "找不到该合集",
+    "readList": "找不到该阅读列表"
+  },
+  "field": {
+    "pages": "页数",
+    "size": "大小",
+    "format": "格式",
+    "profile": "配置",
+    "releaseDate": "发布日期",
+    "file": "文件",
+    "added": "添加时间"
+  },
+  "progress": {
+    "completed": "已完成",
+    "pageOf": "第 {{page}} 页，共 {{total}} 页"
+  },
+  "stats": {
+    "books_other": "共 <num>{{count}}</num> 本",
+    "read": "已读 <num>{{count}}</num> 本",
+    "unread": "未读 <num>{{count}}</num> 本"
+  },
+  "empty": {
+    "loadBooksFailed": "无法加载书籍",
+    "loadSeriesFailed": "无法加载系列",
+    "noBooks": "暂无书籍",
+    "noBooksFiltered": "没有符合筛选条件的书籍。",
+    "seriesEmpty": "该系列还没有书籍。",
+    "noSeries": "暂无系列",
+    "noSeriesFiltered": "没有符合筛选条件的系列。",
+    "collectionEmpty": "该合集为空。",
+    "readListEmpty": "该阅读列表为空。",
+    "noBook": "暂无书籍",
+    "oneshotNoBook": "该单篇还没有书籍。"
+  },
+  "confirmDelete": {
+    "body": "删除<name>{{name}}</name>？此操作无法撤销。"
+  },
+  "error": {
+    "title": "出错了",
+    "unknown": "未知错误",
+    "notFoundBody": "它可能已被删除，或者您没有访问权限。"
+  },
+  "addToReadListDialog": {
+    "empty": "暂无阅读列表"
+  },
+  "collection": {
+    "renameTitle": "重命名合集",
+    "deleteTitle": "删除合集",
+    "editMembersEmpty": "合集至少需要一个系列。如需清空，请删除合集。",
+    "selectedSeriesCount_other": "已选 {{count}} 个系列"
+  },
+  "readList": {
+    "editTitle": "编辑阅读列表",
+    "deleteTitle": "删除阅读列表"
+  },
+  "deleteDialog": {
+    "bookFileTitle": "删除书籍文件",
+    "bookFileName": "《{{name}}》的文件",
+    "seriesFilesTitle": "删除系列文件",
+    "seriesFilesName": "《{{name}}》的全部文件"
+  },
+  "picker": {
+    "searchPlaceholder": "搜索书籍…",
+    "searchSeriesPlaceholder": "搜索系列…",
+    "noBooksFound": "没有找到书籍",
+    "noSeriesFound": "没有找到系列",
+    "tryDifferentSearch": "换个关键词试试。",
+    "addedBadge": "已添加",
+    "pickOne": "选择一本书",
+    "pickOneSeries": "选择一个系列",
+    "noneSelected": "尚未选择"
+  },
+  "editBooks": {
+    "selectAll": "全选",
+    "clearSelection": "清除选择",
+    "removeSelected": "移除所选",
+    "manualOrdering": "手动排序",
+    "emptyNotAllowed": "阅读列表至少需要一本书，如需清空请直接删除该列表。",
+    "selectRow": "选择此行",
+    "dragToReorder": "拖拽排序"
+  }
+}

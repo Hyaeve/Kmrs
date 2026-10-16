@@ -1,0 +1,104 @@
+{
+  "language": {
+    "title": "Язык",
+    "label": "Язык интерфейса"
+  },
+  "profile": {
+    "title": "Профиль",
+    "email": "Эл. почта",
+    "roles": "Роли",
+    "libraries": "Библиотеки",
+    "allLibraries": "Все библиотеки",
+    "sharedLibraries_one": "{{count}} библиотека",
+    "sharedLibraries_few": "{{count}} библиотеки",
+    "sharedLibraries_many": "{{count}} библиотек",
+    "sharedLibraries_other": "{{count}} библиотеки",
+    "role": {
+      "admin": "Администратор",
+      "user": "Пользователь",
+      "fileDownload": "Скачивание файлов",
+      "pageStreaming": "Потоковая передача страниц",
+      "koboSync": "Синхронизация Kobo",
+      "koreaderSync": "Синхронизация KOReader"
+    }
+  },
+  "security": {
+    "title": "Безопасность",
+    "subtitle": "Пароль и активность входов",
+    "password": {
+      "title": "Сменить пароль",
+      "new": "Новый пароль",
+      "confirm": "Подтверждение пароля",
+      "staySignedIn": "Вы останетесь в системе на этом устройстве.",
+      "mismatch": "Пароли не совпадают.",
+      "updated": "Пароль обновлён. Остальные сеансы завершены.",
+      "failed": "Не удалось обновить пароль.",
+      "submit": "Обновить пароль"
+    },
+    "activity": {
+      "title": "Активность входов",
+      "failed": "Не удалось загрузить активность входов.",
+      "empty": "Активности входов пока нет.",
+      "when": "Когда",
+      "ip": "IP",
+      "source": "Источник",
+      "status": "Статус",
+      "agent": "Агент",
+      "success": "Успешно",
+      "statusFailed": "Ошибка",
+      "page": "Страница {{current}} из {{total}}",
+      "previous": "Назад",
+      "next": "Вперёд"
+    }
+  },
+  "apiKeys": {
+    "title": "Ключи API",
+    "subtitle": "Ключи для сторонних клиентов и синхронизации",
+    "failed": "Не удалось загрузить ключи API.",
+    "empty": "Ключей API пока нет.",
+    "resyncHint": "Повторная синхронизация заставляет устройства KOReader и Kobo заново загрузить всё.",
+    "resyncAll": "Синхронизировать все устройства заново",
+    "untitled": "Без названия",
+    "createdOnly": "Создан {{date}}",
+    "createdAndUsed": "Создан {{date}} · последнее использование {{time}}",
+    "resyncKey": "Принудительно синхронизировать {{name}} заново",
+    "delete": "Удалить ключ API",
+    "deleteFailed": "Не удалось удалить ключ API.",
+    "resyncDone": "Запрошена повторная синхронизация для {{name}}.",
+    "allDevices": "всех устройств",
+    "new": "Новый ключ API",
+    "commentPlaceholder": "Комментарий, например KOReader на Boox",
+    "createFailed": "Не удалось создать ключ API.",
+    "createdTitle": "Ключ API создан",
+    "shownOnce": "Этот ключ показывается только один раз.",
+    "copy": "Копировать",
+    "copied": "Скопировано",
+    "resyncTitle": "Принудительная повторная синхронизация",
+    "resyncKeyBody": "Сбросить точку синхронизации для <name>{{name}}</name>? Следующее устройство KOReader или Kobo с этим ключом заново загрузит весь прогресс.",
+    "resyncAllBody": "Сбросить точки синхронизации всех ключей API? Все ваши устройства KOReader и Kobo заново загрузят весь прогресс при следующей синхронизации.",
+    "resyncFailed": "Не удалось запросить повторную синхронизацию."
+  },
+  "reader": {
+    "title": "Читалка",
+    "subtitle": "Настройки читалки по умолчанию",
+    "defaultsTitle": "Настройки читалки по умолчанию",
+    "direction": "Направление чтения",
+    "scale": "Масштаб",
+    "scaleScreen": "По размеру экрана",
+    "scaleWidth": "По ширине",
+    "scaleShrinkWidth": "Сжать до ширины",
+    "scaleHeight": "По высоте",
+    "scaleOriginal": "Оригинал",
+    "pageLayout": "Раскладка страниц",
+    "layoutSingle": "Одиночная",
+    "layoutDouble": "Двойная",
+    "layoutDoubleNoCover": "Двойная без обложки",
+    "background": "Фон",
+    "backgroundLabel": "Фон {{color}}",
+    "backgrounds": {
+      "black": "Чёрный",
+      "gray": "Серый",
+      "white": "Белый"
+    }
+  }
+}

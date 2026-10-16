@@ -1,0 +1,59 @@
+{
+  "title": "阅读统计",
+  "subtitle": "你在各个库的阅读情况",
+  "failed": "无法加载阅读统计。",
+  "library": {
+    "all": "全部库",
+    "ariaLabel": "{{label}}的统计"
+  },
+  "summary": {
+    "booksRead": "已读完",
+    "ofTotal_other": "共 {{total}} 本",
+    "inProgress": "在读",
+    "pagesRead": "已读页数",
+    "readingDays": "阅读天数",
+    "currentStreak": "当前连续",
+    "longestStreak": "最长连续",
+    "avgPages": "平均每本页数",
+    "lastRead": "最近阅读",
+    "never": "从未",
+    "days_other": "{{count}} 天"
+  },
+  "heatmap": {
+    "title": "阅读动态",
+    "range3m": "近 3 个月",
+    "range6m": "近 6 个月",
+    "range1y": "近 12 个月",
+    "empty": "该时间段内没有阅读记录。",
+    "less": "少",
+    "more": "多",
+    "pages_other": "{{count}} 页",
+    "completed_other": "读完 {{count}} 本",
+    "noActivity": "没有阅读",
+    "dayLabel": "{{date}}:{{activity}}"
+  },
+  "status": {
+    "title": "书籍状态",
+    "read": "已读完",
+    "inProgress": "在读",
+    "unread": "未读",
+    "empty": "暂无书籍。"
+  },
+  "chart": {
+    "tooltip": "{{label}}:{{value}}"
+  },
+  "weekday": {
+    "title": "按星期几"
+  },
+  "hourly": {
+    "title": "按时段"
+  },
+  "tops": {
+    "title": "常读排行",
+    "authors": "作者",
+    "genres": "题材",
+    "tags": "标签",
+    "series_other": "{{count}} 部",
+    "empty": "读完一些书后，这里会显示你常读的作者、题材和标签。"
+  }
+}

@@ -1,0 +1,102 @@
+{
+  "language": {
+    "title": "Language",
+    "label": "Interface language"
+  },
+  "profile": {
+    "title": "Profile",
+    "email": "Email",
+    "roles": "Roles",
+    "libraries": "Libraries",
+    "allLibraries": "All libraries",
+    "sharedLibraries_one": "{{count}} library",
+    "sharedLibraries_other": "{{count}} libraries",
+    "role": {
+      "admin": "Admin",
+      "user": "User",
+      "fileDownload": "File download",
+      "pageStreaming": "Page streaming",
+      "koboSync": "Kobo sync",
+      "koreaderSync": "KOReader sync"
+    }
+  },
+  "security": {
+    "title": "Security",
+    "subtitle": "Password and login activity",
+    "password": {
+      "title": "Change password",
+      "new": "New password",
+      "confirm": "Confirm password",
+      "staySignedIn": "You will stay signed in on this device.",
+      "mismatch": "Passwords do not match.",
+      "updated": "Password updated. Other sessions were signed out.",
+      "failed": "Could not update password.",
+      "submit": "Update password"
+    },
+    "activity": {
+      "title": "Login activity",
+      "failed": "Could not load login activity.",
+      "empty": "No login activity yet.",
+      "when": "When",
+      "ip": "IP",
+      "source": "Source",
+      "status": "Status",
+      "agent": "Agent",
+      "success": "Success",
+      "statusFailed": "Failed",
+      "page": "Page {{current}} of {{total}}",
+      "previous": "Previous",
+      "next": "Next"
+    }
+  },
+  "apiKeys": {
+    "title": "API keys",
+    "subtitle": "Keys for third-party clients and sync",
+    "failed": "Could not load API keys.",
+    "empty": "No API keys yet.",
+    "resyncHint": "Resync forces KOReader and Kobo devices to fetch everything again.",
+    "resyncAll": "Resync all devices",
+    "untitled": "Untitled",
+    "createdOnly": "Created {{date}}",
+    "createdAndUsed": "Created {{date}} · Last used {{time}}",
+    "resyncKey": "Force resync for {{name}}",
+    "delete": "Delete API key",
+    "deleteFailed": "Could not delete API key.",
+    "resyncDone": "Resync requested for {{name}}.",
+    "allDevices": "all devices",
+    "new": "New API key",
+    "commentPlaceholder": "Comment, e.g. KOReader on Boox",
+    "createFailed": "Could not create API key.",
+    "createdTitle": "API key created",
+    "shownOnce": "This key is shown only once.",
+    "copy": "Copy",
+    "copied": "Copied",
+    "resyncTitle": "Force resync",
+    "resyncKeyBody": "Reset the sync point for <name>{{name}}</name>? The next KOReader or Kobo device using this key downloads its whole progress again.",
+    "resyncAllBody": "Reset the sync points of every API key? All your KOReader and Kobo devices download their whole progress again on the next sync.",
+    "resyncFailed": "Could not request the resync."
+  },
+  "reader": {
+    "title": "Reader",
+    "subtitle": "Defaults for the comic reader",
+    "defaultsTitle": "Reader defaults",
+    "direction": "Reading direction",
+    "scale": "Scale",
+    "scaleScreen": "Fit screen",
+    "scaleWidth": "Fit width",
+    "scaleShrinkWidth": "Shrink to width",
+    "scaleHeight": "Fit height",
+    "scaleOriginal": "Original",
+    "pageLayout": "Page layout",
+    "layoutSingle": "Single",
+    "layoutDouble": "Double",
+    "layoutDoubleNoCover": "Double no cover",
+    "background": "Background",
+    "backgroundLabel": "Background {{color}}",
+    "backgrounds": {
+      "black": "Black",
+      "gray": "Gray",
+      "white": "White"
+    }
+  }
+}

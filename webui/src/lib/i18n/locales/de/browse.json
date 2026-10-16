@@ -1,0 +1,108 @@
+{
+  "libraryFallback": "Bibliothek",
+  "errorFallback": "Etwas ist schiefgelaufen.",
+  "emptyFilterHint": "Versuche, deine Filter anzupassen.",
+  "tryDifferentSearch": "Versuche eine andere Suche.",
+  "tabs": {
+    "series": "Serien",
+    "books": "Bücher",
+    "collections": "Sammlungen",
+    "readlists": "Leselisten"
+  },
+  "namePlaceholder": "Name",
+  "bookCount_one": "{{count}} Buch",
+  "bookCount_other": "{{count}} Bücher",
+  "seriesCount_one": "{{count}} Serie",
+  "seriesCount_other": "{{count}} Serien",
+  "books": {
+    "all": "Alle Bücher",
+    "loadError": "Bücher konnten nicht geladen werden",
+    "empty": "Keine Bücher gefunden"
+  },
+  "series": {
+    "all": "Alle Serien",
+    "loadError": "Serien konnten nicht geladen werden",
+    "empty": "Keine Serien gefunden"
+  },
+  "collections": {
+    "title": "Sammlungen",
+    "loadError": "Sammlungen konnten nicht geladen werden",
+    "empty": "Noch keine Sammlungen",
+    "count_one": "Sammlung",
+    "count_other": "Sammlungen"
+  },
+  "readlists": {
+    "title": "Leselisten",
+    "loadError": "Leselisten konnten nicht geladen werden",
+    "empty": "Noch keine Leselisten",
+    "count_one": "Leseliste",
+    "count_other": "Leselisten"
+  },
+  "alphabet": {
+    "ariaLabel": "Nach Anfangsbuchstaben stöbern"
+  },
+  "addToCollection": {
+    "title_one": "{{count}} Serie zu Sammlung hinzufügen",
+    "title_other": "{{count}} Serien zu Sammlung hinzufügen",
+    "filterPlaceholder": "Sammlungen filtern…",
+    "noMatch": "Keine passenden Sammlungen",
+    "newLabel": "Neue Sammlung",
+    "added": "Zu „{{name}}“ hinzugefügt",
+    "created": "„{{name}}“ erstellt",
+    "addFailed": "Konnte nicht zur Sammlung hinzugefügt werden",
+    "createFailed": "Sammlung konnte nicht erstellt werden"
+  },
+  "addToReadList": {
+    "title_one": "{{count}} Buch zu Leseliste hinzufügen",
+    "title_other": "{{count}} Bücher zu Leseliste hinzufügen",
+    "filterPlaceholder": "Leselisten filtern…",
+    "noMatch": "Keine passenden Leselisten",
+    "newLabel": "Neue Leseliste",
+    "added": "Zu „{{name}}“ hinzugefügt",
+    "created": "„{{name}}“ erstellt",
+    "addFailed": "Konnte nicht zur Leseliste hinzugefügt werden",
+    "createFailed": "Leseliste konnte nicht erstellt werden"
+  },
+  "deleteConfirm": {
+    "body_book_one": "Die Dateien von <num>{{count}}</num> Buch löschen? Dateien werden von der Festplatte entfernt. Dies kann nicht rückgängig gemacht werden.",
+    "body_book_other": "Die Dateien von <num>{{count}}</num> Büchern löschen? Dateien werden von der Festplatte entfernt. Dies kann nicht rückgängig gemacht werden.",
+    "body_series_one": "Die Dateien von <num>{{count}}</num> Serie löschen? Dateien werden von der Festplatte entfernt. Dies kann nicht rückgängig gemacht werden.",
+    "body_series_other": "Die Dateien von <num>{{count}}</num> Serien löschen? Dateien werden von der Festplatte entfernt. Dies kann nicht rückgängig gemacht werden."
+  },
+  "selection": {
+    "working": "Verarbeite {{done}} von {{total}}…",
+    "selected_one": "<num>{{count}}</num> ausgewählt",
+    "selected_other": "<num>{{count}}</num> ausgewählt",
+    "selectAll": "Alle auswählen",
+    "clear": "Auswahl aufheben",
+    "moreActions": "Weitere Aktionen",
+    "markRead": "Als gelesen markieren",
+    "markUnread": "Als ungelesen markieren",
+    "addToReadList": "Zu Leseliste hinzufügen",
+    "addToCollection": "Zu Sammlung hinzufügen",
+    "editMetadata": "Metadaten bearbeiten",
+    "matchKomf": "Mit komf abgleichen",
+    "deleteFiles": "Dateien löschen",
+    "markBooksAs_read_one": "{{count}} Buch als gelesen markiert",
+    "markBooksAs_read_other": "{{count}} Bücher als gelesen markiert",
+    "markBooksAs_unread_one": "{{count}} Buch als ungelesen markiert",
+    "markBooksAs_unread_other": "{{count}} Bücher als ungelesen markiert",
+    "markSeriesAs_read_one": "{{count}} Serie als gelesen markiert",
+    "markSeriesAs_read_other": "{{count}} Serien als gelesen markiert",
+    "markSeriesAs_unread_one": "{{count}} Serie als ungelesen markiert",
+    "markSeriesAs_unread_other": "{{count}} Serien als ungelesen markiert",
+    "markBooksFailed_one": "{{failed}} von {{total}} Buch fehlgeschlagen",
+    "markBooksFailed_other": "{{failed}} von {{total}} Büchern fehlgeschlagen",
+    "markSeriesFailed_one": "{{failed}} von {{total}} Serie fehlgeschlagen",
+    "markSeriesFailed_other": "{{failed}} von {{total}} Serien fehlgeschlagen",
+    "matchKomfQueued_one": "komf-Abgleich für {{count}} Serie eingereiht",
+    "matchKomfQueued_other": "komf-Abgleiche für {{count}} Serien eingereiht",
+    "matchKomfFailed_one": "{{failed}} von {{total}} Serie fehlgeschlagen",
+    "matchKomfFailed_other": "{{failed}} von {{total}} Serien fehlgeschlagen",
+    "deleteBooksFiles_one": "Dateien für {{count}} Buch gelöscht",
+    "deleteBooksFiles_other": "Dateien für {{count}} Bücher gelöscht",
+    "deleteSeriesFiles_one": "Dateien für {{count}} Serie gelöscht",
+    "deleteSeriesFiles_other": "Dateien für {{count}} Serien gelöscht",
+    "deleteFilesFailed": "{{failed}} von {{total}} fehlgeschlagen"
+  }
+}

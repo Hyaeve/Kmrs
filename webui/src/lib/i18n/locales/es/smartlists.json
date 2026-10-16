@@ -1,0 +1,47 @@
+{
+  "title": "Listas inteligentes",
+  "create": "Nueva lista inteligente",
+  "createTitle": "Nueva lista inteligente",
+  "editTitle": "Editar lista inteligente",
+  "deleteTitle": "¿Eliminar lista inteligente?",
+  "nameLabel": "Nombre",
+  "summaryLabel": "Resumen",
+  "targetLabel": "Objetivo",
+  "target": {
+    "book": "Libros",
+    "series": "Series"
+  },
+  "filtersEmpty": "Sin filtros — coincide con todo",
+  "filtersActive_one": "{{count, number}} filtro activo",
+  "filtersActive_other": "{{count, number}} filtros activos",
+  "filtersStepTitle": "Filtros",
+  "next": "Siguiente",
+  "visibilityLabel": "Visibilidad",
+  "visibility": {"private": "Privada", "public": "Pública", "shared": "Compartida"},
+  "sharedWithLabel": "Compartida con",
+  "loadingUsers": "Cargando usuarios…",
+  "noOtherUsers": "No hay otros usuarios",
+  "ownerFilterLabel": "Filtro de propietario",
+  "ownerFilter": {"all": "Todas las listas", "mine": "Mis listas"},
+  "lossyWarning": "Los filtros de esta lista incluyen condiciones que el editor no puede mostrar. Al guardar se simplificarán.",
+  "loadError": "No se pudieron cargar las listas inteligentes",
+  "loadItemsError": "No se pudieron cargar los elementos",
+  "empty": "Aún no hay listas inteligentes",
+  "notFound": "Lista inteligente no encontrada",
+  "read": "Leer",
+  "peek": "Vista previa",
+  "peekTooltip": "Leer sin guardar el progreso",
+  "managePosters": "Administrar pósters",
+  "moreActions": "Más acciones",
+  "count": {
+    "book_one": "{{count, number}} libro",
+    "book_other": "{{count, number}} libros",
+    "series_one": "{{count, number}} serie",
+    "series_other": "{{count, number}} series"
+  },
+  "emptyState": {
+    "books": "Ningún libro coincide con esta lista por ahora",
+    "series": "Ninguna serie coincide con esta lista por ahora",
+    "filtered": "Ningún elemento coincide con los filtros activos"
+  }
+}

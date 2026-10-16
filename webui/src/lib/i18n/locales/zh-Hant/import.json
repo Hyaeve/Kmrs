@@ -1,0 +1,90 @@
+{
+  "books": {
+    "title": "匯入書籍",
+    "subtitle": "將書庫外的檔案匯入現有系列",
+    "folderLabel": "伺服器上的資料夾",
+    "browse": "瀏覽",
+    "scan": "掃描",
+    "queued_other": "已為 {{count}} 本書排入匯入",
+    "queuedBody": "匯入會以背景任務執行。請在<link>伺服器頁面</link>追蹤進度。",
+    "importMore": "匯入更多檔案",
+    "emptyTitle": "沒有可匯入的檔案",
+    "emptyBody": "此資料夾沒有書籍檔案。",
+    "copyMode": {
+      "move": "移動",
+      "copy": "複製",
+      "hardlink": "硬連結"
+    },
+    "selectedCount_other": "已選取 {{count}} 個檔案中的 {{checked}} 個",
+    "importSelected": "匯入選取項目",
+    "missingSeries_other": "請為每個勾選的檔案選擇系列（還有 {{count}} 列未選擇）。",
+    "selectAll": "全選",
+    "importFile": "匯入 {{fileName}}",
+    "table": {
+      "sourceFile": "來源檔案",
+      "series": "系列",
+      "number": "編號",
+      "destinationName": "目的檔名",
+      "analyze": "分析"
+    },
+    "status": {
+      "analyzed": "已分析",
+      "notAnalyzed": "未分析"
+    },
+    "selectedSeries": "選取的系列",
+    "change": "變更",
+    "selectSeries": "選擇系列…",
+    "analyze": "分析",
+    "pickerTitle": "選擇系列",
+    "pickerConfirm": "使用此系列"
+  },
+  "readlist": {
+    "title": "匯入閱讀清單",
+    "subtitle": "從 ComicRack .cbl 檔案建立閱讀清單",
+    "chooseFile": "選擇檔案",
+    "noFileChosen": "未選擇檔案",
+    "match": "與書庫比對",
+    "nameLabel": "閱讀清單名稱",
+    "nameConflict": "已有同名的閱讀清單",
+    "summary": {
+      "matched": "{{count}} 筆符合",
+      "multiple": "{{count}} 筆多重符合",
+      "noMatch": "{{count}} 筆無符合"
+    },
+    "startOver": "重新開始",
+    "create_other": "建立閱讀清單（{{count}} 本書）",
+    "skippedNote": "沒有符合書籍的項目會被略過。",
+    "filter": {
+      "all": "全部（{{count}}）",
+      "matched": "符合（{{count}}）",
+      "multiple": "多重符合（{{count}}）",
+      "noMatch": "無符合（{{count}}）"
+    },
+    "emptyTitle": "這裡沒有東西",
+    "emptyBody": "沒有此狀態的項目。",
+    "table": {
+      "requested": "原始項目",
+      "matchedBook": "符合的書籍",
+      "status": "狀態",
+      "action": "動作"
+    },
+    "unknownSeries": "未知系列",
+    "manual": "手動",
+    "chooseBook": "選擇書籍…",
+    "noLibraryMatch": "書庫中無符合",
+    "status": {
+      "matched": "符合",
+      "ambiguous": "多重符合",
+      "unmatched": "無符合"
+    },
+    "change": "變更",
+    "pickBook": "選擇書籍",
+    "pageInfo": "第 {{page}} 頁，共 {{pages}} 頁",
+    "previous": "上一頁",
+    "next": "下一頁",
+    "pickerTitle": "為 {{series}} #{{number}} 選擇書籍",
+    "pickerEntry": "項目",
+    "pickerTitleDefault": "選擇書籍",
+    "pickerConfirm": "使用此書籍"
+  }
+}

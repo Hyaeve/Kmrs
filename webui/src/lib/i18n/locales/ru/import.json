@@ -1,0 +1,102 @@
+{
+  "books": {
+    "title": "Импорт книг",
+    "subtitle": "Импорт файлов извне ваших библиотек в существующую серию",
+    "folderLabel": "Папка на сервере",
+    "browse": "Обзор",
+    "scan": "Сканировать",
+    "queued_one": "Импорт поставлен в очередь для {{count}} книги",
+    "queued_few": "Импорт поставлен в очередь для {{count}} книг",
+    "queued_many": "Импорт поставлен в очередь для {{count}} книг",
+    "queued_other": "Импорт поставлен в очередь для {{count}} книг",
+    "queuedBody": "Импорт выполняется как фоновые задачи. Следите за прогрессом на <link>странице сервера</link>.",
+    "importMore": "Импортировать ещё файлы",
+    "emptyTitle": "Нет файлов для импорта",
+    "emptyBody": "В папке нет файлов книг.",
+    "copyMode": {
+      "move": "Переместить",
+      "copy": "Копировать",
+      "hardlink": "Жёсткая ссылка"
+    },
+    "selectedCount_one": "Выбран {{checked}} из {{count}} файла",
+    "selectedCount_few": "Выбрано {{checked}} из {{count}} файлов",
+    "selectedCount_many": "Выбрано {{checked}} из {{count}} файлов",
+    "selectedCount_other": "Выбрано {{checked}} из {{count}} файлов",
+    "importSelected": "Импортировать выбранные",
+    "missingSeries_one": "Выберите серию для каждого отмеченного файла (не хватает {{count}} строки).",
+    "missingSeries_few": "Выберите серию для каждого отмеченного файла (не хватает {{count}} строк).",
+    "missingSeries_many": "Выберите серию для каждого отмеченного файла (не хватает {{count}} строк).",
+    "missingSeries_other": "Выберите серию для каждого отмеченного файла (не хватает {{count}} строк).",
+    "selectAll": "Выбрать все",
+    "importFile": "Импортировать {{fileName}}",
+    "table": {
+      "sourceFile": "Исходный файл",
+      "series": "Серия",
+      "number": "Номер",
+      "destinationName": "Имя назначения",
+      "analyze": "Анализировать"
+    },
+    "status": {
+      "analyzed": "Проанализирован",
+      "notAnalyzed": "Не проанализирован"
+    },
+    "selectedSeries": "Выбранная серия",
+    "change": "Изменить",
+    "selectSeries": "Выберите серию…",
+    "analyze": "Анализировать",
+    "pickerTitle": "Выберите серию",
+    "pickerConfirm": "Использовать эту серию"
+  },
+  "readlist": {
+    "title": "Импорт списка чтения",
+    "subtitle": "Создание списка чтения из файла ComicRack .cbl",
+    "chooseFile": "Выбрать файл",
+    "noFileChosen": "Файл не выбран",
+    "match": "Сопоставить с библиотекой",
+    "nameLabel": "Название списка чтения",
+    "nameConflict": "Список чтения с таким названием уже существует",
+    "summary": {
+      "matched": "совпадений: {{count}}",
+      "multiple": "несколько вариантов: {{count}}",
+      "noMatch": "без совпадений: {{count}}"
+    },
+    "startOver": "Начать заново",
+    "create_one": "Создать список чтения ({{count}} книга)",
+    "create_few": "Создать список чтения ({{count}} книги)",
+    "create_many": "Создать список чтения ({{count}} книг)",
+    "create_other": "Создать список чтения ({{count}} книги)",
+    "skippedNote": "Записи без совпавшей книги пропускаются.",
+    "filter": {
+      "all": "Все ({{count}})",
+      "matched": "Совпавшие ({{count}})",
+      "multiple": "Несколько ({{count}})",
+      "noMatch": "Без совпадений ({{count}})"
+    },
+    "emptyTitle": "Здесь пусто",
+    "emptyBody": "Нет записей с таким статусом.",
+    "table": {
+      "requested": "Запрошено",
+      "matchedBook": "Совпавшая книга",
+      "status": "Статус",
+      "action": "Действие"
+    },
+    "unknownSeries": "Неизвестная серия",
+    "manual": "вручную",
+    "chooseBook": "Выберите книгу…",
+    "noLibraryMatch": "Нет совпадений в библиотеке",
+    "status": {
+      "matched": "Совпала",
+      "ambiguous": "Несколько",
+      "unmatched": "Не совпала"
+    },
+    "change": "Изменить",
+    "pickBook": "Выбрать книгу",
+    "pageInfo": "Страница {{page}} из {{pages}}",
+    "previous": "Назад",
+    "next": "Вперёд",
+    "pickerTitle": "Выберите книгу для {{series}} #{{number}}",
+    "pickerEntry": "запись",
+    "pickerTitleDefault": "Выберите книгу",
+    "pickerConfirm": "Использовать эту книгу"
+  }
+}

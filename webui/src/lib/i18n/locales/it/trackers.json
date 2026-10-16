@@ -1,0 +1,93 @@
+{
+  "section": {
+    "title": "Tracking",
+    "add": "Add tracker",
+    "empty": "No trackers linked. Add one to sync your reading progress."
+  },
+  "row": {
+    "edit": "Edit",
+    "unlink": "Unlink"
+  },
+  "state": {
+    "loading": "Loading…",
+    "loginRequired": "Login required — open Trackers to connect",
+    "unavailable": "State unavailable",
+    "chapterProgress": "chapter {{read}} / {{total}}",
+    "volumeProgress": "volume {{read}} / {{total}}",
+    "score": "score {{score}}"
+  },
+  "status": {
+    "none": "Not in list",
+    "reading": "Reading",
+    "planning": "Planning",
+    "completed": "Completed",
+    "paused": "Paused",
+    "dropped": "Dropped",
+    "rereading": "Rereading"
+  },
+  "provider": {
+    "anilist": "AniList",
+    "mal": "MyAnimeList",
+    "bangumi": "Bangumi",
+    "mangabaka": "MangaBaka"
+  },
+  "mode": {
+    "auto": "Auto",
+    "chapter": "Chapter",
+    "volume": "Volume"
+  },
+  "mediaType": {
+    "manga": "Manga",
+    "novel": "Novel"
+  },
+  "bindDialog": {
+    "title": "Link a tracker entry",
+    "searchLabel": "Search",
+    "searchPlaceholder": "Title or entry link",
+    "noResults": "No results",
+    "fromLinks": "From series links",
+    "tracked": "In your list",
+    "bind": "Link"
+  },
+  "editDialog": {
+    "title": "Tracker options",
+    "chapterOffset": "Chapter offset",
+    "chapterOffsetHelper": "Added to the pushed chapter number; volumes never get an offset.",
+    "remoteHeading": "Remote entry",
+    "score": "Score",
+    "chapter": "Chapter",
+    "volume": "Volume"
+  },
+  "unlinkDialog": {
+    "title": "Unlink tracker",
+    "name": "the {{provider}} binding for this series"
+  },
+  "toast": {
+    "linked": "Tracker linked",
+    "linkFailed": "Failed to link the tracker",
+    "unlinked": "Tracker unlinked",
+    "unlinkFailed": "Failed to unlink the tracker",
+    "saved": "Tracker options saved",
+    "saveFailed": "Failed to save the tracker options",
+    "loggedOut": "Logged out of {{provider}}",
+    "logoutFailed": "Logout failed",
+    "loginSuccess": "Tracker account connected",
+    "loginError": "Tracker login failed",
+    "visibilityFailed": "Failed to save the visibility settings"
+  },
+  "page": {
+    "title": "Trackers",
+    "notConnected": "komf is not connected",
+    "notConnectedBody": "An administrator has to connect a komf instance before trackers can be used.",
+    "bindingsHeading": "Linked series",
+    "visibilityHeading": "Tracker module visibility",
+    "visibilityHint": "The series-detail tracker module only shows in the selected libraries. With none selected, it shows everywhere.",
+    "defaultHeading": "Default tracker",
+    "defaultHint": "Preselected when adding a tracker.",
+    "defaultNone": "None",
+    "offset": "offset {{offset}}",
+    "notLoggedIn": "Not logged in",
+    "login": "Log in",
+    "logout": "Log out"
+  }
+}

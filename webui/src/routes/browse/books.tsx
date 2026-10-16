@@ -1,0 +1,19 @@
+import { useTranslation } from 'react-i18next'
+import { useDocumentTitle } from '@/lib/hooks/useDocumentTitle'
+import { HistoryBackButton } from '@/components/ui/BackButton'
+import { PageHeader } from '@/components/ui/PageHeader'
+import { BooksGrid } from '@/components/browse/BooksGrid'
+
+export function BrowseBooksPage() {
+  const { t } = useTranslation('browse')
+
+  useDocumentTitle(t('books.all'))
+
+  return (
+    <div>
+      <HistoryBackButton to="/dashboard" className="mb-2 -ml-2" />
+      <PageHeader title={t('books.all')} />
+      <BooksGrid />
+    </div>
+  )
+}

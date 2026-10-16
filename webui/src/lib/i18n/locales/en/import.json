@@ -1,0 +1,94 @@
+{
+  "books": {
+    "title": "Import books",
+    "subtitle": "Import files from outside your libraries into an existing series",
+    "folderLabel": "Folder on the server",
+    "browse": "Browse",
+    "scan": "Scan",
+    "queued_one": "Import queued for {{count}} book",
+    "queued_other": "Import queued for {{count}} books",
+    "queuedBody": "Imports run as background tasks. Follow progress on the <link>Server page</link>.",
+    "importMore": "Import more files",
+    "emptyTitle": "No importable files",
+    "emptyBody": "The folder contains no book files.",
+    "copyMode": {
+      "move": "Move",
+      "copy": "Copy",
+      "hardlink": "Hardlink"
+    },
+    "selectedCount_one": "{{checked}} of {{count}} file selected",
+    "selectedCount_other": "{{checked}} of {{count}} files selected",
+    "importSelected": "Import selected",
+    "missingSeries_one": "Select a series for every checked file ({{count}} row missing).",
+    "missingSeries_other": "Select a series for every checked file ({{count}} rows missing).",
+    "selectAll": "Select all",
+    "importFile": "Import {{fileName}}",
+    "table": {
+      "sourceFile": "Source file",
+      "series": "Series",
+      "number": "Number",
+      "destinationName": "Destination name",
+      "analyze": "Analyze"
+    },
+    "status": {
+      "analyzed": "Analyzed",
+      "notAnalyzed": "Not analyzed"
+    },
+    "selectedSeries": "Selected series",
+    "change": "Change",
+    "selectSeries": "Select series…",
+    "analyze": "Analyze",
+    "pickerTitle": "Select a series",
+    "pickerConfirm": "Use this series"
+  },
+  "readlist": {
+    "title": "Import read list",
+    "subtitle": "Create a read list from a ComicRack .cbl file",
+    "chooseFile": "Choose file",
+    "noFileChosen": "No file chosen",
+    "match": "Match against library",
+    "nameLabel": "Read list name",
+    "nameConflict": "A read list with this name already exists",
+    "summary": {
+      "matched": "{{count}} matched",
+      "multiple": "{{count}} multiple",
+      "noMatch": "{{count}} no match"
+    },
+    "startOver": "Start over",
+    "create_one": "Create read list ({{count}} book)",
+    "create_other": "Create read list ({{count}} books)",
+    "skippedNote": "Entries without a matched book are skipped.",
+    "filter": {
+      "all": "All ({{count}})",
+      "matched": "Matched ({{count}})",
+      "multiple": "Multiple ({{count}})",
+      "noMatch": "No match ({{count}})"
+    },
+    "emptyTitle": "Nothing here",
+    "emptyBody": "No entries with this status.",
+    "table": {
+      "requested": "Requested",
+      "matchedBook": "Matched book",
+      "status": "Status",
+      "action": "Action"
+    },
+    "unknownSeries": "Unknown series",
+    "manual": "manual",
+    "chooseBook": "Choose a book…",
+    "noLibraryMatch": "No library match",
+    "status": {
+      "matched": "Matched",
+      "ambiguous": "Multiple",
+      "unmatched": "No match"
+    },
+    "change": "Change",
+    "pickBook": "Pick book",
+    "pageInfo": "Page {{page}} of {{pages}}",
+    "previous": "Previous",
+    "next": "Next",
+    "pickerTitle": "Pick a book for {{series}} #{{number}}",
+    "pickerEntry": "entry",
+    "pickerTitleDefault": "Pick a book",
+    "pickerConfirm": "Use this book"
+  }
+}

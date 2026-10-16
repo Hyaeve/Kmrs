@@ -1,0 +1,69 @@
+{
+  "title": "사용자",
+  "subtitle_other": "사용자 {{count}}명 · 역할, 라이브러리 접근 및 콘텐츠 제한",
+  "subtitleEmpty": "역할, 라이브러리 접근 및 콘텐츠 제한",
+  "addUser": "사용자 추가",
+  "loadFailed": "사용자를 불러올 수 없습니다.",
+  "emptyTitle": "아직 사용자 없음",
+  "emptyBody": "사용자를 추가해 이 서버에 대한 접근 권한을 부여하세요.",
+  "you": "나",
+  "user": "사용자",
+  "rowActions": "{{email}} 작업",
+  "selfEditHint": "여기서는 자신의 계정을 편집할 수 없습니다",
+  "selfDeleteHint": "자신의 계정은 삭제할 수 없습니다",
+  "table": {
+    "restrictions": "제한",
+    "actions": "작업"
+  },
+  "restrictions": {
+    "ageAllow": "{{age}}세 이하",
+    "ageExclude": "{{age}}세 초과 제외",
+    "labelsAllowed_other": "허용된 라벨 {{count}}개",
+    "labelsExcluded_other": "제외된 라벨 {{count}}개"
+  },
+  "roles": {
+    "adminDesc": "서버 설정을 포함한 전체 접근",
+    "fileDownloadDesc": "책 파일 다운로드",
+    "pageStreamingDesc": "온라인 읽기용 페이지 스트리밍",
+    "koboSyncDesc": "Kobo 전자책 리더와 동기화",
+    "koreaderSyncDesc": "KOReader와 읽기 진행 동기화"
+  },
+  "form": {
+    "editTitle": "사용자 편집",
+    "saveFailed": "사용자를 저장할 수 없습니다.",
+    "sectionAccount": "계정",
+    "password": "비밀번호",
+    "sectionLibraryAccess": "라이브러리 접근",
+    "allLibrariesDesc": "나중에 생성되는 라이브러리를 포함해 모든 라이브러리 공유",
+    "sectionContentRestrictions": "콘텐츠 제한",
+    "ageRestriction": "연령 제한",
+    "age": "연령",
+    "ageMode": {
+      "none": "없음",
+      "allow": "허용만",
+      "exclude": "제외"
+    },
+    "ageInvalid": "0 이상의 정수를 입력하세요.",
+    "ageAllowHint": "이 연령 이하의 연령 등급 콘텐츠만 표시합니다.",
+    "ageExcludeHint": "이 연령을 초과하는 연령 등급 콘텐츠를 숨깁니다.",
+    "allowedLabels": "허용된 라벨",
+    "excludedLabels": "제외된 라벨"
+  },
+  "changePassword": {
+    "body": "<email>{{email}}</email>의 새 비밀번호를 설정합니다. 모든 세션이 로그아웃됩니다."
+  },
+  "deleteDialog": {
+    "title": "사용자 삭제",
+    "body": "<email>{{email}}</email>을(를) 삭제하시겠습니까? 읽기 진행, API 키 및 세션이 영구적으로 제거됩니다. 되돌릴 수 없습니다.",
+    "failed": "사용자를 삭제할 수 없습니다."
+  },
+  "labelList": {
+    "remove": "{{label}} 제거"
+  },
+  "activity": {
+    "title": "인증 활동",
+    "events_other": "이벤트 {{count, number}}개",
+    "loadFailed": "인증 활동을 불러올 수 없습니다.",
+    "empty": "아직 활동이 없습니다."
+  }
+}

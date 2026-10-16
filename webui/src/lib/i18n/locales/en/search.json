@@ -1,0 +1,27 @@
+{
+  "title": "Search",
+  "titleWithQuery": "Search: {{q}}",
+  "scope": {
+    "all": "All libraries",
+    "pinned": "Pinned libraries",
+    "library": "Library",
+    "ariaLabel": "Search scope: {{label}}"
+  },
+  "tabs": {
+    "all": "All",
+    "series": "Series",
+    "books": "Books",
+    "collections": "Collections",
+    "readlists": "Read lists"
+  },
+  "placeholderTop": "Search series, books, authors…",
+  "placeholderPage": "Search series, books, collections, read lists…",
+  "clear": "Clear search",
+  "emptyTitle": "Search your library",
+  "emptyBody": "Find series, books, collections and read lists. Field queries like title:berserk AND tag:seinen work too.",
+  "viewAll": "View all",
+  "noResultsTitle": "No results for \"{{q}}\"",
+  "noResultsBody": "Try different keywords, or search in a single category.",
+  "failedTitle": "Search failed",
+  "failedBody": "Something went wrong."
+}

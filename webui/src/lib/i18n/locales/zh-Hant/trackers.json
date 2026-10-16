@@ -1,0 +1,93 @@
+{
+  "section": {
+    "title": "追蹤",
+    "add": "新增追蹤",
+    "empty": "尚未關聯追蹤器。關聯後可同步閱讀進度。"
+  },
+  "row": {
+    "edit": "編輯",
+    "unlink": "解除關聯"
+  },
+  "state": {
+    "loading": "載入中…",
+    "loginRequired": "需要登入 — 請到「追蹤」頁連接帳戶",
+    "unavailable": "無法取得狀態",
+    "chapterProgress": "第 {{read}} / {{total}} 話",
+    "volumeProgress": "第 {{read}} / {{total}} 卷",
+    "score": "評分 {{score}}"
+  },
+  "status": {
+    "none": "不在清單中",
+    "reading": "在讀",
+    "planning": "想看",
+    "completed": "看過",
+    "paused": "擱置",
+    "dropped": "拋棄",
+    "rereading": "重看"
+  },
+  "provider": {
+    "anilist": "AniList",
+    "mal": "MyAnimeList",
+    "bangumi": "Bangumi",
+    "mangabaka": "MangaBaka"
+  },
+  "mode": {
+    "auto": "自動",
+    "chapter": "按話",
+    "volume": "按卷"
+  },
+  "mediaType": {
+    "manga": "漫畫",
+    "novel": "小說"
+  },
+  "bindDialog": {
+    "title": "關聯追蹤條目",
+    "searchLabel": "搜尋",
+    "searchPlaceholder": "標題或條目連結",
+    "noResults": "沒有結果",
+    "fromLinks": "來自系列連結",
+    "tracked": "已在你的清單中",
+    "bind": "關聯"
+  },
+  "editDialog": {
+    "title": "追蹤選項",
+    "chapterOffset": "章節偏移",
+    "chapterOffsetHelper": "推送的章節號會加上此偏移；卷進度不受偏移影響。",
+    "remoteHeading": "遠端條目",
+    "score": "評分",
+    "chapter": "話數",
+    "volume": "卷數"
+  },
+  "unlinkDialog": {
+    "title": "解除追蹤關聯",
+    "name": "本系列在 {{provider}} 上的關聯"
+  },
+  "toast": {
+    "linked": "已關聯追蹤器",
+    "linkFailed": "關聯追蹤器失敗",
+    "unlinked": "已解除關聯",
+    "unlinkFailed": "解除關聯失敗",
+    "saved": "追蹤選項已儲存",
+    "saveFailed": "儲存追蹤選項失敗",
+    "loggedOut": "已登出 {{provider}}",
+    "logoutFailed": "登出失敗",
+    "loginSuccess": "追蹤帳戶已連接",
+    "loginError": "追蹤登入失敗",
+    "visibilityFailed": "儲存顯示範圍失敗"
+  },
+  "page": {
+    "title": "追蹤",
+    "notConnected": "komf 未連接",
+    "notConnectedBody": "需要管理員先連接 komf 執行個體才能使用追蹤功能。",
+    "bindingsHeading": "已關聯的系列",
+    "visibilityHeading": "追蹤模組顯示範圍",
+    "visibilityHint": "系列詳情頁的追蹤模組僅在選取的書庫中顯示；不選取任何書庫時全部顯示。",
+    "defaultHeading": "預設 Tracker",
+    "defaultHint": "新增追蹤時預選該平台。",
+    "defaultNone": "無",
+    "offset": "偏移 {{offset}}",
+    "notLoggedIn": "未登入",
+    "login": "登入",
+    "logout": "登出"
+  }
+}

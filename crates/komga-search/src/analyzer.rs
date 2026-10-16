@@ -1,0 +1,841 @@
+//! Analysis chain aligned with komga's Lucene analyzers (kmrs's recall extensions on top
+//! are documented in website/docs/search.md):
+//! - search side (`MultiLingualAnalyzer`): t2s -> standard tokenize -> CJK width -> lowercase ->
+//!   CJK bigram -> ASCII fold
+//! - index side (`MultiLingualNGramAnalyzer`): the same, with every CJK character also emitted
+//!   as a unigram (kmrs extension), plus NGram(3, 10, preserveOriginal = true) before folding
+//! - `MultiLingualAnalyzer.normalize` (used for prefix/wildcard query terms): t2s -> CJK width ->
+//!   lowercase -> ASCII fold, without bigramming
+
+use std::collections::HashMap;
+use std::sync::OnceLock;
+use tantivy::tokenizer::{Token, TokenStream, Tokenizer};
+use unicode_normalization::UnicodeNormalization;
+
+/// Traditional→simplified conversion mapping both index and query text to one canonical
+/// form, so simplified and traditional queries cross-match. Runs on the raw text because
+/// phrase-level exceptions (乾隆 stays 乾隆, but 乾燥 → 干燥) need character context that
+/// single-character tokens no longer have. The mapping is many-to-one (乾/幹 → 干), so a
+/// few titles can over-merge.
+///
+/// Longest-match over the OpenCC ts tables (`t2s_data.tsv`). The phrase table is an
+/// exception list for words whose characters must not convert individually, and
+/// everything else converts per character, so no word segmenter is needed.
+/// opencc-jieba-rs segments with jieba first and produced the same output on the
+/// full production corpus (63,831 titles); longest-match also stays faithful to
+/// OpenCC semantics where a segmenter would split an exception word — at ~80 MiB
+/// less dictionary memory.
+pub fn t2s_str(text: &str) -> String {
+    static TABLES: OnceLock<T2sTables> = OnceLock::new();
+    TABLES.get_or_init(T2sTables::load).convert(text)
+}
+
+struct T2sTables {
+    phrases: HashMap<&'static str, &'static str>,
+    chars: HashMap<&'static str, &'static str>,
+    max_phrase_chars: usize,
+}
+
+impl T2sTables {
+    fn load() -> Self {
+        let mut phrases = HashMap::new();
+        let mut chars = HashMap::new();
+        let mut max_phrase_chars = 1;
+        for line in include_str!("t2s_data.tsv").lines() {
+            if line.starts_with('#') {
+                continue;
+            }
+            let Some((key, value)) = line.split_once('\t') else {
+                continue;
+            };
+            let key_chars = key.chars().count();
+            if key_chars > 1 {
+                max_phrase_chars = max_phrase_chars.max(key_chars);
+                phrases.insert(key, value);
+            } else {
+                chars.insert(key, value);
+            }
+        }
+        Self {
+            phrases,
+            chars,
+            max_phrase_chars,
+        }
+    }
+
+    fn convert(&self, input: &str) -> String {
+        let mut out = String::with_capacity(input.len());
+        let mut rest = input;
+        while let Some(ch) = rest.chars().next() {
+            let mut hit = None;
+            let mut end = 0;
+            for (n, (i, c)) in rest.char_indices().enumerate() {
+                if n == self.max_phrase_chars {
+                    break;
+                }
+                let e = i + c.len_utf8();
+                if let Some(v) = self.phrases.get(&rest[..e]) {
+                    hit = Some(*v);
+                    end = e;
+                }
+            }
+            if hit.is_none() {
+                let mut buf = [0u8; 4];
+                if let Some(v) = self.chars.get(ch.encode_utf8(&mut buf)) {
+                    hit = Some(*v);
+                    end = ch.len_utf8();
+                }
+            }
+            match hit {
+                Some(v) => {
+                    out.push_str(v);
+                    rest = &rest[end..];
+                }
+                None => {
+                    out.push(ch);
+                    rest = &rest[ch.len_utf8()..];
+                }
+            }
+        }
+        out
+    }
+}
+
+/// Lucene `StandardTokenizer` (UAX#29 word segmentation, komga-relevant subset):
+/// Han/Hiragana characters are emitted one per token, katakana runs stay together, and
+/// other letters/digits form maximal runs (with `.`/`:` joining inside and `,`/`;` between digits).
+pub fn standard_tokenize(text: &str) -> Vec<String> {
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Cls {
+        ALetter,
+        Numeric,
+        Katakana,
+        Extend,
+    }
+
+    fn classify(c: char) -> Option<Cls> {
+        if is_ideographic(c) {
+            return None; // emitted per character, outside the run machinery
+        }
+        if is_katakana(c) {
+            return Some(Cls::Katakana);
+        }
+        if c.is_alphabetic() {
+            return Some(Cls::ALetter);
+        }
+        if c.is_numeric() {
+            return Some(Cls::Numeric);
+        }
+        if is_extend(c as u32) {
+            return Some(Cls::Extend);
+        }
+        None
+    }
+
+    let chars: Vec<char> = text.chars().collect();
+    let mut tokens = vec![];
+    let mut buf = String::new();
+    let mut buf_cls: Option<Cls> = None;
+
+    fn flush(buf: &mut String, tokens: &mut Vec<String>) {
+        if !buf.is_empty() {
+            tokens.push(std::mem::take(buf));
+        }
+    }
+
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if is_ideographic(c) {
+            flush(&mut buf, &mut tokens);
+            buf_cls = None;
+            tokens.push(c.to_string());
+            i += 1;
+            continue;
+        }
+        // `.`/`:` join inside an alphanumeric run when both neighbors are alphanumeric;
+        // `,`/`;` join only between digits (UAX#29 WB6/7/11/12)
+        if c == '.' || c == ':' || c == ',' || c == ';' {
+            let prev_alnum = buf_cls.is_some();
+            let next = chars.get(i + 1);
+            let next_alnum = next.is_some_and(|n| n.is_alphanumeric());
+            let joins = if c == ',' || c == ';' {
+                buf_cls == Some(Cls::Numeric) && next.is_some_and(|n| n.is_numeric())
+            } else {
+                prev_alnum && next_alnum
+            };
+            if joins {
+                buf.push(c);
+            } else {
+                flush(&mut buf, &mut tokens);
+                buf_cls = None;
+            }
+            i += 1;
+            continue;
+        }
+        let cls = match classify(c) {
+            Some(cls) => cls,
+            // punctuation and symbols act as separators
+            None => {
+                flush(&mut buf, &mut tokens);
+                buf_cls = None;
+                i += 1;
+                continue;
+            }
+        };
+        match (buf_cls, cls) {
+            (None, _) => {
+                buf.push(c);
+                if cls != Cls::Extend {
+                    buf_cls = Some(cls);
+                }
+            }
+            (Some(_), Cls::Extend) => buf.push(c),
+            (Some(a), b) if a == b => buf.push(c),
+            (Some(Cls::ALetter), Cls::Numeric) | (Some(Cls::Numeric), Cls::ALetter) => buf.push(c),
+            (Some(_), _) => {
+                flush(&mut buf, &mut tokens);
+                buf.push(c);
+                buf_cls = Some(cls);
+            }
+        }
+        i += 1;
+    }
+    flush(&mut buf, &mut tokens);
+    tokens
+}
+
+/// UAX#29 Extend: combining marks and ZWJ
+fn is_extend(u: u32) -> bool {
+    (0x0300..=0x036F).contains(&u)
+        || (0x1AB0..=0x1AFF).contains(&u)
+        || (0x1DC0..=0x1DFF).contains(&u)
+        || (0x20D0..=0x20FF).contains(&u)
+        || (0xFE00..=0xFE0F).contains(&u)
+        || (0xFE20..=0xFE2F).contains(&u)
+        || u == 0x200D
+        || (0xE0100..=0xE01EF).contains(&u)
+}
+
+/// Han ideographs and Hiragana: emitted as single-character tokens (UAX#29)
+fn is_ideographic(c: char) -> bool {
+    let u = c as u32;
+    (0x4E00..=0x9FFF).contains(&u)
+        || (0x3400..=0x4DBF).contains(&u)
+        || (0x20000..=0x2A6DF).contains(&u)
+        || (0xF900..=0xFAFF).contains(&u)
+        || (0x3040..=0x309F).contains(&u)
+}
+
+fn is_katakana(c: char) -> bool {
+    let u = c as u32;
+    (0x30A0..=0x30FF).contains(&u)
+        || (0x31F0..=0x31FF).contains(&u)
+        || (0xFF61..=0xFF9F).contains(&u)
+}
+
+/// Lucene `CJKBigramFilter` character ranges (Han/Hiragana/Katakana; Hangul excluded)
+fn is_cjk_char(c: char) -> bool {
+    is_ideographic(c) || is_katakana(c)
+}
+
+const HALFWIDTH_KATAKANA: [char; 0x3D] = [
+    '。', '「', '」', '、', '・', 'ヲ', 'ァ', 'ィ', 'ゥ', 'ェ', 'ォ', 'ャ', 'ュ', 'ョ', 'ッ', 'ー',
+    'ア', 'イ', 'ウ', 'エ', 'オ', 'カ', 'キ', 'ク', 'ケ', 'コ', 'サ', 'シ', 'ス', 'セ', 'ソ', 'タ',
+    'チ', 'ツ', 'テ', 'ト', 'ナ', 'ニ', 'ヌ', 'ネ', 'ノ', 'ハ', 'ヒ', 'フ', 'ヘ', 'ホ', 'マ', 'ミ',
+    'ム', 'メ', 'モ', 'ヤ', 'ユ', 'ヨ', 'ラ', 'リ', 'ル', 'レ', 'ロ', 'ワ', 'ン',
+];
+
+fn dakuten(c: char) -> Option<char> {
+    Some(match c {
+        'ウ' => 'ヴ',
+        'カ' => 'ガ',
+        'キ' => 'ギ',
+        'ク' => 'グ',
+        'ケ' => 'ゲ',
+        'コ' => 'ゴ',
+        'サ' => 'ザ',
+        'シ' => 'ジ',
+        'ス' => 'ズ',
+        'セ' => 'ゼ',
+        'ソ' => 'ゾ',
+        'タ' => 'ダ',
+        'チ' => 'ヂ',
+        'ツ' => 'ヅ',
+        'テ' => 'デ',
+        'ト' => 'ド',
+        'ハ' => 'バ',
+        'ヒ' => 'ビ',
+        'フ' => 'ブ',
+        'ヘ' => 'ベ',
+        'ホ' => 'ボ',
+        _ => return None,
+    })
+}
+
+fn handakuten(c: char) -> Option<char> {
+    Some(match c {
+        'ハ' => 'パ',
+        'ヒ' => 'ピ',
+        'フ' => 'プ',
+        'ヘ' => 'ペ',
+        'ホ' => 'ポ',
+        _ => return None,
+    })
+}
+
+/// Lucene `CJKWidthFilter`: fullwidth ASCII (U+FF01-U+FF5E) to ASCII, halfwidth katakana
+/// (U+FF61-U+FF9F) to fullwidth katakana with dakuten/handakuten combination.
+pub fn cjk_width_str(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut iter = text.chars().peekable();
+    while let Some(c) = iter.next() {
+        let u = c as u32;
+        if (0xFF01..=0xFF5E).contains(&u) {
+            out.push(char::from_u32(u - 0xFEE0).unwrap());
+        } else if (0xFF61..=0xFF9D).contains(&u) {
+            let full = HALFWIDTH_KATAKANA[(u - 0xFF61) as usize];
+            match iter.peek() {
+                Some('ﾞ') if dakuten(full).is_some() => {
+                    out.push(dakuten(full).unwrap());
+                    iter.next();
+                }
+                Some('ﾟ') if handakuten(full).is_some() => {
+                    out.push(handakuten(full).unwrap());
+                    iter.next();
+                }
+                _ => out.push(full),
+            }
+        } else if u == 0xFF9E {
+            out.push('゛');
+        } else if u == 0xFF9F {
+            out.push('゜');
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+pub fn cjk_width(tokens: Vec<String>) -> Vec<String> {
+    tokens.into_iter().map(|t| cjk_width_str(&t)).collect()
+}
+
+pub fn lowercase(tokens: Vec<String>) -> Vec<String> {
+    tokens.into_iter().map(|t| t.to_lowercase()).collect()
+}
+
+/// Lowest prefix length the progressive prefix fallback may retry a query with:
+/// past the last whole-word (non-CJK) token, and never below two tokens, so
+/// relaxation only ever drops a bigram-chain suffix and never degrades to a
+/// single-term query.
+pub(crate) fn cjk_droppable_floor(tokens: &[String]) -> usize {
+    match tokens.iter().rposition(|t| !t.chars().all(is_cjk_char)) {
+        Some(i) => (i + 1).max(2),
+        None => 2,
+    }
+}
+
+/// Search-side bigram chain: sliding bigrams over the CJK character stream; a trailing
+/// lone CJK character is emitted as a unigram, and the first character of a CJK run
+/// following a non-CJK token is emitted as a unigram too (kmrs's boundary extension).
+/// Every emitted token becomes an ANDed query clause, and all of them resolve against
+/// the index because the index side (`cjk_bigram_index`) indexes every CJK character.
+pub fn cjk_bigram(tokens: Vec<String>) -> Vec<String> {
+    let mut out = vec![];
+    // pending CJK character awaiting a possible bigram; the flag marks it as already
+    // emitted via the left-boundary rule so a one-character run is not emitted twice
+    let mut prev: Option<(String, bool)> = None;
+    let mut after_non_cjk = false;
+    for token in tokens {
+        if token.chars().all(is_cjk_char) {
+            for c in token.chars() {
+                let c = c.to_string();
+                let next = match prev.take() {
+                    Some((p, _)) => {
+                        out.push(format!("{p}{c}"));
+                        (c, false)
+                    }
+                    None if after_non_cjk => {
+                        out.push(c.clone());
+                        (c, true)
+                    }
+                    None => (c, false),
+                };
+                prev = Some(next);
+            }
+        } else {
+            if let Some((p, emitted)) = prev.take() {
+                if !emitted {
+                    out.push(p);
+                }
+            }
+            out.push(token);
+        }
+        after_non_cjk = prev.is_none();
+    }
+    if let Some((p, emitted)) = prev.take() {
+        if !emitted {
+            out.push(p);
+        }
+    }
+    out
+}
+
+/// Index-side bigram chain: like `cjk_bigram`, but every CJK character is also indexed as
+/// a unigram (Lucene's `outputUnigrams` mode). A query term's analyzed tokens are all ANDed,
+/// and a mid-run character otherwise exists only inside bigrams — without its unigram, a
+/// substring cut from the middle of a CJK run ("可爱" out of "我的可爱对黑岩目高不管用",
+/// analyzed to `+可爱 +爱`) matches nothing.
+///
+/// Tokens are returned with explicit positions: bigrams keep the sequential spacing they
+/// have in `cjk_bigram` (the run-initial unigram takes the position the boundary unigram
+/// had there, each mid-run unigram shares the position of the bigram it starts, and the
+/// trailing unigram keeps its own position), so phrase alignment is unchanged.
+pub fn cjk_bigram_index(tokens: Vec<String>) -> Vec<(String, usize)> {
+    let mut out = vec![];
+    let mut pos = 0usize;
+    // pending CJK character: (text, position of the run's first character, 1-based run index)
+    let mut prev: Option<(String, usize, usize)> = None;
+    // the run's last character gets its own position one past the last bigram; a
+    // one-character run was already emitted at its start. Returns the next free position.
+    fn flush_run(
+        out: &mut Vec<(String, usize)>,
+        prev: &mut Option<(String, usize, usize)>,
+        pos: usize,
+    ) -> usize {
+        match prev.take() {
+            Some((p, base, i)) => {
+                if i >= 2 {
+                    out.push((p, base + i));
+                    base + i + 1
+                } else {
+                    base + 1
+                }
+            }
+            None => pos,
+        }
+    }
+    for token in tokens {
+        if token.chars().all(is_cjk_char) {
+            for c in token.chars() {
+                let c = c.to_string();
+                match prev.take() {
+                    Some((p, base, i)) => {
+                        if i >= 2 {
+                            // p sits mid-run: its unigram shares the position of the
+                            // bigram it starts
+                            out.push((p.clone(), base + i));
+                        }
+                        out.push((format!("{p}{c}"), base + i));
+                        prev = Some((c, base, i + 1));
+                    }
+                    None => {
+                        out.push((c.clone(), pos));
+                        prev = Some((c, pos, 1));
+                    }
+                }
+            }
+        } else {
+            pos = flush_run(&mut out, &mut prev, pos);
+            out.push((token, pos));
+            pos += 1;
+        }
+    }
+    flush_run(&mut out, &mut prev, pos);
+    out
+}
+
+/// Lucene `NGramTokenFilter`: all substrings of length min..=max per token; with
+/// `preserve_original` the whole token is emitted as well.
+pub fn ngram(tokens: Vec<String>, min: usize, max: usize, preserve_original: bool) -> Vec<String> {
+    let mut out = vec![];
+    for token in tokens {
+        let chars: Vec<char> = token.chars().collect();
+        let len = chars.len();
+        for size in min..=max.min(len) {
+            for i in 0..=len - size {
+                out.push(chars[i..i + size].iter().collect());
+            }
+        }
+        if preserve_original {
+            out.push(token);
+        }
+    }
+    out
+}
+
+/// Lucene `ASCIIFoldingFilter` (komga-relevant subset): NFD decomposition with combining
+/// marks stripped, plus the explicit expansions that decomposition cannot produce.
+/// Greek/Cyrillic/CJK pass through unchanged, as in Lucene.
+pub fn ascii_fold_str(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            'ß' => out.push_str("ss"),
+            'ẞ' => out.push_str("SS"),
+            'æ' => out.push_str("ae"),
+            'Æ' => out.push_str("AE"),
+            'œ' => out.push_str("oe"),
+            'Œ' => out.push_str("OE"),
+            'ø' => out.push('o'),
+            'Ø' => out.push('O'),
+            'đ' | 'ð' => out.push('d'),
+            'Đ' | 'Ð' => out.push('D'),
+            'þ' => out.push_str("th"),
+            'Þ' => out.push_str("TH"),
+            'ł' => out.push('l'),
+            'Ł' => out.push('L'),
+            'ı' => out.push('i'),
+            'ŋ' => out.push('n'),
+            'Ŋ' => out.push('N'),
+            'ħ' => out.push('h'),
+            'Ĥ' => out.push('H'),
+            'ƒ' => out.push('f'),
+            'ĳ' => out.push_str("ij"),
+            'Ĳ' => out.push_str("IJ"),
+            'ﬀ' => out.push_str("ff"),
+            'ﬁ' => out.push_str("fi"),
+            'ﬂ' => out.push_str("fl"),
+            'ﬃ' => out.push_str("ffi"),
+            'ﬄ' => out.push_str("ffl"),
+            'ﬅ' | 'ﬆ' => out.push_str("st"),
+            _ => {
+                for d in c.to_string().nfd() {
+                    if !is_extend(d as u32) {
+                        out.push(d);
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+pub fn ascii_fold(tokens: Vec<String>) -> Vec<String> {
+    tokens.into_iter().map(|t| ascii_fold_str(&t)).collect()
+}
+
+/// Search-side chain (`MultiLingualAnalyzer`)
+pub fn search_analyze(text: &str) -> Vec<String> {
+    ascii_fold(cjk_bigram(lowercase(cjk_width(standard_tokenize(
+        &t2s_str(text),
+    )))))
+}
+
+/// Index-side chain (`MultiLingualNGramAnalyzer` with minGram=3, maxGram=10,
+/// preserveOriginal, plus the unigram extension of `cjk_bigram_index`).
+///
+/// Each token carries its position. N-gram expansion keeps Lucene's semantics of one
+/// position per emitted gram: `drift` accumulates the extra positions consumed by the
+/// grams of preceding tokens, so tokens left untouched by the filter (all CJK bigrams
+/// and unigrams, which are shorter than minGram) keep the positions `cjk_bigram_index`
+/// assigned to them.
+pub fn index_analyze(text: &str) -> Vec<(String, usize)> {
+    let tokens = cjk_bigram_index(lowercase(cjk_width(standard_tokenize(&t2s_str(text)))));
+    let mut out = vec![];
+    let mut drift = 0usize;
+    for (token, pos) in tokens {
+        let grams = ngram(vec![token], 3, 10, true);
+        for (i, gram) in grams.iter().enumerate() {
+            out.push((ascii_fold_str(gram), pos + drift + i));
+        }
+        // preserve_original guarantees at least one gram per token
+        drift += grams.len() - 1;
+    }
+    out
+}
+
+/// `MultiLingualAnalyzer.normalize`, used for prefix/wildcard query terms
+pub fn normalize(text: &str) -> String {
+    ascii_fold_str(&cjk_width_str(&t2s_str(text)).to_lowercase())
+}
+
+/// Eager token stream over a precomputed token list.
+pub struct VecTokenStream {
+    tokens: Vec<Token>,
+    pos: usize,
+}
+
+impl VecTokenStream {
+    pub fn new(tokens: Vec<(String, usize)>) -> Self {
+        let tokens = tokens
+            .into_iter()
+            .map(|(text, position)| Token {
+                position,
+                text,
+                ..Default::default()
+            })
+            .collect();
+        Self { tokens, pos: 0 }
+    }
+}
+
+impl TokenStream for VecTokenStream {
+    fn advance(&mut self) -> bool {
+        if self.pos < self.tokens.len() {
+            self.pos += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn token(&self) -> &Token {
+        &self.tokens[self.pos - 1]
+    }
+
+    fn token_mut(&mut self) -> &mut Token {
+        &mut self.tokens[self.pos - 1]
+    }
+}
+
+/// The index-side analyzer registered in the tantivy schema.
+#[derive(Clone, Default)]
+pub struct KomgaIndexTokenizer;
+
+impl Tokenizer for KomgaIndexTokenizer {
+    type TokenStream<'a> = VecTokenStream;
+
+    fn token_stream<'a>(&'a mut self, text: &'a str) -> Self::TokenStream<'a> {
+        VecTokenStream::new(index_analyze(text))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn standard_tokenize_latin_and_digits() {
+        assert_eq!(standard_tokenize("Berserk"), vec!["Berserk"]);
+        assert_eq!(standard_tokenize("v01"), vec!["v01"]);
+        assert_eq!(standard_tokenize("9781593070205"), vec!["9781593070205"]);
+        assert_eq!(standard_tokenize("hello world"), vec!["hello", "world"]);
+        assert_eq!(standard_tokenize("foo.bar"), vec!["foo.bar"]);
+        assert_eq!(standard_tokenize("a,b"), vec!["a", "b"]);
+        assert_eq!(standard_tokenize("1,5"), vec!["1,5"]);
+    }
+
+    #[test]
+    fn standard_tokenize_cjk() {
+        assert_eq!(standard_tokenize("東京タワー"), vec!["東", "京", "タワー"]);
+        assert_eq!(standard_tokenize("ひらがな"), vec!["ひ", "ら", "が", "な"]);
+        assert_eq!(standard_tokenize("カタカナ"), vec!["カタカナ"]);
+        assert_eq!(
+            standard_tokenize("one 東京 two"),
+            vec!["one", "東", "京", "two"]
+        );
+    }
+
+    #[test]
+    fn cjk_width_fullwidth_ascii_and_halfwidth_katakana() {
+        assert_eq!(cjk_width_str("Ｈｅｌｌｏ"), "Hello");
+        assert_eq!(cjk_width_str("１２３"), "123");
+        assert_eq!(cjk_width_str("ｶﾀｶﾅ"), "カタカナ");
+        assert_eq!(cjk_width_str("ｶﾞｷ"), "ガキ");
+        assert_eq!(cjk_width_str("ﾊﾟﾋﾟ"), "パピ");
+        assert_eq!(cjk_width_str("ｳﾞ"), "ヴ");
+    }
+
+    #[test]
+    fn cjk_droppable_floor_keeps_whole_words() {
+        let tokens = |ts: &[&str]| ts.iter().map(|t| t.to_string()).collect::<Vec<_>>();
+        // pure CJK chain: only the two-token minimum bounds the floor
+        assert_eq!(cjk_droppable_floor(&tokens(&["葬送", "送的", "系列"])), 2);
+        // a leading whole-word clause is kept, and the minimum still applies
+        assert_eq!(cjk_droppable_floor(&tokens(&["jojo", "的", "系列"])), 2);
+        // a trailing whole-word clause sets the floor past itself
+        assert_eq!(cjk_droppable_floor(&tokens(&["的", "系列", "frieren"])), 3);
+    }
+
+    #[test]
+    fn cjk_bigram_sequence() {
+        assert_eq!(
+            cjk_bigram(standard_tokenize("東京タワー")),
+            vec!["東京", "京タ", "タワ", "ワー", "ー"]
+        );
+        assert_eq!(
+            cjk_bigram(standard_tokenize("ひらがな")),
+            vec!["ひら", "らが", "がな", "な"]
+        );
+        // non-CJK tokens flush the pending character, and a run following one emits
+        // its first character as a boundary unigram
+        assert_eq!(
+            cjk_bigram(vec!["abc".into(), "東".into(), "京".into(), "def".into()]),
+            vec!["abc", "東", "東京", "京", "def"]
+        );
+    }
+
+    #[test]
+    fn cjk_bigram_boundary_unigrams() {
+        // the left-boundary 月 is what lets the query "3月" match this title
+        assert_eq!(
+            search_analyze("3月的狮子"),
+            vec!["3", "月", "月的", "的狮", "狮子", "子"]
+        );
+        assert_eq!(search_analyze("3月"), vec!["3", "月"]);
+        // a run at the very start of the text gets no left-boundary unigram
+        assert_eq!(search_analyze("犬夜叉2"), vec!["犬夜", "夜叉", "叉", "2"]);
+        // a run sandwiched between non-CJK tokens emits both boundary unigrams
+        assert_eq!(search_analyze("A月的B"), vec!["a", "月", "月的", "的", "b"]);
+        // the rule looks at the token stream, so a run after a whitespace-separated
+        // Latin word gains the unigram too
+        assert_eq!(
+            search_analyze("Batman 東京"),
+            vec!["batman", "东", "东京", "京"]
+        );
+    }
+
+    #[test]
+    fn cjk_bigram_index_unigrams_and_positions() {
+        // every character is indexed as a unigram; bigrams keep their sequential spacing,
+        // each mid-run unigram shares the position of the bigram it starts, and the
+        // trailing unigram keeps its own position
+        assert_eq!(
+            cjk_bigram_index(standard_tokenize("東京タワー")),
+            vec![
+                ("東".to_string(), 0),
+                ("東京".to_string(), 1),
+                ("京".to_string(), 2),
+                ("京タ".to_string(), 2),
+                ("タ".to_string(), 3),
+                ("タワ".to_string(), 3),
+                ("ワ".to_string(), 4),
+                ("ワー".to_string(), 4),
+                ("ー".to_string(), 5),
+            ]
+        );
+        // a run after a non-CJK token keeps the boundary-unigram positions of `cjk_bigram`
+        assert_eq!(
+            cjk_bigram_index(vec!["abc".into(), "東".into(), "京".into(), "def".into()]),
+            vec![
+                ("abc".to_string(), 0),
+                ("東".to_string(), 1),
+                ("東京".to_string(), 2),
+                ("京".to_string(), 3),
+                ("def".to_string(), 4),
+            ]
+        );
+        // a one-character run is emitted once
+        assert_eq!(
+            cjk_bigram_index(vec!["a".into(), "月".into(), "b".into()]),
+            vec![
+                ("a".to_string(), 0),
+                ("月".to_string(), 1),
+                ("b".to_string(), 2),
+            ]
+        );
+    }
+
+    #[test]
+    fn index_chain_unigrams_and_ngram_positions() {
+        // the query side analyzes "可爱" to [可爱, 爱]; both must exist in the index
+        let toks = index_analyze("我的可愛對黑岩目高不管用");
+        assert!(toks.contains(&("可爱".to_string(), 3)));
+        assert!(toks.contains(&("爱".to_string(), 4)));
+        assert!(toks.contains(&("我".to_string(), 0)));
+        assert!(toks.contains(&("用".to_string(), 12)));
+        // Latin tokens still get one position per emitted n-gram ("berserk" expands to
+        // 15 grams plus the preserved original at 15, and the CJK tokens shift by that)
+        let toks = index_analyze("Berserk 東京");
+        assert!(toks.contains(&("ber".to_string(), 0)));
+        assert!(toks.contains(&("berserk".to_string(), 15)));
+        assert!(toks.contains(&("东".to_string(), 16)));
+        assert!(toks.contains(&("东京".to_string(), 17)));
+        assert!(toks.contains(&("京".to_string(), 18)));
+    }
+
+    #[test]
+    fn t2s_unifies_simplified_and_traditional() {
+        assert_eq!(t2s_str("名偵探柯南"), "名侦探柯南");
+        assert_eq!(t2s_str("名侦探柯南"), "名侦探柯南");
+        // phrase-level rules keep polyphonic characters intact
+        assert_eq!(t2s_str("乾隆"), "乾隆");
+        assert_eq!(t2s_str("乾燥"), "干燥");
+        // Japanese shinjitai collapses to the simplified form as well; kana is untouched
+        assert_eq!(t2s_str("東京タワー"), "东京タワー");
+        assert_eq!(t2s_str("3月的狮子"), "3月的狮子");
+    }
+
+    #[test]
+    fn chains_unify_simplified_and_traditional() {
+        assert_eq!(search_analyze("名偵探柯南"), search_analyze("名侦探柯南"));
+        assert_eq!(index_analyze("名偵探柯南"), index_analyze("名侦探柯南"));
+        assert_eq!(normalize("名偵探"), "名侦探");
+    }
+
+    #[test]
+    fn t2s_tables_convert_every_entry() {
+        for line in include_str!("t2s_data.tsv").lines() {
+            if line.starts_with('#') {
+                continue;
+            }
+            let Some((key, value)) = line.split_once('\t') else {
+                continue;
+            };
+            assert_eq!(t2s_str(key), value, "key {key:?}");
+        }
+    }
+
+    #[test]
+    fn t2s_phrase_exceptions_hold_inside_text() {
+        // longest-match protects exception words even mid-sentence
+        assert_eq!(t2s_str("x乾隆y"), "x乾隆y");
+        assert_eq!(t2s_str("話說乾坤一擲"), "话说乾坤一掷");
+        assert_eq!(t2s_str("乾燥的乾隆年间"), "干燥的乾隆年间");
+    }
+
+    #[test]
+    fn ngram_3_to_10_preserve_original() {
+        let grams = ngram(vec!["berserk".to_string()], 3, 10, true);
+        for expected in [
+            "ber", "ers", "rse", "ser", "erk", "bers", "erse", "rser", "serk", "berserk",
+        ] {
+            assert!(grams.contains(&expected.to_string()), "missing {expected}");
+        }
+        // length 2 token: only the original survives (minGram=3)
+        let grams = ngram(vec!["東京".to_string()], 3, 10, true);
+        assert_eq!(grams, vec!["東京"]);
+    }
+
+    #[test]
+    fn ascii_folding() {
+        assert_eq!(ascii_fold_str("café"), "cafe");
+        assert_eq!(ascii_fold_str("straße"), "strasse");
+        assert_eq!(ascii_fold_str("œuvre"), "oeuvre");
+        assert_eq!(ascii_fold_str("ﬁle"), "file");
+        assert_eq!(ascii_fold_str("naïve"), "naive");
+        assert_eq!(ascii_fold_str("Łódź"), "Lodz");
+        assert_eq!(ascii_fold_str("東京"), "東京");
+    }
+
+    #[test]
+    fn search_chain() {
+        assert_eq!(search_analyze("Ｈｅｌｌｏ"), vec!["hello"]);
+        // t2s runs first: the Japanese title is indexed under the simplified kanji forms
+        assert_eq!(
+            search_analyze("東京タワー"),
+            vec!["东京", "京タ", "タワ", "ワー", "ー"]
+        );
+    }
+
+    #[test]
+    fn normalize_chain() {
+        assert_eq!(normalize("Ｈｅｌｌｏ"), "hello");
+        // no bigramming for prefix/wildcard terms
+        assert_eq!(normalize("東京"), "东京");
+    }
+
+    #[test]
+    fn index_tokenizer_stream() {
+        let mut tokenizer = KomgaIndexTokenizer;
+        let mut stream = tokenizer.token_stream("Berserk");
+        let mut texts = vec![];
+        while stream.advance() {
+            texts.push(stream.token().text.clone());
+        }
+        assert!(texts.contains(&"berserk".to_string()));
+        assert!(texts.contains(&"ber".to_string()));
+    }
+}

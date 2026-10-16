@@ -1,0 +1,23 @@
+name: build-webui
+description: Build the webui/ Vite bundle into webui/dist (embedded into the kmrs binary at compile time)
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v6
+      with:
+        package_json_file: webui/package.json
+    - uses: actions/setup-node@v7
+      with:
+        node-version: 24
+        cache: pnpm
+        cache-dependency-path: webui/pnpm-lock.yaml
+    - run: pnpm install --frozen-lockfile
+      working-directory: webui
+      shell: bash
+    - run: pnpm build
+      working-directory: webui
+      shell: bash
+    - name: Check the bundle root
+      # the binary serves index.html as the SPA entry, so it must sit at the dist root
+      run: test -s "$GITHUB_WORKSPACE/webui/dist/index.html"
+      shell: bash

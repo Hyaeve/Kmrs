@@ -1,0 +1,252 @@
+@import 'tailwindcss';
+
+/*
+ * Design tokens. Dark is the default theme (reading-first app); `.light` on
+ * <html> swaps the values. Components consume semantic colors only
+ * (bg-bg / bg-surface / text-ink / border-line / accent), never raw scales.
+ *
+ * Shape system: covers rounded-lg, panels rounded-xl, buttons/inputs rounded-lg,
+ * chips and badges rounded-full. One accent (#ff7a55) everywhere.
+ *
+ * Z-index scale: 10 sticky bars · 20 drawers · 30 dropdown/popover ·
+ * 40 dialog · 50 toast · reader UI lives in its own fixed stacking context.
+ */
+
+:root {
+  --bg: #0b0b0d;
+  --surface: #131316;
+  --raised: #1b1b1f;
+  --overlay: #232329;
+  --line: rgb(255 255 255 / 0.08);
+  --line-strong: rgb(255 255 255 / 0.16);
+  --ink: #f4f4f5;
+  --ink-2: #a6a6ad;
+  --ink-3: #6e6e76;
+  --accent: #ff7a55;
+  --accent-strong: #ffb340;
+  --accent-soft: rgb(255 122 85 / 0.14);
+  --accent-ink: #2a0e03;
+  --danger: #ff5d5d;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.35), 0 6px 20px rgb(0 0 0 / 0.28);
+  --shadow-pop: 0 4px 12px rgb(0 0 0 / 0.4), 0 16px 48px rgb(0 0 0 / 0.42);
+  --brand-gradient: linear-gradient(135deg, #ffb340 0%, #ff3d68 100%);
+  color-scheme: dark;
+}
+
+:root.light {
+  --bg: #f7f7f5;
+  --surface: #ffffff;
+  --raised: #ffffff;
+  --overlay: #efefec;
+  --line: rgb(28 25 23 / 0.09);
+  --line-strong: rgb(28 25 23 / 0.18);
+  --ink: #1c1c1e;
+  --ink-2: #5c5c62;
+  --ink-3: #8e8e93;
+  --accent: #ee5a36;
+  --accent-strong: #d63d5e;
+  --accent-soft: rgb(238 90 54 / 0.13);
+  --accent-ink: #2a0e03;
+  --danger: #cf3636;
+  --shadow-card: 0 1px 2px rgb(28 25 23 / 0.07), 0 8px 24px rgb(28 25 23 / 0.09);
+  --shadow-pop: 0 4px 12px rgb(28 25 23 / 0.1), 0 16px 48px rgb(28 25 23 / 0.16);
+  color-scheme: light;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-raised: var(--raised);
+  --color-overlay: var(--overlay);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-ink: var(--accent-ink);
+  --color-danger: var(--danger);
+  /* SC leads the default stack; ja/ko/zh-Hant get their own Han glyph norms via the html:lang overrides below */
+  --font-sans:
+    'Geist Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', 'Noto Sans SC',
+    'Source Han Sans SC', 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
+  --font-display:
+    'Newsreader Variable', Georgia, 'Songti SC', 'STSong', 'Noto Serif CJK SC', 'Noto Serif SC',
+    'Source Han Serif SC', 'SimSun', 'Times New Roman', serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --shadow-card: var(--shadow-card);
+  --shadow-pop: var(--shadow-pop);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* font fallback is per-glyph and lang-blind, so the SC stack above would otherwise serve ja/ko/zh-Hant UIs SC norms */
+html:lang(ja) {
+  --font-sans:
+    'Geist Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    'Hiragino Sans', 'Yu Gothic UI', 'Yu Gothic', 'Meiryo', 'Noto Sans CJK JP', 'Noto Sans JP',
+    'Source Han Sans JP', 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
+  --font-display:
+    'Newsreader Variable', Georgia, 'Hiragino Mincho ProN', 'Yu Mincho', 'Noto Serif CJK JP', 'Noto Serif JP',
+    'Source Han Serif JP', 'Times New Roman', serif;
+}
+
+html:lang(ko) {
+  --font-sans:
+    'Geist Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans CJK KR', 'Noto Sans KR', 'Source Han Sans KR',
+    'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
+  --font-display:
+    'Newsreader Variable', Georgia, 'AppleMyungjo', 'Batang', 'Noto Serif CJK KR', 'Noto Serif KR',
+    'Source Han Serif KR', 'Times New Roman', serif;
+}
+
+html:lang(zh-Hant) {
+  --font-sans:
+    'Geist Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    'PingFang TC', 'PingFang HK', 'Microsoft JhengHei', 'Noto Sans CJK TC', 'Noto Sans TC',
+    'Source Han Sans TC', 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
+  --font-display:
+    'Newsreader Variable', Georgia, 'Songti TC', 'PMingLiU', 'Noto Serif CJK TC', 'Noto Serif TC',
+    'Source Han Serif TC', 'Times New Roman', serif;
+}
+
+@layer base {
+  html {
+    scrollbar-color: var(--line-strong) transparent;
+    /* block page-level pinch and double-tap zoom (iOS ignores user-scalable=no); containers that pan or pinch set their own touch-action */
+    touch-action: pan-x pan-y;
+  }
+
+  body {
+    @apply bg-bg font-sans text-ink antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: rgb(255 122 85 / 0.28);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  input[type='search']::-webkit-search-cancel-button {
+    display: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer utilities {
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .brand-gradient {
+    background-image: var(--brand-gradient);
+  }
+
+  /* standalone display (viewport-fit=cover) draws under the system status bar / home indicator */
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .cover-aspect {
+    aspect-ratio: 0.7071;
+  }
+
+  @keyframes shimmer {
+    from {
+      background-position: 200% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
+  }
+  .shimmer {
+    background: linear-gradient(
+      100deg,
+      var(--raised) 40%,
+      var(--overlay) 50%,
+      var(--raised) 60%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.4s linear infinite;
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  .img-fade {
+    animation: fade-in 0.35s var(--ease-out-expo, ease-out);
+  }
+
+  /* entrance for cards mounting into an already-rendered list (SSE inserts, infinite scroll) */
+  @keyframes card-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  .animate-card-in {
+    animation: card-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  }
+
+  /* on back/forward navigation the whole grid remounts at once and replaying every
+     card's entrance reads as a flash; the mark lasts for the whole location, so late
+     arrivals (infinite scroll, SSE inserts) on a POP-arrived page skip it too */
+  [data-pop-navigation] .animate-card-in {
+    animation: none;
+  }
+
+  /* replayed on badge value changes via key remount */
+  @keyframes badge-pop {
+    from {
+      opacity: 0.3;
+      transform: scale(0.7);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+  .animate-badge-pop {
+    animation: badge-pop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+}
+
+/* Readium EpubNavigator creates iframes with no intrinsic sizing; the host app owns their size */
+.readium-navigator-iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}

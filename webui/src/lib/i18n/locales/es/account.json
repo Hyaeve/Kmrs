@@ -1,0 +1,103 @@
+{
+  "language": {
+    "title": "Idioma",
+    "label": "Idioma de la interfaz"
+  },
+  "profile": {
+    "title": "Perfil",
+    "email": "Correo electrónico",
+    "roles": "Roles",
+    "libraries": "Bibliotecas",
+    "allLibraries": "Todas las bibliotecas",
+    "sharedLibraries_one": "{{count}} biblioteca",
+    "sharedLibraries_many": "{{count}} bibliotecas",
+    "sharedLibraries_other": "{{count}} bibliotecas",
+    "role": {
+      "admin": "Administrador",
+      "user": "Usuario",
+      "fileDownload": "Descarga de archivos",
+      "pageStreaming": "Transmisión de páginas",
+      "koboSync": "Sincronización con Kobo",
+      "koreaderSync": "Sincronización con KOReader"
+    }
+  },
+  "security": {
+    "title": "Seguridad",
+    "subtitle": "Contraseña y actividad de inicio de sesión",
+    "password": {
+      "title": "Cambiar contraseña",
+      "new": "Nueva contraseña",
+      "confirm": "Confirmar contraseña",
+      "staySignedIn": "Seguirás con la sesión iniciada en este dispositivo.",
+      "mismatch": "Las contraseñas no coinciden.",
+      "updated": "Contraseña actualizada. Se cerraron las demás sesiones.",
+      "failed": "No se pudo actualizar la contraseña.",
+      "submit": "Actualizar contraseña"
+    },
+    "activity": {
+      "title": "Actividad de inicio de sesión",
+      "failed": "No se pudo cargar la actividad de inicio de sesión.",
+      "empty": "Aún no hay actividad de inicio de sesión.",
+      "when": "Cuándo",
+      "ip": "IP",
+      "source": "Origen",
+      "status": "Estado",
+      "agent": "Agente",
+      "success": "Éxito",
+      "statusFailed": "Fallido",
+      "page": "Página {{current}} de {{total}}",
+      "previous": "Anterior",
+      "next": "Siguiente"
+    }
+  },
+  "apiKeys": {
+    "title": "Claves API",
+    "subtitle": "Claves para clientes de terceros y sincronización",
+    "failed": "No se pudieron cargar las claves API.",
+    "empty": "Aún no hay claves API.",
+    "resyncHint": "La resincronización obliga a los dispositivos KOReader y Kobo a descargarlo todo de nuevo.",
+    "resyncAll": "Resincronizar todos los dispositivos",
+    "untitled": "Sin título",
+    "createdOnly": "Creada el {{date}}",
+    "createdAndUsed": "Creada el {{date}} · Último uso {{time}}",
+    "resyncKey": "Forzar resincronización de {{name}}",
+    "delete": "Eliminar clave API",
+    "deleteFailed": "No se pudo eliminar la clave API.",
+    "resyncDone": "Resincronización solicitada para {{name}}.",
+    "allDevices": "todos los dispositivos",
+    "new": "Nueva clave API",
+    "commentPlaceholder": "Comentario, p. ej. KOReader en Boox",
+    "createFailed": "No se pudo crear la clave API.",
+    "createdTitle": "Clave API creada",
+    "shownOnce": "Esta clave solo se muestra una vez.",
+    "copy": "Copiar",
+    "copied": "Copiada",
+    "resyncTitle": "Forzar resincronización",
+    "resyncKeyBody": "¿Restablecer el punto de sincronización de <name>{{name}}</name>? El próximo dispositivo KOReader o Kobo que use esta clave descargará todo su progreso de nuevo.",
+    "resyncAllBody": "¿Restablecer los puntos de sincronización de todas las claves API? Todos tus dispositivos KOReader y Kobo descargarán todo su progreso de nuevo en la próxima sincronización.",
+    "resyncFailed": "No se pudo solicitar la resincronización."
+  },
+  "reader": {
+    "title": "Lector",
+    "subtitle": "Valores predeterminados del lector de cómics",
+    "defaultsTitle": "Ajustes predeterminados del lector",
+    "direction": "Dirección de lectura",
+    "scale": "Escala",
+    "scaleScreen": "Ajustar a pantalla",
+    "scaleWidth": "Ajustar al ancho",
+    "scaleShrinkWidth": "Reducir al ancho",
+    "scaleHeight": "Ajustar a la altura",
+    "scaleOriginal": "Original",
+    "pageLayout": "Disposición de página",
+    "layoutSingle": "Individual",
+    "layoutDouble": "Doble",
+    "layoutDoubleNoCover": "Doble sin portada",
+    "background": "Fondo",
+    "backgroundLabel": "Fondo {{color}}",
+    "backgrounds": {
+      "black": "Negro",
+      "gray": "Gris",
+      "white": "Blanco"
+    }
+  }
+}

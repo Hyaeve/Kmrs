@@ -1,0 +1,75 @@
+[package]
+name = "komga-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "kmrs"
+path = "src/main.rs"
+
+[features]
+# jemalloc global allocator + SIGUSR2 heap dumps (src/profiling.rs); profiling builds only
+profiling = ["dep:tikv-jemallocator", "dep:tikv-jemalloc-ctl"]
+
+[dependencies]
+clap.workspace = true
+toml.workspace = true
+serde_yaml.workspace = true
+komga-core = { path = "../komga-core" }
+komga-db = { path = "../komga-db" }
+komga-media = { path = "../komga-media" }
+komga-search = { path = "../komga-search" }
+tokio.workspace = true
+axum = { workspace = true, features = ["multipart"] }
+tower = { workspace = true, features = ["util"] }
+tower-http.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+libc.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tracing-appender.workspace = true
+time.workspace = true
+bcrypt.workspace = true
+sha2.workspace = true
+hex.workspace = true
+md5.workspace = true
+uuid.workspace = true
+moka.workspace = true
+form_urlencoded.workspace = true
+base64 = "0.23"
+zip.workspace = true
+image.workspace = true
+rusqlite.workspace = true
+crc32fast.workspace = true
+tokio-util = { version = "0.7", features = ["io"] }
+tokio-stream = "0.1"
+futures-util = "0.3"
+http-body = "1"
+flate2.workspace = true
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots", "json", "gzip", "stream"] }
+# debug-embed: debug builds embed at compile time too — the shipped binary never reads
+# webui/dist at runtime, so the docker smoke test works with a dev-profile build
+rust-embed = { version = "8.12.0", features = ["mime-guess", "debug-embed"] }
+sysinfo.workspace = true
+
+# unix-only: the `profiling` feature is inert on Windows (jemalloc has no MSVC support),
+# so release builds can pass --features profiling to every target
+[target.'cfg(unix)'.dependencies]
+tikv-jemalloc-ctl = { workspace = true, optional = true }
+# The whole process must share one allocator: a prefixed jemalloc would sit next to
+# the system allocator, and one cross-boundary free corrupts the heap. Bundled SQLite
+# binds the unprefixed symbols at static link time, dlopen'd libpdfium via the
+# exported dynamic symbols (.cargo/config.toml adds -rdynamic on linux-gnu).
+# Overriding also routes C-side churn (SQLite, pdfium) through jemalloc's decay —
+# glibc never returns arena-interior free pages, so that churn ratchets RSS.
+# macOS overrides via zone_register, linux-gnu via unprefixed symbols.
+tikv-jemallocator = { workspace = true, optional = true, features = ["override_allocator_on_supported_platforms"] }
+
+[dev-dependencies]
+tower = { workspace = true, features = ["util"] }
+tempfile = "3"
+http-body-util = "0.1"

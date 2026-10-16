@@ -1,0 +1,908 @@
+//! Search: tantivy index and Lucene syntax compatibility layer.
+//!
+//! Ports komga's `LuceneHelper`/`LuceneEntity`/`LuceneConfiguration` to tantivy 0.26:
+//! one index for all four entity kinds, a `type` keyword field distinguishing them,
+//! stored id fields, and an `index_version` marker document.
+
+pub mod analyzer;
+pub mod syntax;
+
+use komga_core::task::LuceneEntity;
+use std::path::Path;
+use tantivy::collector::TopDocs;
+use tantivy::query::{BooleanQuery, Occur, TermQuery};
+use tantivy::schema::document::Value as _;
+use tantivy::schema::{
+    Field, IndexRecordOption, Schema, TextFieldIndexing, TextOptions, STORED, STRING,
+};
+use tantivy::{Index, IndexReader, IndexWriter, TantivyDocument, Term};
+
+pub use analyzer::KomgaIndexTokenizer;
+
+const TYPE_FIELD: &str = "type";
+const INDEX_VERSION_FIELD: &str = "index_version";
+const INDEX_VERSION_TYPE: &str = "index_version";
+const MAX_RESULTS: usize = 1000;
+// bumped together with ANALYZER_VERSION so an index built by another analyzer chain
+// can never be opened silently
+const INDEX_TOKENIZER: &str = "komga_index_v4";
+
+/// Version of the analyzer chain (tokenizer/filters), independent of the entity
+/// `index_version` document, which tracks the indexed *fields* like Java's marker.
+pub const ANALYZER_VERSION: u32 = 4;
+const ANALYZER_VERSION_FILE: &str = ".kmrs-search-analyzer-version";
+/// File names of a Java Lucene index, for detecting a data directory previously
+/// used by Java komga.
+const LUCENE_ARTIFACT_PREFIXES: &[&str] = &["segments_", "write.lock", "segments.gen"];
+
+/// Startup decision for the index directory (`prepare_index_directory` in spirit).
+pub enum StartupDecision {
+    Ready,
+    /// A full rebuild is required; `wipe` is only true when every file in the
+    /// directory is known to be disposable (a Java Lucene index or an outdated
+    /// kmrs index) — foreign files are never deleted.
+    Rebuild {
+        wipe: bool,
+    },
+}
+
+pub fn decide_startup(dir: &Path) -> StartupDecision {
+    if dir.join("meta.json").exists() {
+        return match analyzer_version_of(dir) {
+            Some(v) if v == ANALYZER_VERSION => StartupDecision::Ready,
+            // the directory holds a kmrs index from another analyzer version: disposable
+            _ => StartupDecision::Rebuild { wipe: true },
+        };
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return StartupDecision::Rebuild { wipe: false };
+    };
+    let names: Vec<String> = entries
+        .filter_map(|e| e.ok().map(|e| e.file_name().to_string_lossy().into_owned()))
+        .collect();
+    let has_lucene = names
+        .iter()
+        .any(|n| LUCENE_ARTIFACT_PREFIXES.iter().any(|p| n.starts_with(p)));
+    StartupDecision::Rebuild { wipe: has_lucene }
+}
+
+fn analyzer_version_of(dir: &Path) -> Option<u32> {
+    std::fs::read_to_string(dir.join(ANALYZER_VERSION_FILE))
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
+}
+
+/// Deletes the whole index directory; only call after `decide_startup` returned
+/// `Rebuild { wipe: true }`.
+pub fn wipe_index_dir(dir: &Path) -> std::io::Result<()> {
+    std::fs::remove_dir_all(dir)?;
+    std::fs::create_dir_all(dir)
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error(transparent)]
+    Tantivy(#[from] tantivy::TantivyError),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+pub fn entity_type_str(entity: LuceneEntity) -> &'static str {
+    match entity {
+        LuceneEntity::Book => "book",
+        LuceneEntity::Series => "series",
+        LuceneEntity::Collection => "collection",
+        LuceneEntity::ReadList => "readlist",
+    }
+}
+
+pub fn entity_id_field(entity: LuceneEntity) -> &'static str {
+    match entity {
+        LuceneEntity::Book => "book_id",
+        LuceneEntity::Series => "series_id",
+        LuceneEntity::Collection => "collection_id",
+        LuceneEntity::ReadList => "readlist_id",
+    }
+}
+
+/// Text fields of the entity documents (`LuceneEntity.kt` toDocument), including the
+/// ComicInfo author roles, which Lucene indexes under the role's own field name.
+const TEXT_FIELDS: &[&str] = &[
+    "title",
+    "isbn",
+    "name",
+    "tag",
+    "series_tag",
+    "book_tag",
+    "author",
+    "writer",
+    "penciller",
+    "inker",
+    "colorist",
+    "letterer",
+    "cover",
+    "editor",
+    "translator",
+    "publisher",
+    "status",
+    "reading_direction",
+    "age_rating",
+    "language",
+    "genre",
+    "sharing_label",
+    "total_book_count",
+    "book_count",
+    "release_date",
+    "deleted",
+    "oneshot",
+    "complete",
+];
+
+fn build_schema() -> Schema {
+    let mut builder = Schema::builder();
+    let text_options = TextOptions::default().set_indexing_options(
+        TextFieldIndexing::default()
+            .set_tokenizer(INDEX_TOKENIZER)
+            .set_index_option(IndexRecordOption::WithFreqsAndPositions),
+    );
+    for name in TEXT_FIELDS {
+        builder.add_text_field(name, text_options.clone());
+    }
+    // keyword fields: indexed raw, not analyzed
+    builder.add_text_field(TYPE_FIELD, STRING);
+    builder.add_text_field(INDEX_VERSION_FIELD, STRING | STORED);
+    builder.add_text_field("book_id", STRING | STORED);
+    builder.add_text_field("series_id", STRING | STORED);
+    builder.add_text_field("collection_id", STRING | STORED);
+    builder.add_text_field("readlist_id", STRING | STORED);
+    builder.build()
+}
+
+/// A document to index; `fields` keeps insertion order and allows repeated (multi-valued) entries.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EntityDoc {
+    pub entity: LuceneEntity,
+    pub id: String,
+    pub fields: Vec<(String, String)>,
+}
+
+/// One resolved entity change for `SearchIndex::apply_ops`. `Upsert` is Lucene's
+/// `updateDocument(term, doc)`: delete by id, then add.
+#[derive(Debug)]
+pub enum IndexOp {
+    Upsert(EntityDoc),
+    Delete { entity: LuceneEntity, id: String },
+}
+
+impl EntityDoc {
+    fn to_tantivy(&self, schema: &Schema) -> TantivyDocument {
+        let mut doc = TantivyDocument::new();
+        for (name, value) in &self.fields {
+            match schema.get_field(name) {
+                Ok(field) => doc.add_text(field, value),
+                // Lucene accepts dynamic fields (e.g. arbitrary author roles); tantivy's
+                // static schema cannot, so unknown fields are dropped with a warning
+                Err(_) => {
+                    tracing::warn!(
+                        "skipping unindexed field {name} of {} {}",
+                        entity_type_str(self.entity),
+                        self.id
+                    )
+                }
+            }
+        }
+        doc.add_text(
+            schema.get_field(TYPE_FIELD).unwrap(),
+            entity_type_str(self.entity),
+        );
+        doc.add_text(
+            schema.get_field(entity_id_field(self.entity)).unwrap(),
+            &self.id,
+        );
+        doc
+    }
+}
+
+/// The dto_dao-facing search contract (`komga_db::dto_dao::EntitySearcher` has the same shape;
+/// the server adapts between them).
+pub trait EntitySearcher: Send + Sync {
+    /// `None` means no filtering (blank term); `Some(ids)` filters, possibly to nothing.
+    fn search_entity_ids(&self, term: Option<&str>, entity: LuceneEntity) -> Option<Vec<String>>;
+}
+
+pub struct SearchIndex {
+    index: Index,
+    /// `IndexWriter` is not `Clone` in tantivy 0.26, and `commit` needs `&mut`
+    writer: std::sync::Mutex<IndexWriter>,
+    reader: IndexReader,
+}
+
+impl SearchIndex {
+    /// Opens an existing index or creates it (the directory is created when missing).
+    ///
+    /// Stamps the analyzer-version marker on success: without it the next startup
+    /// would treat the index as outdated and rebuild it again.
+    pub fn open(dir: &Path) -> Result<Self> {
+        let index = match Index::open_in_dir(dir) {
+            Ok(index) => index,
+            Err(_) => {
+                std::fs::create_dir_all(dir)?;
+                Index::create_in_dir(dir, build_schema())?
+            }
+        };
+        index
+            .tokenizers()
+            .register(INDEX_TOKENIZER, KomgaIndexTokenizer);
+        let writer = std::sync::Mutex::new(index.writer(50_000_000)?);
+        let reader = index.reader()?;
+        std::fs::write(
+            dir.join(ANALYZER_VERSION_FILE),
+            ANALYZER_VERSION.to_string(),
+        )?;
+        Ok(Self {
+            index,
+            writer,
+            reader,
+        })
+    }
+
+    /// `DirectoryReader.indexExists`
+    pub fn exists(dir: &Path) -> bool {
+        Index::open_in_dir(dir).is_ok()
+    }
+
+    /// Version stored in the `index_version` marker document; defaults to 1 like the Java side.
+    pub fn index_version(&self) -> i32 {
+        let searcher = self.reader.searcher();
+        let query = TermQuery::new(
+            Term::from_field_text(self.field(TYPE_FIELD), INDEX_VERSION_TYPE),
+            IndexRecordOption::WithFreqs,
+        );
+        searcher
+            .search(&query, &TopDocs::with_limit(1).order_by_score())
+            .ok()
+            .and_then(|top| top.into_iter().next())
+            .and_then(|(_, addr)| searcher.doc::<TantivyDocument>(addr).ok())
+            .and_then(|doc| {
+                doc.get_first(self.field(INDEX_VERSION_FIELD))
+                    .and_then(|v| v.as_value().as_str().map(str::to_string))
+            })
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(1)
+    }
+
+    /// `setIndexVersion`: replace the marker document
+    pub fn set_index_version(&self, version: i32) -> Result<()> {
+        self.writer
+            .lock()
+            .unwrap()
+            .delete_term(Term::from_field_text(
+                self.field(TYPE_FIELD),
+                INDEX_VERSION_TYPE,
+            ));
+        let mut doc = TantivyDocument::new();
+        doc.add_text(self.field(TYPE_FIELD), INDEX_VERSION_TYPE);
+        doc.add_text(self.field(INDEX_VERSION_FIELD), version.to_string());
+        self.writer.lock().unwrap().add_document(doc)?;
+        self.commit()
+    }
+
+    /// `searchEntitiesIds`: parse `"<term> *:*"` in Lucene syntax, require the entity type,
+    /// return up to 1000 ids in score order. Blank terms mean "no filtering" (None);
+    /// parse failures yield an empty list, like Lucene's ParseException path.
+    pub fn search_entity_ids(
+        &self,
+        term: Option<&str>,
+        entity: LuceneEntity,
+    ) -> Option<Vec<String>> {
+        let term = term.filter(|t| !t.trim().is_empty())?;
+        let Ok(ast) = syntax::parse(&format!("{term} *:*")) else {
+            return Some(vec![]);
+        };
+        let schema = self.index.schema();
+        let fields_query = match syntax::build_query(&ast, entity, &schema) {
+            Ok(query) => query,
+            Err(_) => return Some(vec![]),
+        };
+        let searcher = self.reader.searcher();
+        let ids = match self.search_ids(&searcher, fields_query, entity) {
+            Ok(ids) => ids,
+            Err(e) => {
+                tracing::error!("error fetching entities from index: {e}");
+                return Some(vec![]);
+            }
+        };
+        if !ids.is_empty() {
+            return Some(ids);
+        }
+        // Progressive prefix fallback, a kmrs extension over Lucene: CJK bigrams are
+        // sub-word units, so a bare-term query that overhangs the title ("葬送的芙莉莲系列"
+        // vs "葬送的芙莉莲") is retried with trailing analyzed tokens dropped one by one.
+        // Only a suffix of bigram-chain tokens may be dropped, so whole-word (latin/digit)
+        // clauses are never relaxed; the retained prefix keeps at least two tokens, so a
+        // Lucene miss stays a miss when no bigram prefix matches. Phrases and compound
+        // queries are untouched.
+        if let Some(text) = syntax::bare_term(&ast) {
+            let tokens = analyzer::search_analyze(text);
+            let floor = analyzer::cjk_droppable_floor(&tokens);
+            for n in (floor..tokens.len()).rev() {
+                let Ok(query) = syntax::build_term_query(&None, entity, &schema, &tokens[..n])
+                else {
+                    break;
+                };
+                match self.search_ids(&searcher, query, entity) {
+                    Ok(ids) if !ids.is_empty() => return Some(ids),
+                    Ok(_) => {}
+                    Err(e) => {
+                        tracing::error!("error fetching entities from index: {e}");
+                        break;
+                    }
+                }
+            }
+        }
+        Some(vec![])
+    }
+
+    /// Runs `fields_query` AND the entity-type filter, mapping hits to ids in
+    /// score order.
+    fn search_ids(
+        &self,
+        searcher: &tantivy::Searcher,
+        fields_query: Box<dyn tantivy::query::Query>,
+        entity: LuceneEntity,
+    ) -> tantivy::Result<Vec<String>> {
+        let type_query = TermQuery::new(
+            Term::from_field_text(self.field(TYPE_FIELD), entity_type_str(entity)),
+            IndexRecordOption::WithFreqs,
+        );
+        let boolean = BooleanQuery::new(vec![
+            (Occur::Must, fields_query),
+            (Occur::Must, Box::new(type_query)),
+        ]);
+        let id_field = self.field(entity_id_field(entity));
+        let top = searcher.search(&boolean, &TopDocs::with_limit(MAX_RESULTS).order_by_score())?;
+        Ok(top
+            .into_iter()
+            .filter_map(|(_, addr)| searcher.doc::<TantivyDocument>(addr).ok())
+            .filter_map(|doc| {
+                doc.get_first(id_field)
+                    .and_then(|v| v.as_value().as_str().map(str::to_string))
+            })
+            .collect())
+    }
+
+    /// Buffers new documents; they become searchable at the next `commit`.
+    pub fn add_documents(&self, docs: Vec<EntityDoc>) -> Result<()> {
+        let schema = self.index.schema();
+        let writer = self.writer.lock().unwrap();
+        for doc in docs {
+            writer.add_document(doc.to_tantivy(&schema))?;
+        }
+        Ok(())
+    }
+
+    /// Applies a coalesced batch of entity changes under one writer lock: scan bursts
+    /// emit several events per entity, so the consumer resolves them to one op per
+    /// (entity, id) and pays the lock once for the whole batch.
+    pub fn apply_ops(&self, ops: Vec<IndexOp>) -> Result<()> {
+        let schema = self.index.schema();
+        let writer = self.writer.lock().unwrap();
+        for op in ops {
+            match op {
+                IndexOp::Upsert(doc) => {
+                    writer.delete_term(Term::from_field_text(
+                        self.field(entity_id_field(doc.entity)),
+                        &doc.id,
+                    ));
+                    writer.add_document(doc.to_tantivy(&schema))?;
+                }
+                IndexOp::Delete { entity, id } => {
+                    writer.delete_term(Term::from_field_text(
+                        self.field(entity_id_field(entity)),
+                        &id,
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// `rebuildIndex` first wipes every document of the entity type
+    pub fn delete_entity_type(&self, entity: LuceneEntity) -> Result<()> {
+        self.writer
+            .lock()
+            .unwrap()
+            .delete_term(Term::from_field_text(
+                self.field(TYPE_FIELD),
+                entity_type_str(entity),
+            ));
+        Ok(())
+    }
+
+    /// Lucene's `IndexUpgrader` upgrades the on-disk codec; tantivy has no such concept
+    /// (format changes are handled by reindexing), so this is a no-op.
+    pub fn upgrade(&self) {
+        tracing::info!("tantivy index requires no codec upgrade");
+    }
+
+    /// Commits buffered writes and reloads the reader, making them searchable.
+    /// Each commit serializes a segment to disk, so callers batch writes and
+    /// commit at most once per 2s window (`LuceneAsyncCommitter`).
+    pub fn commit(&self) -> Result<()> {
+        self.writer.lock().unwrap().commit()?;
+        self.reader.reload()?;
+        Ok(())
+    }
+
+    fn field(&self, name: &str) -> Field {
+        self.index.schema().get_field(name).expect("schema field")
+    }
+}
+
+impl EntitySearcher for SearchIndex {
+    fn search_entity_ids(&self, term: Option<&str>, entity: LuceneEntity) -> Option<Vec<String>> {
+        self.search_entity_ids(term, entity)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn index() -> (tempfile::TempDir, SearchIndex) {
+        let dir = tempfile::tempdir().unwrap();
+        let index = SearchIndex::open(dir.path()).unwrap();
+        (dir, index)
+    }
+
+    fn book(id: &str, fields: &[(&str, &str)]) -> EntityDoc {
+        EntityDoc {
+            entity: LuceneEntity::Book,
+            id: id.to_string(),
+            fields: fields
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        }
+    }
+
+    fn seed(index: &SearchIndex) {
+        index
+            .add_documents(vec![
+                book(
+                    "b1",
+                    &[
+                        ("title", "Berserk Volume 1"),
+                        ("isbn", "9781593070205"),
+                        ("author", "Kentaro Miura"),
+                        ("writer", "Kentaro Miura"),
+                        ("tag", "seinen"),
+                    ],
+                ),
+                book(
+                    "b2",
+                    &[
+                        ("title", "Solo Leveling"),
+                        ("isbn", "9781975319278"),
+                        ("author", "Chugong"),
+                        ("writer", "Chugong"),
+                    ],
+                ),
+                book("b3", &[("title", "東京クライシス"), ("author", "誰か")]),
+            ])
+            .unwrap();
+        index.commit().unwrap();
+    }
+
+    #[test]
+    fn search_by_default_fields() {
+        let (_dir, index) = index();
+        seed(&index);
+        let ids = index
+            .search_entity_ids(Some("berserk"), LuceneEntity::Book)
+            .unwrap();
+        assert_eq!(ids, vec!["b1"]);
+        // isbn is a default field for books
+        let ids = index
+            .search_entity_ids(Some("9781593070205"), LuceneEntity::Book)
+            .unwrap();
+        assert_eq!(ids, vec!["b1"]);
+        // author is NOT a default field: a bare term does not reach it
+        let ids = index
+            .search_entity_ids(Some("miura"), LuceneEntity::Book)
+            .unwrap();
+        assert!(ids.is_empty());
+        // ...but it is reachable when named
+        let ids = index
+            .search_entity_ids(Some("author:miura"), LuceneEntity::Book)
+            .unwrap();
+        assert_eq!(ids, vec!["b1"]);
+    }
+
+    #[test]
+    fn search_prefix_phrase_wildcard() {
+        let (_dir, index) = index();
+        seed(&index);
+        let ids = index
+            .search_entity_ids(Some("ber*"), LuceneEntity::Book)
+            .unwrap();
+        assert_eq!(ids, vec!["b1"]);
+        // phrase positions advance per emitted n-gram (Lucene NGramTokenFilter semantics),
+        // so a multi-word phrase on a title does not match — same as komga
+        assert!(index
+            .search_entity_ids(Some("\"berserk volume\""), LuceneEntity::Book)
+            .unwrap()
+            .is_empty());
+        // a CJK phrase aligned with the document's bigram positions matches
+        let ids = index
+            .search_entity_ids(Some("\"クライシス\""), LuceneEntity::Book)
+            .unwrap();
+        assert_eq!(ids, vec!["b3"]);
+        let ids = index
+            .search_entity_ids(Some("b*rk"), LuceneEntity::Book)
+            .unwrap();
+        assert_eq!(ids, vec!["b1"]);
+    }
+
+    #[test]
+    fn search_cjk() {
+        let (_dir, index) = index();
+        seed(&index);
+        // every CJK character is indexed as a unigram, so the query's trailing unigram
+        // (ANDed into the query) resolves — unlike the Java version, which cannot match
+        // a mid-run query like this one
+        let ids = index
+            .search_entity_ids(Some("東京"), LuceneEntity::Book)
+            .unwrap();
+        assert_eq!(ids, vec!["b3"]);
+        let ids = index
+            .search_entity_ids(Some("クライシス"), LuceneEntity::Book)
+            .unwrap();
+        assert_eq!(ids, vec!["b3"]);
+    }
+
+    #[test]
+    fn search_cjk_mid_run_substrings() {
+        let (_dir, index) = index();
+        index
+            .add_documents(vec![book("b1", &[("title", "我的可愛對黑岩目高不管用")])])
+            .unwrap();
+        index.commit().unwrap();
+        // substrings cut from the middle of the CJK run: the query's trailing unigram
+        // (可愛→爱, 我的→的, 黑岩→岩) is indexed like every other character
+        for term in ["可愛", "可爱", "我的", "黑岩", "目高", "我"] {
+            let ids = index
+                .search_entity_ids(Some(term), LuceneEntity::Book)
+                .unwrap();
+            assert_eq!(ids, vec!["b1"], "term {term}");
+        }
+    }
+
+    #[test]
+    fn search_cjk_boundary_unigram() {
+        let (_dir, index) = index();
+        index
+            .add_documents(vec![
+                book("b1", &[("title", "3月的狮子")]),
+                book("b2", &[("title", "狮子王")]),
+                book("b3", &[("title", "3月のライオン")]),
+            ])
+            .unwrap();
+        index.commit().unwrap();
+        // digit-anchored query: matches via the left-boundary unigram 月
+        let mut ids = index
+            .search_entity_ids(Some("3月"), LuceneEntity::Book)
+            .unwrap();
+        ids.sort();
+        assert_eq!(ids, vec!["b1", "b3"]);
+        // single-character query: same unigram makes the run-initial 月 findable
+        let mut ids = index
+            .search_entity_ids(Some("月"), LuceneEntity::Book)
+            .unwrap();
+        ids.sort();
+        assert_eq!(ids, vec!["b1", "b3"]);
+    }
+
+    #[test]
+    fn search_cjk_simplified_traditional_cross_match() {
+        let (_dir, index) = index();
+        index
+            .add_documents(vec![
+                book("b1", &[("title", "名侦探柯南")]),
+                book("b2", &[("title", "名偵探柯南")]),
+                book("b3", &[("title", "海贼王")]),
+            ])
+            .unwrap();
+        index.commit().unwrap();
+        // both scripts index to the same simplified form, so either script hits both titles
+        for term in ["名侦探柯南", "名偵探柯南"] {
+            let mut ids = index
+                .search_entity_ids(Some(term), LuceneEntity::Book)
+                .unwrap();
+            ids.sort();
+            assert_eq!(ids, vec!["b1", "b2"], "term {term}");
+        }
+        let ids = index
+            .search_entity_ids(Some("海賊王"), LuceneEntity::Book)
+            .unwrap();
+        assert_eq!(ids, vec!["b3"]);
+        // prefix/wildcard terms go through normalize, which converts too
+        let ids = index
+            .search_entity_ids(Some("海賊*"), LuceneEntity::Book)
+            .unwrap();
+        assert_eq!(ids, vec!["b3"]);
+    }
+
+    #[test]
+    fn search_cjk_prefix_fallback() {
+        let (_dir, index) = index();
+        index
+            .add_documents(vec![
+                book("b1", &[("title", "葬送的芙莉莲")]),
+                book("b2", &[("title", "JOJO的奇妙冒险")]),
+                book("b3", &[("title", "Frieren系列")]),
+            ])
+            .unwrap();
+        index.commit().unwrap();
+        // tail overhang: the title is a token-prefix of the query (n=5 of 8 tokens)
+        let ids = index
+            .search_entity_ids(Some("葬送的芙莉莲系列"), LuceneEntity::Book)
+            .unwrap();
+        assert_eq!(ids, vec!["b1"]);
+        // latin head + CJK tail: the fallback keeps the latin clause and drops
+        // only CJK bigrams (n=6 of 9 / n=3 of 7 tokens)
+        let ids = index
+            .search_entity_ids(Some("JOJO的奇妙冒险系列"), LuceneEntity::Book)
+            .unwrap();
+        assert_eq!(ids, vec!["b2"]);
+        let ids = index
+            .search_entity_ids(Some("Frieren系列完全版"), LuceneEntity::Book)
+            .unwrap();
+        assert_eq!(ids, vec!["b3"]);
+    }
+
+    #[test]
+    fn search_cjk_prefix_fallback_respects_gate() {
+        let (_dir, index) = index();
+        index
+            .add_documents(vec![
+                book("b1", &[("title", "Berserk")]),
+                book("b2", &[("title", "Frieren")]),
+                book("b3", &[("title", "葬送的芙莉莲")]),
+            ])
+            .unwrap();
+        index.commit().unwrap();
+        // whole-word clauses are never relaxed: the dropped suffix must be all CJK,
+        // so "Berserk 系列" keeps AND(Berserk, 系) and hits nothing (Lucene parity)
+        assert!(index
+            .search_entity_ids(Some("Berserk 系列"), LuceneEntity::Book)
+            .unwrap()
+            .is_empty());
+        // floor n=2: AND(Frieren, 系) misses; only n=1 (bare "Frieren") would hit,
+        // and the fallback never degrades that far
+        assert!(index
+            .search_entity_ids(Some("Frieren系列完全版"), LuceneEntity::Book)
+            .unwrap()
+            .is_empty());
+        // quoted phrases and compound queries do not fall back
+        assert!(index
+            .search_entity_ids(Some("\"葬送的芙莉莲系列\""), LuceneEntity::Book)
+            .unwrap()
+            .is_empty());
+        assert!(index
+            .search_entity_ids(Some("葬送的芙莉莲系列 author:someone"), LuceneEntity::Book)
+            .unwrap()
+            .is_empty());
+        // field-qualified single terms are outside the fallback's bare-term scope
+        assert!(index
+            .search_entity_ids(Some("title:葬送的芙莉莲系列"), LuceneEntity::Book)
+            .unwrap()
+            .is_empty());
+        // a non-CJK token at the very end leaves no CJK suffix to drop
+        assert!(index
+            .search_entity_ids(Some("葬送的芙莉莲 complete"), LuceneEntity::Book)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn blank_term_and_parse_error() {
+        let (_dir, index) = index();
+        seed(&index);
+        assert!(index.search_entity_ids(None, LuceneEntity::Book).is_none());
+        assert!(index
+            .search_entity_ids(Some("  "), LuceneEntity::Book)
+            .is_none());
+        assert_eq!(
+            index
+                .search_entity_ids(Some("*foo"), LuceneEntity::Book)
+                .unwrap(),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn entity_type_isolation() {
+        let (_dir, index) = index();
+        seed(&index);
+        index
+            .add_documents(vec![EntityDoc {
+                entity: LuceneEntity::Collection,
+                id: "c1".into(),
+                fields: vec![("name".into(), "Berserk".into())],
+            }])
+            .unwrap();
+        index.commit().unwrap();
+        assert_eq!(
+            index
+                .search_entity_ids(Some("berserk"), LuceneEntity::Collection)
+                .unwrap(),
+            vec!["c1"]
+        );
+        assert_eq!(
+            index
+                .search_entity_ids(Some("berserk"), LuceneEntity::ReadList)
+                .unwrap(),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn update_and_delete() {
+        let (_dir, index) = index();
+        seed(&index);
+        index
+            .apply_ops(vec![IndexOp::Upsert(book(
+                "b1",
+                &[("title", "Berserk Deluxe")],
+            ))])
+            .unwrap();
+        index.commit().unwrap();
+        assert!(index
+            .search_entity_ids(Some("volume"), LuceneEntity::Book)
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            index
+                .search_entity_ids(Some("deluxe"), LuceneEntity::Book)
+                .unwrap(),
+            vec!["b1"]
+        );
+        // upsert replaces the old document of the same id instead of duplicating it
+        index
+            .apply_ops(vec![IndexOp::Upsert(book(
+                "b1",
+                &[("title", "Berserk Deluxe")],
+            ))])
+            .unwrap();
+        index.commit().unwrap();
+        assert_eq!(
+            index
+                .search_entity_ids(Some("deluxe"), LuceneEntity::Book)
+                .unwrap(),
+            vec!["b1"]
+        );
+        index
+            .apply_ops(vec![IndexOp::Delete {
+                entity: LuceneEntity::Book,
+                id: "b1".to_string(),
+            }])
+            .unwrap();
+        index.commit().unwrap();
+        assert!(index
+            .search_entity_ids(Some("deluxe"), LuceneEntity::Book)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn delete_entity_type_for_rebuild() {
+        let (_dir, index) = index();
+        seed(&index);
+        index.delete_entity_type(LuceneEntity::Book).unwrap();
+        index.commit().unwrap();
+        assert!(index
+            .search_entity_ids(Some("berserk"), LuceneEntity::Book)
+            .unwrap()
+            .is_empty());
+        index
+            .add_documents(vec![book("b9", &[("title", "New Berserk")])])
+            .unwrap();
+        index.commit().unwrap();
+        assert_eq!(
+            index
+                .search_entity_ids(Some("berserk"), LuceneEntity::Book)
+                .unwrap(),
+            vec!["b9"]
+        );
+    }
+
+    #[test]
+    fn version_document() {
+        let (_dir, index) = index();
+        assert_eq!(index.index_version(), 1);
+        index.set_index_version(8).unwrap();
+        assert_eq!(index.index_version(), 8);
+        // the marker is not an entity and does not leak into entity searches
+        assert!(index
+            .search_entity_ids(Some("index_version"), LuceneEntity::Book)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn exists_semantics() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("nope");
+        assert!(!SearchIndex::exists(&missing));
+        let _index = SearchIndex::open(&missing).unwrap();
+        assert!(SearchIndex::exists(&missing));
+    }
+
+    #[test]
+    fn tokenizer_name_tracks_analyzer_version() {
+        assert_eq!(INDEX_TOKENIZER, format!("komga_index_v{ANALYZER_VERSION}"));
+    }
+
+    #[test]
+    fn startup_decision_missing_or_empty_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("nope");
+        assert!(matches!(
+            decide_startup(&missing),
+            StartupDecision::Rebuild { wipe: false }
+        ));
+        assert!(matches!(
+            decide_startup(dir.path()),
+            StartupDecision::Rebuild { wipe: false }
+        ));
+    }
+
+    #[test]
+    fn startup_decision_java_lucene_dir_is_wiped() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("segments_3"), b"").unwrap();
+        std::fs::write(dir.path().join("write.lock"), b"").unwrap();
+        assert!(matches!(
+            decide_startup(dir.path()),
+            StartupDecision::Rebuild { wipe: true }
+        ));
+    }
+
+    #[test]
+    fn startup_decision_foreign_files_are_never_wiped() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("notes.txt"), b"").unwrap();
+        assert!(matches!(
+            decide_startup(dir.path()),
+            StartupDecision::Rebuild { wipe: false }
+        ));
+    }
+
+    #[test]
+    fn startup_decision_opened_index_is_ready() {
+        let dir = tempfile::tempdir().unwrap();
+        let _index = SearchIndex::open(dir.path()).unwrap();
+        assert!(matches!(decide_startup(dir.path()), StartupDecision::Ready));
+    }
+
+    #[test]
+    fn startup_decision_analyzer_version_mismatch_is_wiped() {
+        let dir = tempfile::tempdir().unwrap();
+        let _index = SearchIndex::open(dir.path()).unwrap();
+        std::fs::write(dir.path().join(ANALYZER_VERSION_FILE), "0").unwrap();
+        assert!(matches!(
+            decide_startup(dir.path()),
+            StartupDecision::Rebuild { wipe: true }
+        ));
+        std::fs::remove_file(dir.path().join(ANALYZER_VERSION_FILE)).unwrap();
+        assert!(matches!(
+            decide_startup(dir.path()),
+            StartupDecision::Rebuild { wipe: true }
+        ));
+    }
+}

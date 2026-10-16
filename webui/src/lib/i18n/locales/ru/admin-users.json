@@ -1,0 +1,81 @@
+{
+  "title": "Пользователи",
+  "subtitle_one": "{{count}} пользователь · роли, доступ к библиотекам и ограничения контента",
+  "subtitle_few": "{{count}} пользователя · роли, доступ к библиотекам и ограничения контента",
+  "subtitle_many": "{{count}} пользователей · роли, доступ к библиотекам и ограничения контента",
+  "subtitle_other": "{{count}} пользователя · роли, доступ к библиотекам и ограничения контента",
+  "subtitleEmpty": "Роли, доступ к библиотекам и ограничения контента",
+  "addUser": "Добавить пользователя",
+  "loadFailed": "Не удалось загрузить пользователей.",
+  "emptyTitle": "Пользователей пока нет",
+  "emptyBody": "Добавьте пользователя, чтобы дать кому-то доступ к этому серверу.",
+  "you": "вы",
+  "user": "Пользователь",
+  "rowActions": "Действия для {{email}}",
+  "selfEditHint": "Здесь нельзя изменить свою учётную запись",
+  "selfDeleteHint": "Нельзя удалить свою учётную запись",
+  "table": {
+    "restrictions": "Ограничения",
+    "actions": "Действия"
+  },
+  "restrictions": {
+    "ageAllow": "Возраст ≤ {{age}}",
+    "ageExclude": "Возраст > {{age}} исключён",
+    "labelsAllowed_one": "разрешена {{count}} метка",
+    "labelsAllowed_few": "разрешены {{count}} метки",
+    "labelsAllowed_many": "разрешено {{count}} меток",
+    "labelsAllowed_other": "разрешено {{count}} метки",
+    "labelsExcluded_one": "исключена {{count}} метка",
+    "labelsExcluded_few": "исключены {{count}} метки",
+    "labelsExcluded_many": "исключено {{count}} меток",
+    "labelsExcluded_other": "исключено {{count}} метки"
+  },
+  "roles": {
+    "adminDesc": "Полный доступ, включая настройки сервера",
+    "fileDownloadDesc": "Скачивание файлов книг",
+    "pageStreamingDesc": "Потоковая передача страниц для чтения онлайн",
+    "koboSyncDesc": "Синхронизация с электронными книгами Kobo",
+    "koreaderSyncDesc": "Синхронизация прогресса чтения с KOReader"
+  },
+  "form": {
+    "editTitle": "Изменить пользователя",
+    "saveFailed": "Не удалось сохранить пользователя.",
+    "sectionAccount": "Учётная запись",
+    "password": "Пароль",
+    "sectionLibraryAccess": "Доступ к библиотекам",
+    "allLibrariesDesc": "Делиться всеми библиотеками, включая созданные позже",
+    "sectionContentRestrictions": "Ограничения контента",
+    "ageRestriction": "Возрастное ограничение",
+    "age": "Возраст",
+    "ageMode": {
+      "none": "Нет",
+      "allow": "Разрешить только",
+      "exclude": "Исключить"
+    },
+    "ageInvalid": "Введите целое число 0 или больше.",
+    "ageAllowHint": "Показывать только контент с возрастным рейтингом не выше этого возраста.",
+    "ageExcludeHint": "Скрывать контент с возрастным рейтингом выше этого возраста.",
+    "allowedLabels": "Разрешённые метки",
+    "excludedLabels": "Исключённые метки"
+  },
+  "changePassword": {
+    "body": "Задайте новый пароль для <email>{{email}}</email>. Все его сеансы будут завершены."
+  },
+  "deleteDialog": {
+    "title": "Удалить пользователя",
+    "body": "Удалить <email>{{email}}</email>? Прогресс чтения, ключи API и сеансы будут удалены безвозвратно. Это нельзя отменить.",
+    "failed": "Не удалось удалить пользователя."
+  },
+  "labelList": {
+    "remove": "Удалить {{label}}"
+  },
+  "activity": {
+    "title": "Активность аутентификации",
+    "events_one": "{{count, number}} событие",
+    "events_few": "{{count, number}} события",
+    "events_many": "{{count, number}} событий",
+    "events_other": "{{count, number}} события",
+    "loadFailed": "Не удалось загрузить активность аутентификации.",
+    "empty": "Активности пока нет."
+  }
+}

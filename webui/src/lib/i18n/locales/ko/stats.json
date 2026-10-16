@@ -1,0 +1,59 @@
+{
+  "title": "읽기 통계",
+  "subtitle": "라이브러리 전체의 읽기 현황",
+  "failed": "읽기 통계를 불러올 수 없습니다.",
+  "library": {
+    "all": "모든 라이브러리",
+    "ariaLabel": "{{label}} 통계"
+  },
+  "summary": {
+    "booksRead": "읽은 책",
+    "ofTotal_other": "전체 {{total}}권 중",
+    "inProgress": "읽는 중",
+    "pagesRead": "읽은 페이지",
+    "readingDays": "읽은 날 수",
+    "currentStreak": "현재 연속",
+    "longestStreak": "최장 연속",
+    "avgPages": "책당 평균 페이지",
+    "lastRead": "마지막으로 읽은 날짜",
+    "never": "없음",
+    "days_other": "{{count}}일"
+  },
+  "heatmap": {
+    "title": "읽기 활동",
+    "range3m": "최근 3개월",
+    "range6m": "최근 6개월",
+    "range1y": "최근 12개월",
+    "empty": "이 기간에 읽기 활동이 없습니다.",
+    "less": "적음",
+    "more": "많음",
+    "pages_other": "{{count}}페이지",
+    "completed_other": "책 {{count}}권 완료",
+    "noActivity": "읽기 없음",
+    "dayLabel": "{{date}}: {{activity}}"
+  },
+  "status": {
+    "title": "상태별 책",
+    "read": "읽음",
+    "inProgress": "읽는 중",
+    "unread": "읽지 않음",
+    "empty": "아직 책이 없습니다."
+  },
+  "chart": {
+    "tooltip": "{{label}}: {{value}}"
+  },
+  "weekday": {
+    "title": "요일별"
+  },
+  "hourly": {
+    "title": "시간대별"
+  },
+  "tops": {
+    "title": "가장 많이 읽은",
+    "authors": "작가",
+    "genres": "장르",
+    "tags": "태그",
+    "series_other": "시리즈 {{count}}개",
+    "empty": "책을 다 읽으면 가장 많이 읽은 작가, 장르, 태그가 표시됩니다."
+  }
+}

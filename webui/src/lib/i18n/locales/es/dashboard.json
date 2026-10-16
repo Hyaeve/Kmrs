@@ -1,0 +1,43 @@
+{
+  "title": "Inicio",
+  "scope": {
+    "all": "Todas"
+  },
+  "sections": {
+    "keepReading": "Seguir leyendo",
+    "onDeck": "A continuación",
+    "recentlyReleasedBooks": "Libros publicados recientemente",
+    "recentlyAddedBooks": "Libros añadidos recientemente",
+    "recentlyAddedSeries": "Series añadidas recientemente",
+    "recentlyUpdatedSeries": "Series actualizadas recientemente",
+    "recentlyRead": "Leído recientemente"
+  },
+  "customizeSections": "Personalizar secciones",
+  "allHidden": {
+    "title": "Todas las secciones están ocultas",
+    "body": "Todas las secciones del inicio están ocultas en esta vista."
+  },
+  "empty": {
+    "title": "Aún no hay nada aquí",
+    "body": "Los libros y las series aparecerán aquí cuando tu servidor tenga contenido."
+  },
+  "pinnedEmpty": {
+    "title": "No hay bibliotecas fijadas",
+    "body": "El inicio «Todas» solo muestra contenido de tus bibliotecas fijadas. Fija algunas para componer tu inicio, o restablece para volver a ver todas las bibliotecas.",
+    "action": "Elegir bibliotecas"
+  },
+  "rowError": "No se pudo cargar esta sección.",
+  "loadError": "No se pudo cargar",
+  "bookCount_one": "{{count}} libro",
+  "bookCount_many": "{{count}} libros",
+  "bookCount_other": "{{count}} libros",
+  "seriesCount_one": "{{count}} serie",
+  "seriesCount_many": "{{count}} series",
+  "seriesCount_other": "{{count}} series",
+  "sectionsDialog": {
+    "bodyAll": "Solo se aplica a la vista de inicio «Todas». Arrastra para reordenar u oculta las secciones que no uses.",
+    "bodyLibrary": "Solo se aplica a la vista de esta biblioteca. Arrastra para reordenar u oculta las secciones que no uses.",
+    "reorder": "Reordenar {{title}}",
+    "reset": "Restablecer valores predeterminados"
+  }
+}

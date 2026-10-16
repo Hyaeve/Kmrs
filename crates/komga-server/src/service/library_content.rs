@@ -1,0 +1,2134 @@
+//! `LibraryContentLifecycle.kt`: library scan orchestration (soft-delete of vanished content,
+//! restore of moved/renamed content by hash, sidecar tracking, trash handling).
+
+use crate::events::DomainEvent;
+use crate::state::AppState;
+use komga_core::model::book::{Book, BookMetadata};
+use komga_core::model::history::{HistoricalEvent, HistoricalEventType};
+use komga_core::model::library::Library;
+use komga_core::model::media::{Media, MediaStatus};
+use komga_core::model::series::{Series, SeriesMetadata};
+use komga_core::model::sidecar::{SidecarSource, SidecarStored, SidecarType};
+use komga_core::model::thumbnail::{ThumbnailBook, ThumbnailSeries, ThumbnailType};
+use komga_core::task::{BookMetadataPatchCapability, DEFAULT_PRIORITY};
+use komga_core::time_codec;
+use komga_db::dao::book::{BookDao, BookMetadataDao};
+use komga_db::dao::collection::CollectionDao;
+use komga_db::dao::history::HistoricalEventDao;
+use komga_db::dao::library::LibraryDao;
+use komga_db::dao::library_setting::LibrarySettingDao;
+use komga_db::dao::media::MediaDao;
+use komga_db::dao::read_progress::ReadProgressDao;
+use komga_db::dao::readlist::ReadListDao;
+use komga_db::dao::series::{SeriesDao, SeriesMetadataDao};
+use komga_db::dao::sidecar::SidecarDao;
+use komga_db::dao::thumbnail::{ThumbnailBookDao, ThumbnailSeriesDao};
+use komga_db::Result;
+use komga_media::hash::compute_hash;
+use komga_media::scanner::{path_to_url, ScanError, ScanOptions, Scanner};
+use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
+
+#[derive(Debug, thiserror::Error)]
+pub enum ScanRootError {
+    #[error(transparent)]
+    Db(#[from] komga_db::Error),
+    #[error(transparent)]
+    Scan(#[from] ScanError),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+}
+
+pub type ScanRootResult<T> = std::result::Result<T, ScanRootError>;
+
+pub fn scan_root_folder(
+    state: &AppState,
+    library: &Library,
+    scan_deep: bool,
+) -> ScanRootResult<()> {
+    tracing::info!("Scan root folder for library: {library:?}");
+    let root = PathBuf::from(komga_core::dto::url_to_file_path(&library.root));
+    let scan_strm = LibrarySettingDao::new(state.kmrs_db.clone())
+        .get(&library.id)?
+        .scan_strm;
+    let options = ScanOptions {
+        force_directory_modified_time: library.scan_force_modified_time,
+        oneshots_dir: library.oneshots_directory.clone(),
+        scan_cbx: library.scan_cbx,
+        scan_pdf: library.scan_pdf,
+        scan_strm,
+        scan_epub: library.scan_epub,
+        directory_exclusions: library.scan_directory_exclusions.iter().cloned().collect(),
+    };
+    let scan_result = match Scanner::new().scan_root_folder(&root, &options) {
+        Ok(result) => result,
+        Err(e) => {
+            // the library root is not accessible: mark it unavailable, then fail the scan
+            let mut updated = library.clone();
+            updated.unavailable_date = Some(time_codec::now_utc());
+            LibraryDao::new(state.db.clone()).update(&updated)?;
+            let _ = state.events.send(DomainEvent::LibraryUpdated(updated));
+            return Err(ScanRootError::Scan(e));
+        }
+    };
+
+    if library.unavailable_date.is_some() {
+        let mut updated = library.clone();
+        updated.unavailable_date = None;
+        LibraryDao::new(state.db.clone()).update(&updated)?;
+        let _ = state.events.send(DomainEvent::LibraryUpdated(updated));
+    }
+
+    normalize_foreign_urls(state, library, &root)?;
+
+    // Directories that could not be fully read during traversal: rows under them are in an
+    // unknown state (the files may still exist), so they must be excluded from the "missing"
+    // set below — a transient read failure (WebDAV/network mount hiccup) must never
+    // soft-delete real books/series. The next scan re-reads those directories.
+    let failed_directory_urls: Vec<String> = scan_result
+        .failed_directories
+        .iter()
+        .map(|p| path_to_url(p))
+        .collect();
+    if !failed_directory_urls.is_empty() {
+        tracing::warn!(
+            library_id = %library.id,
+            failed_directories = failed_directory_urls.len(),
+            "scan: treating rows under failed directories as unknown (excluded from deletion)"
+        );
+    }
+    let scanned_series: Vec<(Series, Vec<Book>)> = scan_result
+        .series
+        .into_iter()
+        .map(|(series, books)| {
+            (
+                Series {
+                    library_id: library.id.clone(),
+                    ..series
+                },
+                books
+                    .into_iter()
+                    .map(|book| Book {
+                        library_id: library.id.clone(),
+                        ..book
+                    })
+                    .collect(),
+            )
+        })
+        .collect();
+
+    let series_dao = SeriesDao::new(state.db.clone());
+    // delete series that don't exist anymore
+    if scanned_series.is_empty() {
+        if failed_directory_urls.is_empty() {
+            tracing::info!("Scan returned no series, soft deleting all existing series");
+            let existing = series_dao.find_by_library_id(&library.id)?;
+            // already-trashed series are re-stamped below (Java parity) but are not news
+            let newly_trashed: Vec<&Series> = existing
+                .iter()
+                .filter(|s| s.deleted_date.is_none())
+                .collect();
+            let cascaded = books_of_series(state, &newly_trashed)?;
+            crate::service::series::soft_delete_many(state, &existing)?;
+            insert_series_trashed_events(state, &newly_trashed, &cascaded)?;
+        } else {
+            // The scan read nothing but some directories failed: the library may not be
+            // empty, so keep the existing rows untouched.
+            tracing::warn!(
+                "Scan returned no series but {} directories failed to read; skipping full soft-delete",
+                failed_directory_urls.len()
+            );
+        }
+    } else {
+        let urls: Vec<String> = scanned_series.iter().map(|(s, _)| s.url.clone()).collect();
+        let gone =
+            series_dao.find_all_not_deleted_by_library_id_and_url_not_in(&library.id, &urls)?;
+        let gone: Vec<Series> = gone
+            .into_iter()
+            .filter(|s| !is_protected_url(&s.url, &failed_directory_urls))
+            .collect();
+        if !gone.is_empty() {
+            tracing::info!("Soft deleting series not on disk anymore: {gone:?}");
+            let gone_refs: Vec<&Series> = gone.iter().collect();
+            let cascaded = books_of_series(state, &gone_refs)?;
+            crate::service::series::soft_delete_many(state, &gone)?;
+            insert_series_trashed_events(state, &gone_refs, &cascaded)?;
+        }
+    }
+
+    // delete books that don't exist anymore. We need to do this now, so trash bin can work
+    let book_dao = BookDao::new(state.db.clone());
+    let book_urls: Vec<String> = scanned_series
+        .iter()
+        .flat_map(|(_, books)| books.iter().map(|b| b.url.clone()))
+        .collect();
+    let gone_books =
+        book_dao.find_all_not_deleted_by_library_id_and_url_not_in(&library.id, &book_urls)?;
+    let gone_books: Vec<Book> = gone_books
+        .into_iter()
+        .filter(|b| !is_protected_url(&b.url, &failed_directory_urls))
+        .collect();
+    let mut series_to_sort_and_refresh: Vec<Series> = vec![];
+    if !gone_books.is_empty() {
+        tracing::info!("Soft deleting books not on disk anymore: {gone_books:?}");
+        crate::service::book::soft_delete_many(state, &gone_books)?;
+        for book in &gone_books {
+            insert_history(
+                state,
+                HistoricalEventType::BookTrashed,
+                Some(&book.id),
+                Some(&book.series_id),
+                "File is no longer on disk",
+                &book_path(book),
+            )?;
+        }
+        let mut seen = BTreeSet::new();
+        for book in &gone_books {
+            if seen.insert(book.series_id.clone()) {
+                if let Some(series) = series_dao.find_by_id(&book.series_id)? {
+                    series_to_sort_and_refresh.push(series);
+                }
+            }
+        }
+    }
+    // series that had books deleted are refreshed even if their file modified date did not
+    // change (NFS/SMB caches can hide the change)
+    let series_url_with_deleted_books: BTreeSet<String> = series_to_sort_and_refresh
+        .iter()
+        .map(|s| s.url.clone())
+        .collect();
+
+    for (new_series, new_books) in &scanned_series {
+        match series_dao
+            .find_not_deleted_by_library_id_and_url_or_null(&library.id, &new_series.url)?
+        {
+            None => {
+                tracing::info!("Adding new series: {new_series:?}");
+                let created = crate::service::series::create_series(state, new_series)?;
+                let added = crate::service::series::add_books(state, &created, new_books)?;
+                try_restore_series(state, &created, &added)?;
+                try_restore_books(state, &added)?;
+                series_to_sort_and_refresh.push(created);
+            }
+            Some(existing_series) => {
+                let series_changed = time_codec::truncate_to_millis(new_series.file_last_modified)
+                    != time_codec::truncate_to_millis(existing_series.file_last_modified)
+                    || existing_series.deleted_date.is_some()
+                    || series_url_with_deleted_books.contains(&new_series.url);
+                if series_changed {
+                    tracing::info!("Series changed on disk, updating: {existing_series:?}");
+                    series_dao.update(
+                        &Series {
+                            file_last_modified: new_series.file_last_modified,
+                            deleted_date: None,
+                            ..existing_series.clone()
+                        },
+                        true,
+                    )?;
+                }
+                if scan_deep || series_changed {
+                    let existing_books = book_dao.find_by_series_id(&existing_series.id)?;
+                    for new_book in new_books {
+                        let Some(existing_book) = existing_books
+                            .iter()
+                            .find(|b| b.url == new_book.url && b.deleted_date.is_none())
+                        else {
+                            continue;
+                        };
+                        if time_codec::truncate_to_millis(new_book.file_last_modified)
+                            == time_codec::truncate_to_millis(existing_book.file_last_modified)
+                        {
+                            continue;
+                        }
+                        // hashing is only worth it when the size matches and we have a baseline
+                        let hash = if existing_book.file_size == new_book.file_size
+                            && !existing_book.file_hash.is_empty()
+                        {
+                            Some(compute_hash(&book_path(new_book))?)
+                        } else {
+                            None
+                        };
+                        if hash.as_deref() == Some(existing_book.file_hash.as_str()) {
+                            tracing::info!(
+                                "Book changed on disk, but still has the same hash, no need to reset media status: {existing_book:?}"
+                            );
+                            book_dao.update(&Book {
+                                file_last_modified: new_book.file_last_modified,
+                                file_size: new_book.file_size,
+                                file_hash: hash.expect("checked above"),
+                                ..existing_book.clone()
+                            })?;
+                        } else {
+                            tracing::info!(
+                                "Book changed on disk, update and reset media status: {existing_book:?}"
+                            );
+                            let media_dao = MediaDao::new(state.db.clone());
+                            if let Some(media) = media_dao.find_by_id(&existing_book.id)? {
+                                media_dao.update(&Media {
+                                    status: MediaStatus::Outdated,
+                                    ..media
+                                })?;
+                            }
+                            book_dao.update(&Book {
+                                file_last_modified: new_book.file_last_modified,
+                                file_size: new_book.file_size,
+                                file_hash: hash.unwrap_or_default(),
+                                // the KOReader hash identifies the file content: a changed
+                                // file invalidates it, and clearing it re-queues hashing
+                                // via the empty-hash scan task
+                                file_hash_koreader: String::new(),
+                                ..existing_book.clone()
+                            })?;
+                        }
+                    }
+
+                    let existing_urls: BTreeSet<&str> = existing_books
+                        .iter()
+                        .filter(|b| b.deleted_date.is_none())
+                        .map(|b| b.url.as_str())
+                        .collect();
+                    let books_to_add: Vec<Book> = new_books
+                        .iter()
+                        .filter(|b| !existing_urls.contains(b.url.as_str()))
+                        .cloned()
+                        .collect();
+                    if !books_to_add.is_empty() {
+                        tracing::info!("Adding new books: {books_to_add:?}");
+                        let added = crate::service::series::add_books(
+                            state,
+                            &existing_series,
+                            &books_to_add,
+                        )?;
+                        try_restore_books(state, &added)?;
+                        series_to_sort_and_refresh.push(existing_series);
+                    }
+                }
+            }
+        }
+    }
+
+    // for all series where books have been removed or added, sort and refresh metadata
+    let mut seen = BTreeSet::new();
+    for series in &series_to_sort_and_refresh {
+        if seen.insert(series.id.clone()) {
+            crate::service::series::sort_books(state, series)?;
+            state
+                .task_emitter
+                .refresh_series_metadata(&series.id, DEFAULT_PRIORITY)?;
+        }
+    }
+
+    // sidecars: refresh the owning entity when a sidecar appears or changes
+    let sidecar_dao = SidecarDao::new(state.db.clone());
+    let existing_sidecars = sidecar_dao.find_all()?;
+    for new_sidecar in &scan_result.sidecars {
+        let changed = match existing_sidecars.iter().find(|s| s.url == new_sidecar.url) {
+            Some(existing) => {
+                time_codec::truncate_to_millis(existing.last_modified_time)
+                    != time_codec::truncate_to_millis(new_sidecar.last_modified_time)
+            }
+            None => true,
+        };
+        if !changed {
+            continue;
+        }
+        match new_sidecar.source {
+            SidecarSource::Series => {
+                if let Some(series) = series_dao.find_not_deleted_by_library_id_and_url_or_null(
+                    &library.id,
+                    &new_sidecar.parent_url,
+                )? {
+                    match new_sidecar.type_ {
+                        SidecarType::Artwork => state
+                            .task_emitter
+                            .refresh_series_local_artwork(&series.id, DEFAULT_PRIORITY)?,
+                        SidecarType::Metadata => state
+                            .task_emitter
+                            .refresh_series_metadata(&series.id, DEFAULT_PRIORITY)?,
+                    }
+                }
+            }
+            SidecarSource::Book => {
+                if let Some(book) =
+                    find_not_deleted_book_by_url(&state.db, &library.id, &new_sidecar.parent_url)?
+                {
+                    match new_sidecar.type_ {
+                        SidecarType::Artwork => state
+                            .task_emitter
+                            .refresh_book_local_artwork(&book, DEFAULT_PRIORITY)?,
+                        SidecarType::Metadata => state.task_emitter.refresh_book_metadata(
+                            &book,
+                            BookMetadataPatchCapability::all(),
+                            DEFAULT_PRIORITY,
+                        )?,
+                    }
+                }
+            }
+        }
+        sidecar_dao.save(&SidecarStored {
+            url: new_sidecar.url.clone(),
+            parent_url: new_sidecar.parent_url.clone(),
+            last_modified_time: new_sidecar.last_modified_time,
+            library_id: library.id.clone(),
+        })?;
+    }
+
+    // cleanup sidecars that don't exist anymore
+    let new_urls: BTreeSet<&str> = scan_result
+        .sidecars
+        .iter()
+        .map(|s| s.url.as_str())
+        .collect();
+    let gone_urls: Vec<String> = existing_sidecars
+        .iter()
+        .filter(|s| !new_urls.contains(s.url.as_str()))
+        // a sidecar under a failed directory is in an unknown state: keep the row so the
+        // next clean scan re-saves it instead of hard-deleting it here
+        .filter(|s| !is_protected_url(&s.url, &failed_directory_urls))
+        .map(|s| s.url.clone())
+        .collect();
+    if !gone_urls.is_empty() {
+        sidecar_dao.delete_by_library_id_and_urls(&library.id, &gone_urls)?;
+    }
+
+    if library.empty_trash_after_scan {
+        empty_trash(state, library, "Trash emptied automatically after scan")?;
+    } else {
+        cleanup_empty_sets(state)?;
+    }
+
+    let _ = state
+        .events
+        .send(DomainEvent::LibraryScanned(library.clone()));
+    Ok(())
+}
+
+/// komga-cn's Rust port stores plain filesystem paths in the URL columns instead of komga's
+/// `file:` URLs, and scan matching is exact-string — a database migrated from there would
+/// have every series and book trashed and recreated by the first scan. Rewrite any
+/// non-canonical URL to `path_to_url` form before matching. Runs after the filesystem walk
+/// so directory URLs get their trailing slash right; komga-cn reads `file:` URLs fine, so
+/// the rewrite is safe for users who switch back.
+fn normalize_foreign_urls(state: &AppState, library: &Library, root: &Path) -> Result<()> {
+    let mut conn = state.db.rw()?;
+    let tx = conn.transaction()?;
+    let mut normalized = 0usize;
+
+    // canonical URLs always carry the `file:/` prefix with an empty authority; anything
+    // else (plain paths, `file:///`) is a candidate. Rows already canonical are skipped
+    // before any per-row stat, so komga-written databases pay only the SELECT.
+    for table in ["SERIES", "BOOK"] {
+        let rows: Vec<(String, String)> = tx
+            .prepare(&format!(
+                "SELECT ID, URL FROM {table} WHERE LIBRARY_ID = ? AND (URL NOT LIKE 'file:/%' OR URL LIKE 'file:///%')"
+            ))?
+            .query_map(rusqlite::params![library.id], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })?
+            .collect::<std::result::Result<_, _>>()?;
+        for (id, url) in rows {
+            let canonical = canonical_file_url(&url, root);
+            if canonical != url {
+                tx.execute(
+                    &format!("UPDATE {table} SET URL = ? WHERE ID = ?"),
+                    rusqlite::params![canonical, id],
+                )?;
+                normalized += 1;
+            }
+        }
+    }
+
+    let sidecars: Vec<(String, String)> = tx
+        .prepare(
+            "SELECT URL, PARENT_URL FROM SIDECAR WHERE LIBRARY_ID = ? AND (URL NOT LIKE 'file:/%' OR URL LIKE 'file:///%' OR PARENT_URL NOT LIKE 'file:/%' OR PARENT_URL LIKE 'file:///%')",
+        )?
+        .query_map(rusqlite::params![library.id], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })?
+        .collect::<std::result::Result<_, _>>()?;
+    for (url, parent_url) in sidecars {
+        let canonical = canonical_file_url(&url, root);
+        let canonical_parent = canonical_file_url(&parent_url, root);
+        if canonical != url || canonical_parent != parent_url {
+            tx.execute(
+                "UPDATE SIDECAR SET URL = ?, PARENT_URL = ? WHERE URL = ?",
+                rusqlite::params![canonical, canonical_parent, url],
+            )?;
+            normalized += 1;
+        }
+    }
+
+    if !library.root.starts_with("file:/") || library.root.starts_with("file:///") {
+        let canonical = canonical_file_url(&library.root, root);
+        if canonical != library.root {
+            tx.execute(
+                "UPDATE LIBRARY SET ROOT = ? WHERE ID = ?",
+                rusqlite::params![canonical, library.id],
+            )?;
+            normalized += 1;
+        }
+    }
+    tx.commit()?;
+
+    if normalized > 0 {
+        tracing::info!(
+            library_id = %library.id,
+            normalized,
+            "Normalized non-komga URLs to canonical file: form"
+        );
+    }
+    Ok(())
+}
+
+/// `file:` URLs resolve through `url_to_file_path`; anything else is a plain filesystem
+/// path, which komga-cn also stores relative to the library root in some rows.
+fn canonical_file_url(stored: &str, root: &Path) -> String {
+    let path = if stored.starts_with("file:") {
+        PathBuf::from(komga_core::dto::url_to_file_path(stored))
+    } else {
+        let path = PathBuf::from(stored);
+        if path.is_absolute() {
+            path
+        } else {
+            root.join(path)
+        }
+    };
+    path_to_url(&path)
+}
+
+/// URL-component-aware prefix check: is `url` at or below `ancestor`?
+///
+/// URLs are produced by `path_to_url` (percent-encoded, path components separated by `/`),
+/// so a plain byte prefix could wrongly match a sibling like `seriesAB` under `seriesA`.
+/// The comparison is case-insensitive to absorb Windows path-case differences; being
+/// conservative here only delays a deletion to the next clean scan, it never deletes.
+fn is_protected_url(url: &str, failed_directory_urls: &[String]) -> bool {
+    let url = url.to_ascii_lowercase();
+    failed_directory_urls.iter().any(|ancestor| {
+        let ancestor = ancestor.to_ascii_lowercase();
+        url == ancestor
+            || url.strip_prefix(&ancestor).is_some_and(|rest| {
+                // `seriesA/v01.cbz` under `seriesA` (no trailing slash) leaves "/v01.cbz";
+                // a failed directory URL ends with "/", so any remainder is a descendant.
+                rest.starts_with('/') || ancestor.ends_with('/')
+            })
+    })
+}
+/// `reason` goes into the purge history events: automatic after a scan, or by user request.
+pub fn empty_trash(state: &AppState, library: &Library, reason: &str) -> Result<()> {
+    tracing::info!("Empty trash for library: {library:?}");
+    use komga_core::search::*;
+    let series_to_delete = SeriesDao::new(state.db.clone()).find_all_by_condition(
+        Some(&SearchConditionSeries::AllOf {
+            conditions: vec![
+                SearchConditionSeries::LibraryId {
+                    operator: Equality::Is {
+                        value: library.id.clone(),
+                    },
+                },
+                SearchConditionSeries::Deleted {
+                    deleted: BooleanOp::IsTrue,
+                },
+            ],
+        }),
+        &SearchContext::default(),
+    )?;
+    let series_refs: Vec<&Series> = series_to_delete.iter().collect();
+    let cascaded_books = books_of_series(state, &series_refs)?;
+    crate::service::series::delete_many(state, &series_to_delete)?;
+    // every book of a purged series is destroyed with it, trashed already or not
+    for book in &cascaded_books {
+        insert_history(
+            state,
+            HistoricalEventType::BookPurged,
+            Some(&book.id),
+            Some(&book.series_id),
+            reason,
+            &book_path(book),
+        )?;
+    }
+    for series in &series_to_delete {
+        insert_history(
+            state,
+            HistoricalEventType::SeriesPurged,
+            None,
+            Some(&series.id),
+            reason,
+            &series_path(series),
+        )?;
+    }
+
+    let books_to_delete = BookDao::new(state.db.clone()).find_all_by_condition(
+        Some(&SearchConditionBook::AllOf {
+            conditions: vec![
+                SearchConditionBook::LibraryId {
+                    operator: Equality::Is {
+                        value: library.id.clone(),
+                    },
+                },
+                SearchConditionBook::Deleted {
+                    deleted: BooleanOp::IsTrue,
+                },
+            ],
+        }),
+        &SearchContext::default(),
+        &[],
+    )?;
+    crate::service::book::delete_many(state, &books_to_delete)?;
+    for book in &books_to_delete {
+        insert_history(
+            state,
+            HistoricalEventType::BookPurged,
+            Some(&book.id),
+            Some(&book.series_id),
+            reason,
+            &book_path(book),
+        )?;
+    }
+    let series_dao = SeriesDao::new(state.db.clone());
+    let mut seen = BTreeSet::new();
+    for book in &books_to_delete {
+        if seen.insert(book.series_id.clone()) {
+            if let Some(series) = series_dao.find_by_id(&book.series_id)? {
+                crate::service::series::sort_books(state, &series)?;
+            }
+        }
+    }
+
+    cleanup_empty_sets(state)
+}
+
+fn cleanup_empty_sets(state: &AppState) -> Result<()> {
+    let settings = state.settings.get();
+    if settings.delete_empty_collections {
+        crate::service::collection::delete_empty_collections(state)?;
+    }
+
+    if settings.delete_empty_readlists {
+        crate::service::readlist::delete_empty_read_lists(state)?;
+    }
+    Ok(())
+}
+
+/// A moved/renamed series is matched against soft-deleted series by book count and by every
+/// book's size and hash; on a match, metadata, user thumbnails, and collection memberships
+/// are transferred, and books go through `try_restore_books`. Unlike Java, a customized
+/// (≠ series name) or locked title/titleSort is restored instead of the directory-derived
+/// one; a value that still echoes the old directory name follows the new one, and the
+/// queued series metadata refresh may overwrite unlocked fields afterwards.
+fn try_restore_series(
+    state: &AppState,
+    new_series: &Series,
+    new_books: &[Book],
+) -> ScanRootResult<()> {
+    let book_sizes: BTreeSet<i64> = new_books.iter().map(|b| b.file_size).collect();
+    let book_dao = BookDao::new(state.db.clone());
+    let series_dao = SeriesDao::new(state.db.clone());
+    let deleted = series_dao.find_all_by_condition(
+        Some(&komga_core::search::SearchConditionSeries::Deleted {
+            deleted: komga_core::search::BooleanOp::IsTrue,
+        }),
+        &komga_core::search::SearchContext::default(),
+    )?;
+    let mut candidates = vec![];
+    for deleted_candidate in deleted {
+        let deleted_books = book_dao.find_by_series_id(&deleted_candidate.id)?;
+        let deleted_sizes: BTreeSet<i64> = deleted_books.iter().map(|b| b.file_size).collect();
+        if new_books.len() == deleted_books.len()
+            && book_sizes.is_superset(&deleted_sizes)
+            && deleted_sizes.is_superset(&book_sizes)
+            && deleted_books.iter().all(|b| !b.file_hash.is_empty())
+        {
+            candidates.push((deleted_candidate, deleted_books));
+        }
+    }
+    if candidates.is_empty() {
+        return Ok(());
+    }
+
+    // hash the new books so they can be matched against the deleted ones
+    let mut new_books_with_hash = vec![];
+    for book in new_books {
+        let mut stored = book_dao
+            .find_by_id(&book.id)?
+            .expect("new book was just inserted");
+        stored.file_hash = compute_hash(&book_path(book))?;
+        book_dao.update(&stored)?;
+        new_books_with_hash.push(stored);
+    }
+    let new_hashes: BTreeSet<&str> = new_books_with_hash
+        .iter()
+        .map(|b| b.file_hash.as_str())
+        .collect();
+    let found = candidates.into_iter().find(|(_, books)| {
+        let deleted_hashes: BTreeSet<&str> = books.iter().map(|b| b.file_hash.as_str()).collect();
+        deleted_hashes.is_superset(&new_hashes) && new_hashes.is_superset(&deleted_hashes)
+    });
+    let Some((deleted_series, _)) = found else {
+        return Ok(());
+    };
+
+    let metadata_dao = SeriesMetadataDao::new(state.db.clone());
+    let deleted_metadata = metadata_dao
+        .find_by_id(&deleted_series.id)?
+        .expect("deleted series has metadata");
+    let new_metadata = metadata_dao
+        .find_by_id(&new_series.id)?
+        .expect("new series has metadata");
+    metadata_dao.update(&SeriesMetadata {
+        series_id: new_series.id.clone(),
+        title: if deleted_metadata.title_lock
+            || deleted_metadata.title != deleted_series.name.trim()
+        {
+            deleted_metadata.title.clone()
+        } else {
+            new_metadata.title.clone()
+        },
+        title_sort: if deleted_metadata.title_sort_lock
+            || deleted_metadata.title_sort != deleted_series.name.trim()
+        {
+            deleted_metadata.title_sort.clone()
+        } else {
+            new_metadata.title_sort.clone()
+        },
+        ..deleted_metadata
+    })?;
+
+    // move user uploaded thumbnails
+    let thumbnail_dao = ThumbnailSeriesDao::new(state.db.clone());
+    for thumbnail in thumbnail_dao
+        .find_all_by_series_id_and_type(&deleted_series.id, ThumbnailType::UserUploaded)?
+    {
+        thumbnail_dao.update(&ThumbnailSeries {
+            series_id: new_series.id.clone(),
+            ..thumbnail
+        })?;
+    }
+
+    // replace the deleted series in collections
+    let collection_dao = CollectionDao::new(state.db.clone());
+    for mut collection in collection_dao.find_all_containing_series_id(&deleted_series.id)? {
+        collection.series_ids = collection
+            .series_ids
+            .iter()
+            .map(|id| {
+                if id == &deleted_series.id {
+                    new_series.id.clone()
+                } else {
+                    id.clone()
+                }
+            })
+            .collect();
+        collection_dao.update(&collection)?;
+    }
+
+    try_restore_books(state, &new_books_with_hash)?;
+
+    crate::service::series::delete_many(state, std::slice::from_ref(&deleted_series))?;
+    Ok(())
+}
+
+/// A moved/renamed book is matched against soft-deleted books by size, then hash; on a match,
+/// media, thumbnails, metadata, read progress, and readlist memberships are transferred, and
+/// the deleted book is removed. Unlike Java, a customized (≠ file name) or locked title is
+/// restored instead of the file-name-derived one; a title that still echoes the old file
+/// name follows the new one, and a Title-capable refresh is still queued for unlocked titles.
+fn try_restore_books(state: &AppState, new_books: &[Book]) -> ScanRootResult<()> {
+    let book_dao = BookDao::new(state.db.clone());
+    for book_to_add in new_books {
+        let deleted_candidates: Vec<Book> = book_dao
+            .find_all_deleted_by_file_size(book_to_add.file_size)?
+            .into_iter()
+            .filter(|b| !b.file_hash.is_empty())
+            .collect();
+        if deleted_candidates.is_empty() {
+            continue;
+        }
+
+        // if the book has no hash, compute it and store it
+        let book_with_hash = if !book_to_add.file_hash.is_empty() {
+            book_to_add.clone()
+        } else {
+            let mut stored = book_dao
+                .find_by_id(&book_to_add.id)?
+                .expect("new book was just inserted");
+            stored.file_hash = compute_hash(&book_path(book_to_add))?;
+            book_dao.update(&stored)?;
+            stored
+        };
+
+        let Some(matched) = deleted_candidates
+            .into_iter()
+            .find(|b| b.file_hash == book_with_hash.file_hash)
+        else {
+            continue;
+        };
+
+        // copy koreader hash: same content means same KOReader sync identity
+        book_dao.update(&Book {
+            file_hash_koreader: matched.file_hash_koreader.clone(),
+            ..book_with_hash.clone()
+        })?;
+
+        // copy media
+        let media_dao = MediaDao::new(state.db.clone());
+        if let Some(media) = media_dao.find_by_id(&matched.id)? {
+            media_dao.update(&Media {
+                book_id: book_to_add.id.clone(),
+                ..media
+            })?;
+        }
+
+        // move generated and user uploaded thumbnails
+        let thumbnail_dao = ThumbnailBookDao::new(state.db.clone());
+        for type_ in [ThumbnailType::Generated, ThumbnailType::UserUploaded] {
+            for thumbnail in thumbnail_dao.find_all_by_book_id_and_type(&matched.id, type_)? {
+                thumbnail_dao.update(&ThumbnailBook {
+                    book_id: book_to_add.id.clone(),
+                    ..thumbnail
+                })?;
+            }
+        }
+
+        let metadata_dao = BookMetadataDao::new(state.db.clone());
+        let deleted_metadata = metadata_dao
+            .find_by_id(&matched.id)?
+            .expect("deleted book has metadata");
+        let new_metadata = metadata_dao
+            .find_by_id(&book_to_add.id)?
+            .expect("new book has metadata");
+        metadata_dao.update(&BookMetadata {
+            book_id: book_to_add.id.clone(),
+            title: if deleted_metadata.title_lock || deleted_metadata.title != matched.name.trim() {
+                deleted_metadata.title.clone()
+            } else {
+                new_metadata.title.clone()
+            },
+            ..deleted_metadata
+        })?;
+        if !deleted_metadata.title_lock {
+            state.task_emitter.refresh_book_metadata(
+                book_to_add,
+                [BookMetadataPatchCapability::Title].into_iter().collect(),
+                DEFAULT_PRIORITY,
+            )?;
+        }
+
+        // copy read progress
+        let progress_dao = ReadProgressDao::new(state.db.clone());
+        let progresses: Vec<komga_core::model::read_progress::ReadProgress> = progress_dao
+            .find_by_book(&matched.id)?
+            .into_iter()
+            .map(|p| komga_core::model::read_progress::ReadProgress {
+                book_id: book_to_add.id.clone(),
+                ..p
+            })
+            .collect();
+        progress_dao.save_many(&progresses)?;
+
+        // replace the deleted book in read lists
+        let readlist_dao = ReadListDao::new(state.db.clone());
+        for mut readlist in readlist_dao.find_all_containing_book_id(&matched.id)? {
+            readlist.book_ids = readlist
+                .book_ids
+                .values()
+                .enumerate()
+                .map(|(index, id)| {
+                    (
+                        index as i32,
+                        if id == &matched.id {
+                            book_to_add.id.clone()
+                        } else {
+                            id.clone()
+                        },
+                    )
+                })
+                .collect();
+            readlist_dao.update(&readlist)?;
+        }
+
+        crate::service::book::delete_one(state, &matched)?;
+    }
+    Ok(())
+}
+
+/// `BookRepository.findNotDeletedByLibraryIdAndUrlOrNull`
+fn find_not_deleted_book_by_url(
+    db: &komga_db::pool::Database,
+    library_id: &str,
+    url: &str,
+) -> Result<Option<Book>> {
+    fn datetime(row: &rusqlite::Row<'_>, idx: usize) -> rusqlite::Result<time::OffsetDateTime> {
+        let s: String = row.get(idx)?;
+        time_codec::parse_datetime_utc(&s).ok_or_else(|| {
+            rusqlite::Error::FromSqlConversionFailure(
+                idx,
+                rusqlite::types::Type::Text,
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("invalid datetime: {s}"),
+                )
+                .into(),
+            )
+        })
+    }
+    let conn = db.ro()?;
+    let mut stmt = conn.prepare(
+        "SELECT ID, NAME, URL, FILE_LAST_MODIFIED, SERIES_ID, LIBRARY_ID, FILE_SIZE, NUMBER, FILE_HASH, FILE_HASH_KOREADER, DELETED_DATE, ONESHOT, CREATED_DATE, LAST_MODIFIED_DATE \
+         FROM BOOK WHERE LIBRARY_ID = ? AND URL = ? AND DELETED_DATE IS NULL ORDER BY LAST_MODIFIED_DATE DESC",
+    )?;
+    let mut rows = stmt.query_map(rusqlite::params![library_id, url], |row| {
+        let deleted_date: Option<String> = row.get(10)?;
+        Ok(Book {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            url: row.get(2)?,
+            file_last_modified: datetime(row, 3)?,
+            series_id: row.get(4)?,
+            library_id: row.get(5)?,
+            file_size: row.get(6)?,
+            number: row.get(7)?,
+            file_hash: row.get(8)?,
+            file_hash_koreader: row.get(9)?,
+            deleted_date: deleted_date
+                .map(|s| time_codec::parse_datetime_utc(&s).expect("stored datetime is valid")),
+            oneshot: row.get(11)?,
+            created_date: datetime(row, 12)?,
+            last_modified_date: datetime(row, 13)?,
+        })
+    })?;
+    Ok(rows.next().transpose()?)
+}
+
+fn book_path(book: &Book) -> PathBuf {
+    PathBuf::from(komga_core::dto::url_to_file_path(&book.url))
+}
+
+fn series_path(series: &Series) -> PathBuf {
+    PathBuf::from(komga_core::dto::url_to_file_path(&series.url))
+}
+
+/// Local twin of the helpers in book.rs/convert.rs/import.rs: scan deletions and trash purges are
+/// recorded here, not inside `soft_delete_many`/`delete_many` — those also serve moves, restores,
+/// and library deletion, where a "trashed/purged" event would misreport what happened.
+fn insert_history(
+    state: &AppState,
+    type_: HistoricalEventType,
+    book_id: Option<&str>,
+    series_id: Option<&str>,
+    reason: &str,
+    name: &Path,
+) -> Result<()> {
+    HistoricalEventDao::new(state.db.clone()).insert(&HistoricalEvent {
+        id: String::new(),
+        type_,
+        book_id: book_id.map(str::to_string),
+        series_id: series_id.map(str::to_string),
+        properties: [
+            ("reason".to_string(), reason.to_string()),
+            ("name".to_string(), name.display().to_string()),
+        ]
+        .into_iter()
+        .collect(),
+        timestamp: time_codec::now_utc(),
+    })?;
+    Ok(())
+}
+
+fn books_of_series(state: &AppState, series: &[&Series]) -> Result<Vec<Book>> {
+    if series.is_empty() {
+        return Ok(vec![]);
+    }
+    let ids: Vec<String> = series.iter().map(|s| s.id.clone()).collect();
+    BookDao::new(state.db.clone()).find_all_by_series_ids(&ids)
+}
+
+/// Scan-trash of whole series records one event per book plus one per series — the same
+/// granularity as user-requested file deletion, where every deleted book file gets an event.
+/// `books` must be queried before the soft delete re-stamps them; already-trashed ones were
+/// recorded when they were trashed.
+fn insert_series_trashed_events(
+    state: &AppState,
+    series: &[&Series],
+    books: &[Book],
+) -> Result<()> {
+    for book in books.iter().filter(|b| b.deleted_date.is_none()) {
+        insert_history(
+            state,
+            HistoricalEventType::BookTrashed,
+            Some(&book.id),
+            Some(&book.series_id),
+            "File is no longer on disk",
+            &book_path(book),
+        )?;
+    }
+    for s in series {
+        insert_history(
+            state,
+            HistoricalEventType::SeriesTrashed,
+            None,
+            Some(&s.id),
+            "Folder is no longer on disk",
+            &series_path(s),
+        )?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::service::series::tests::{seed_user, test_state};
+    use komga_db::dao::settings::SettingsDao;
+    use komga_db::dao::tasks::TasksDao;
+    use komga_db::pool::Database;
+    use komga_media::scanner::path_to_url;
+    use std::path::Path;
+
+    fn library(db: &Database, id: &str, root: &Path) -> Library {
+        db.rw()
+            .unwrap()
+            .execute(
+                "INSERT INTO LIBRARY (ID, NAME, ROOT) VALUES (?, 'L', ?)",
+                rusqlite::params![id, path_to_url(root)],
+            )
+            .unwrap();
+        LibraryDao::new(db.clone()).find_by_id(id).unwrap().unwrap()
+    }
+
+    /// The scan root must not be dot-prefixed (komga skips dot directories), and tempfile's
+    /// own directory is: use a plain subdirectory instead
+    fn scan_root(tmp: &tempfile::TempDir) -> PathBuf {
+        let root = tmp.path().join("library-root");
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    fn write_file(dir: &Path, name: &str, bytes: &[u8]) -> PathBuf {
+        std::fs::create_dir_all(dir).unwrap();
+        let path = dir.join(name);
+        std::fs::write(&path, bytes).unwrap();
+        path
+    }
+
+    fn scan(state: &AppState, lib: &Library) {
+        scan_root_folder(state, lib, false).unwrap();
+    }
+
+    fn all_books(state: &AppState) -> Vec<Book> {
+        BookDao::new(state.db.clone()).find_all().unwrap()
+    }
+
+    fn all_series(state: &AppState) -> Vec<Series> {
+        SeriesDao::new(state.db.clone()).find_all().unwrap()
+    }
+
+    fn history_events(state: &AppState) -> Vec<komga_core::model::history::HistoricalEvent> {
+        HistoricalEventDao::new(state.db.clone())
+            .find_all_paged(&komga_db::dto_dao::PageRequest {
+                page: 0,
+                size: 100,
+                unpaged: true,
+                sort: vec![],
+            })
+            .unwrap()
+            .items
+    }
+
+    #[test]
+    fn protected_url_matches_ancestor_and_descendants_only() {
+        let failed = "file:/comics/base/seriesA".to_string();
+        let urls = vec![failed];
+
+        // the failed directory itself
+        assert!(is_protected_url("file:/comics/base/seriesA", &urls));
+        // a book directly under it
+        assert!(is_protected_url("file:/comics/base/seriesA/v01.cbz", &urls));
+        // a nested subdirectory
+        assert!(is_protected_url(
+            "file:/comics/base/seriesA/sub/v01.cbz",
+            &urls
+        ));
+        // case-insensitive (Windows path-case safety)
+        assert!(is_protected_url("FILE:/COMICS/BASE/SERIESA/V01.CBZ", &urls));
+        // sibling directories must NOT be protected (component-aware prefix)
+        assert!(!is_protected_url(
+            "file:/comics/base/seriesAB/v01.cbz",
+            &urls
+        ));
+        assert!(!is_protected_url(
+            "file:/comics/base/seriesA2/v01.cbz",
+            &urls
+        ));
+        // unrelated paths must not be protected
+        assert!(!is_protected_url("file:/comics/other/v01.cbz", &urls));
+
+        // a failed directory URL carries a trailing slash (it is a real directory):
+        // any remainder after the ancestor is a descendant, siblings stay unprotected
+        let dir_urls = vec!["file:/comics/base/seriesA/".to_string()];
+        assert!(is_protected_url("file:/comics/base/seriesA/", &dir_urls));
+        assert!(is_protected_url(
+            "file:/comics/base/seriesA/v01.cbz",
+            &dir_urls
+        ));
+        assert!(is_protected_url(
+            "file:/comics/base/seriesA/sub/v01.cbz",
+            &dir_urls
+        ));
+        assert!(!is_protected_url(
+            "file:/comics/base/seriesAB/v01.cbz",
+            &dir_urls
+        ));
+    }
+
+    #[test]
+    fn first_scan_creates_series_books_media_metadata_and_sidecars() {
+        let state = test_state();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = scan_root(&tmp);
+        write_file(&root.join("berserk"), "v01.cbz", b"book-one");
+        write_file(&root.join("berserk"), "v02.cbz", b"book-two!");
+        write_file(&root.join("berserk"), "cover.jpg", b"cover");
+        write_file(&root.join("berserk"), "series.json", b"{}");
+        write_file(&root.join("solo"), "v01.cbz", b"solo-book");
+        let lib = library(&state.db, "lib1", &root);
+
+        scan(&state, &lib);
+
+        let series = all_series(&state);
+        assert_eq!(series.len(), 2);
+        let berserk = series.iter().find(|s| s.name == "berserk").unwrap();
+        assert_eq!(berserk.book_count, 2);
+
+        let books = all_books(&state);
+        assert_eq!(books.len(), 3);
+        // every book has media (UNKNOWN) and metadata
+        for book in &books {
+            let media = MediaDao::new(state.db.clone())
+                .find_by_id(&book.id)
+                .unwrap()
+                .unwrap();
+            assert_eq!(media.status, MediaStatus::Unknown);
+            assert!(BookMetadataDao::new(state.db.clone())
+                .find_by_id(&book.id)
+                .unwrap()
+                .is_some());
+        }
+        // natural sort renumbers v01 < v02
+        let v01 = books
+            .iter()
+            .find(|b| b.name == "v01" && b.series_id == berserk.id)
+            .unwrap();
+        let v02 = books
+            .iter()
+            .find(|b| b.name == "v02" && b.series_id == berserk.id)
+            .unwrap();
+        assert!(v01.number < v02.number);
+
+        // sidecars recorded: cover.jpg (ARTWORK/SERIES), series.json (METADATA/SERIES)
+        let sidecars = SidecarDao::new(state.db.clone()).find_all().unwrap();
+        assert_eq!(sidecars.len(), 2);
+        assert!(sidecars.iter().any(|s| s.url.ends_with("cover.jpg")));
+        assert!(sidecars.iter().any(|s| s.url.ends_with("series.json")));
+
+        // sortBooks queued numbering refreshes and a series metadata refresh
+        let task_ids: Vec<String> = TasksDao::new(state.tasks_db.clone())
+            .find_all()
+            .unwrap()
+            .iter()
+            .map(|t| t.unique_id())
+            .collect();
+        assert!(task_ids
+            .iter()
+            .any(|id| id.starts_with("REFRESH_SERIES_METADATA_")));
+        assert!(task_ids
+            .iter()
+            .any(|id| id.starts_with("REFRESH_BOOK_METADATA_")));
+        // sidecar refreshes
+        assert!(task_ids
+            .iter()
+            .any(|id| id.starts_with("REFRESH_SERIES_LOCAL_ARTWORK_")));
+    }
+
+    /// Service-layer pin for the failed-directory protection: rows under a directory that
+    /// fails to read during a scan must NOT be soft-deleted (their state is unknown), and
+    /// sidecar rows under it must NOT be hard-deleted either.
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_directory_keeps_series_book_and_sidecar_rows() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let state = test_state();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = scan_root(&tmp);
+        let dir = root.join("berserk");
+        write_file(&dir, "v01.cbz", b"book-one");
+        write_file(&dir, "cover.jpg", b"cover");
+        let lib = library(&state.db, "lib1", &root);
+        scan(&state, &lib);
+
+        // sanity: the clean scan indexed the series, its book, and the artwork sidecar
+        assert_eq!(all_series(&state).len(), 1);
+        assert_eq!(all_books(&state).len(), 1);
+        assert_eq!(
+            SidecarDao::new(state.db.clone()).find_all().unwrap().len(),
+            1
+        );
+
+        // make the series directory unreadable and rescan: a transient read failure must
+        // not soft-delete the rows under it, nor hard-delete the sidecar
+        let mut perms = std::fs::metadata(&dir).unwrap().permissions();
+        perms.set_mode(0o000);
+        std::fs::set_permissions(&dir, perms).unwrap();
+        scan(&state, &lib);
+        // restore permissions so tempdir cleanup can remove the fixture
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        assert!(all_series(&state).iter().all(|s| s.deleted_date.is_none()));
+        assert!(all_books(&state).iter().all(|b| b.deleted_date.is_none()));
+        assert_eq!(
+            SidecarDao::new(state.db.clone()).find_all().unwrap().len(),
+            1
+        );
+    }
+
+    #[test]
+    fn second_scan_without_changes_is_a_no_op() {
+        let state = test_state();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = scan_root(&tmp);
+        write_file(&root.join("s1"), "v01.cbz", b"one");
+        let lib = library(&state.db, "lib1", &root);
+        scan(&state, &lib);
+        let book_rows: i64 = state
+            .db
+            .ro()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM BOOK", [], |r| r.get(0))
+            .unwrap();
+        let media_rows: i64 = state
+            .db
+            .ro()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM MEDIA", [], |r| r.get(0))
+            .unwrap();
+
+        let mut rx = state.events.subscribe();
+        scan(&state, &lib);
+
+        let book_rows_after: i64 = state
+            .db
+            .ro()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM BOOK", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(book_rows, book_rows_after);
+        let media_rows_after: i64 = state
+            .db
+            .ro()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM MEDIA", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(media_rows, media_rows_after);
+        // only the LibraryScanned event fires; nothing else changed
+        let mut saw_scanned = false;
+        while let Ok(event) = rx.try_recv() {
+            match event {
+                DomainEvent::LibraryScanned(_) => saw_scanned = true,
+                other => panic!("unexpected event after no-op scan: {other:?}"),
+            }
+        }
+        assert!(saw_scanned);
+    }
+
+    #[test]
+    fn komga_cn_plain_path_urls_are_normalized_before_matching() {
+        let state = test_state();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = scan_root(&tmp);
+        write_file(&root.join("s1"), "v01.cbz", b"one");
+        write_file(&root.join("s1"), "v02.cbz", b"two!");
+        write_file(&root.join("s1"), "cover.jpg", b"cover");
+        let lib = library(&state.db, "lib1", &root);
+        scan(&state, &lib);
+        let series = all_series(&state).into_iter().next().unwrap();
+        let mut books = all_books(&state);
+        books.sort_by(|a, b| a.name.cmp(&b.name));
+
+        // a database migrated from komga-cn's Rust port: plain filesystem paths in the URL
+        // columns (`file:///` is another foreign shape that must also be absorbed)
+        let plain = |p: &Path| p.to_string_lossy().to_string();
+        state
+            .db
+            .rw()
+            .unwrap()
+            .execute("UPDATE SERIES SET URL = ?", [plain(&root.join("s1"))])
+            .unwrap();
+        state
+            .db
+            .rw()
+            .unwrap()
+            .execute(
+                "UPDATE BOOK SET URL = ? WHERE NAME = 'v01'",
+                [plain(&root.join("s1").join("v01.cbz"))],
+            )
+            .unwrap();
+        state
+            .db
+            .rw()
+            .unwrap()
+            .execute(
+                "UPDATE BOOK SET URL = ? WHERE NAME = 'v02'",
+                [format!(
+                    "file://{}",
+                    plain(&root.join("s1").join("v02.cbz"))
+                )],
+            )
+            .unwrap();
+        state
+            .db
+            .rw()
+            .unwrap()
+            .execute("UPDATE LIBRARY SET ROOT = ?", [plain(&root)])
+            .unwrap();
+        state
+            .db
+            .rw()
+            .unwrap()
+            .execute(
+                "UPDATE SIDECAR SET URL = ?, PARENT_URL = ?",
+                [
+                    plain(&root.join("s1").join("cover.jpg")),
+                    plain(&root.join("s1")),
+                ],
+            )
+            .unwrap();
+
+        // reload so the in-memory library carries the foreign root, as a scan triggered
+        // from the scheduler would
+        let lib = LibraryDao::new(state.db.clone())
+            .find_by_id("lib1")
+            .unwrap()
+            .unwrap();
+        scan(&state, &lib);
+
+        // nothing is trashed or recreated: rows keep their identity
+        let series_after = all_series(&state);
+        assert_eq!(series_after.len(), 1);
+        assert_eq!(series_after[0].id, series.id);
+        assert!(series_after[0].deleted_date.is_none());
+        assert_eq!(series_after[0].url, path_to_url(&root.join("s1")));
+        let books_after = all_books(&state);
+        assert_eq!(books_after.len(), 2);
+        assert!(books_after.iter().all(|b| b.deleted_date.is_none()));
+        assert!(books_after.iter().any(|b| b.id == books[0].id));
+        assert!(books_after.iter().any(|b| b.id == books[1].id));
+        assert!(books_after
+            .iter()
+            .all(|b| b.url == path_to_url(Path::new(&komga_core::dto::url_to_file_path(&b.url)))));
+        let sidecars = SidecarDao::new(state.db.clone()).find_all().unwrap();
+        assert_eq!(sidecars.len(), 1);
+        assert_eq!(
+            sidecars[0].url,
+            path_to_url(&root.join("s1").join("cover.jpg"))
+        );
+        assert_eq!(sidecars[0].parent_url, path_to_url(&root.join("s1")));
+        let lib_after = LibraryDao::new(state.db.clone())
+            .find_by_id("lib1")
+            .unwrap()
+            .unwrap();
+        assert_eq!(lib_after.root, path_to_url(&root));
+
+        // the next scan is a plain no-op again
+        let mut rx = state.events.subscribe();
+        scan(&state, &lib);
+        while let Ok(event) = rx.try_recv() {
+            match event {
+                DomainEvent::LibraryScanned(_) => {}
+                other => panic!("unexpected event after normalized scan: {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn changed_book_resets_media_to_outdated() {
+        let state = test_state();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = scan_root(&tmp);
+        let book_path = write_file(&root.join("s1"), "v01.cbz", b"one");
+        let lib = library(&state.db, "lib1", &root);
+        scan(&state, &lib);
+        let book = all_books(&state).into_iter().next().unwrap();
+
+        // change content (size changes) and age the stored mtimes so the series and the book
+        // both look changed to the scanner
+        std::fs::write(&book_path, b"one-longer-content").unwrap();
+        state
+            .db
+            .rw()
+            .unwrap()
+            .execute(
+                "UPDATE BOOK SET FILE_LAST_MODIFIED = '2020-01-01 00:00:00.0' WHERE ID = ?",
+                [&book.id],
+            )
+            .unwrap();
+        state
+            .db
+            .rw()
+            .unwrap()
+            .execute(
+                "UPDATE SERIES SET FILE_LAST_MODIFIED = '2020-01-01 00:00:00.0'",
+                [],
+            )
+            .unwrap();
+
+        scan(&state, &lib);
+
+        let media = MediaDao::new(state.db.clone())
+            .find_by_id(&book.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(media.status, MediaStatus::Outdated);
+    }
+
+    #[test]
+    fn changed_book_with_same_hash_keeps_media_ready() {
+        let state = test_state();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = scan_root(&tmp);
+        let book_path = write_file(&root.join("s1"), "v01.cbz", b"same-bytes");
+        let lib = library(&state.db, "lib1", &root);
+        scan(&state, &lib);
+        let book = all_books(&state).into_iter().next().unwrap();
+
+        // store the hash of the current content, then age the stored mtimes
+        let hash = compute_hash(&book_path).unwrap();
+        state.db.rw().unwrap().execute(
+            "UPDATE BOOK SET FILE_HASH = ?, FILE_LAST_MODIFIED = '2020-01-01 00:00:00.0' WHERE ID = ?",
+            rusqlite::params![hash, book.id],
+        ).unwrap();
+        state
+            .db
+            .rw()
+            .unwrap()
+            .execute(
+                "UPDATE SERIES SET FILE_LAST_MODIFIED = '2020-01-01 00:00:00.0'",
+                [],
+            )
+            .unwrap();
+
+        scan(&state, &lib);
+
+        let media = MediaDao::new(state.db.clone())
+            .find_by_id(&book.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(media.status, MediaStatus::Unknown);
+        let book = BookDao::new(state.db.clone())
+            .find_by_id(&book.id)
+            .unwrap()
+            .unwrap();
+        assert!(
+            book.file_last_modified
+                > time_codec::parse_datetime_utc("2020-01-01 00:00:00.0").unwrap()
+        );
+    }
+
+    #[test]
+    fn vanished_book_is_soft_deleted_and_series_resorted() {
+        let state = test_state();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = scan_root(&tmp);
+        write_file(&root.join("s1"), "v01.cbz", b"one");
+        let path2 = write_file(&root.join("s1"), "v02.cbz", b"two!");
+        let lib = library(&state.db, "lib1", &root);
+        scan(&state, &lib);
+        assert_eq!(all_books(&state).len(), 2);
+
+        std::fs::remove_file(&path2).unwrap();
+        scan(&state, &lib);
+
+        let books = all_books(&state);
+        let gone = books.iter().find(|b| b.name == "v02").unwrap();
+        assert!(gone.deleted_date.is_some());
+        let alive = books.iter().find(|b| b.name == "v01").unwrap();
+        assert!(alive.deleted_date.is_none());
+        let series = all_series(&state).into_iter().next().unwrap();
+        // Kotlin's sortBooks counts soft-deleted books too (findAllBySeriesId has no trash filter)
+        assert_eq!(series.book_count, 2);
+
+        let events = history_events(&state);
+        let trashed: Vec<_> = events
+            .iter()
+            .filter(|e| e.type_ == HistoricalEventType::BookTrashed)
+            .collect();
+        assert_eq!(trashed.len(), 1);
+        assert_eq!(trashed[0].book_id.as_deref(), Some(gone.id.as_str()));
+        assert_eq!(
+            trashed[0].properties.get("reason").map(String::as_str),
+            Some("File is no longer on disk")
+        );
+    }
+
+    #[test]
+    fn vanished_series_is_soft_deleted_with_books() {
+        let state = test_state();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = scan_root(&tmp);
+        write_file(&root.join("s1"), "v01.cbz", b"one");
+        write_file(&root.join("s2"), "v01.cbz", b"two");
+        let lib = library(&state.db, "lib1", &root);
+        scan(&state, &lib);
+        assert_eq!(all_series(&state).len(), 2);
+
+        std::fs::remove_dir_all(root.join("s1")).unwrap();
+        scan(&state, &lib);
+
+        let s1 = all_series(&state)
+            .into_iter()
+            .find(|s| s.name == "s1")
+            .unwrap();
+        assert!(s1.deleted_date.is_some());
+        let book = all_books(&state)
+            .into_iter()
+            .find(|b| b.series_id == s1.id)
+            .unwrap();
+        assert!(book.deleted_date.is_some());
+        let s2 = all_series(&state)
+            .into_iter()
+            .find(|s| s.name == "s2")
+            .unwrap();
+        assert!(s2.deleted_date.is_none());
+
+        // the vanished series records one SeriesTrashed plus one BookTrashed per book — the
+        // same granularity as user-requested file deletion
+        let events = history_events(&state);
+        let series_trashed: Vec<_> = events
+            .iter()
+            .filter(|e| e.type_ == HistoricalEventType::SeriesTrashed)
+            .collect();
+        assert_eq!(series_trashed.len(), 1);
+        assert_eq!(series_trashed[0].series_id.as_deref(), Some(s1.id.as_str()));
+        assert_eq!(
+            series_trashed[0]
+                .properties
+                .get("reason")
+                .map(String::as_str),
+            Some("Folder is no longer on disk")
+        );
+        let books_trashed: Vec<_> = events
+            .iter()
+            .filter(|e| e.type_ == HistoricalEventType::BookTrashed)
+            .collect();
+        assert_eq!(books_trashed.len(), 1);
+        assert_eq!(books_trashed[0].book_id.as_deref(), Some(book.id.as_str()));
+    }
+
+    #[test]
+    fn moved_book_is_restored_by_hash() {
+        let state = test_state();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = scan_root(&tmp);
+        write_file(&root.join("s1"), "v01.cbz", b"content-bytes");
+        write_file(&root.join("s1"), "v02.cbz", b"other-content");
+        let lib = library(&state.db, "lib1", &root);
+        let user = seed_user(&state.db, "a@b.c");
+        scan(&state, &lib);
+
+        // hash the books (HashBook is a later task; set it directly)
+        let books = all_books(&state);
+        let book = books.iter().find(|b| b.name == "v01").unwrap();
+        for b in &books {
+            let hash = compute_hash(std::path::Path::new(&komga_core::dto::url_to_file_path(
+                &b.url,
+            )))
+            .unwrap();
+            state
+                .db
+                .rw()
+                .unwrap()
+                .execute(
+                    "UPDATE BOOK SET FILE_HASH = ? WHERE ID = ?",
+                    rusqlite::params![hash, b.id],
+                )
+                .unwrap();
+        }
+        // v01 gets a customized (unlocked) title, v02 keeps the default file-name echo
+        let metadata_dao = BookMetadataDao::new(state.db.clone());
+        let mut metadata = metadata_dao.find_by_id(&book.id).unwrap().unwrap();
+        metadata.title = "自定义标题".into();
+        metadata_dao.update(&metadata).unwrap();
+        // give v01 READY media with a page, read progress, and a readlist
+        let media_dao = MediaDao::new(state.db.clone());
+        let mut media = media_dao.find_by_id(&book.id).unwrap().unwrap();
+        media.status = MediaStatus::Ready;
+        media.page_count = 42;
+        media_dao.update(&media).unwrap();
+        let progress_dao = ReadProgressDao::new(state.db.clone());
+        progress_dao
+            .insert_or_update(&komga_core::model::read_progress::ReadProgress {
+                book_id: book.id.clone(),
+                user_id: user.id.clone(),
+                page: 42,
+                completed: true,
+                read_date: time_codec::now_utc(),
+                device_id: String::new(),
+                device_name: String::new(),
+                locator: None,
+                created_date: time_codec::now_utc(),
+                last_modified_date: time_codec::now_utc(),
+            })
+            .unwrap();
+        let readlist_dao = ReadListDao::new(state.db.clone());
+        let readlist_id = readlist_dao
+            .insert(&komga_core::model::readlist::ReadList {
+                id: String::new(),
+                name: "rl".into(),
+                summary: String::new(),
+                ordered: false,
+                book_ids: [(0, book.id.clone())].into_iter().collect(),
+                filtered: false,
+                created_date: time_codec::now_utc(),
+                last_modified_date: time_codec::now_utc(),
+            })
+            .unwrap();
+
+        // the book "moves": old dir removed, same content elsewhere
+        std::fs::remove_dir_all(root.join("s1")).unwrap();
+        scan(&state, &lib);
+        assert!(BookDao::new(state.db.clone())
+            .find_by_id(&book.id)
+            .unwrap()
+            .unwrap()
+            .deleted_date
+            .is_some());
+
+        write_file(&root.join("s2"), "v01-renamed.cbz", b"content-bytes");
+        write_file(&root.join("s2"), "v02-renamed.cbz", b"other-content");
+        scan(&state, &lib);
+
+        let alive: Vec<Book> = all_books(&state)
+            .into_iter()
+            .filter(|b| b.deleted_date.is_none())
+            .collect();
+        assert_eq!(alive.len(), 2);
+        let restored = alive.iter().find(|b| b.name == "v01-renamed").unwrap();
+        assert_eq!(restored.name, "v01-renamed");
+        // a customized title is restored from the deleted book
+        let restored_metadata = BookMetadataDao::new(state.db.clone())
+            .find_by_id(&restored.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(restored_metadata.title, "自定义标题");
+        // a default title that only echoed the old file name follows the new file name
+        let restored2 = alive.iter().find(|b| b.name == "v02-renamed").unwrap();
+        let restored2_metadata = metadata_dao.find_by_id(&restored2.id).unwrap().unwrap();
+        assert_eq!(restored2_metadata.title, "v02-renamed");
+        // media copied
+        let media = media_dao.find_by_id(&restored.id).unwrap().unwrap();
+        assert_eq!(media.status, MediaStatus::Ready);
+        assert_eq!(media.page_count, 42);
+        // progress copied
+        let progress = progress_dao
+            .find_by_book_and_user(&restored.id, &user.id)
+            .unwrap()
+            .unwrap();
+        assert!(progress.completed);
+        assert_eq!(progress.page, 42);
+        // readlist now points at the restored book
+        let readlist = readlist_dao.find_by_id(&readlist_id).unwrap().unwrap();
+        assert_eq!(
+            readlist.book_ids.values().collect::<Vec<_>>(),
+            vec![&restored.id]
+        );
+        // the deleted book is gone for good
+        assert!(BookDao::new(state.db.clone())
+            .find_by_id(&book.id)
+            .unwrap()
+            .is_none());
+
+        // the scan trashed the old row (via its series), but the restore's hard delete must not
+        // be reported as a purge
+        let events = history_events(&state);
+        assert!(events
+            .iter()
+            .any(|e| e.type_ == HistoricalEventType::BookTrashed
+                && e.book_id.as_deref() == Some(book.id.as_str())));
+        assert!(!events
+            .iter()
+            .any(|e| e.type_ == HistoricalEventType::BookPurged));
+    }
+
+    /// A book whose file content changed must lose its KOReader hash: the hash identifies
+    /// the file content, and keeping the stale value would sync KOReader against the wrong
+    /// document. Clearing it re-queues hashing via the empty-hash scan task.
+    #[test]
+    fn changed_book_file_clears_koreader_hash() {
+        let state = test_state();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = scan_root(&tmp);
+        let path = write_file(&root.join("s1"), "v01.cbz", b"original-content");
+        let lib = library(&state.db, "lib1", &root);
+        scan(&state, &lib);
+
+        let book_dao = BookDao::new(state.db.clone());
+        let book = all_books(&state).into_iter().next().unwrap();
+        let hash = compute_hash(&path).unwrap();
+        state
+            .db
+            .rw()
+            .unwrap()
+            .execute(
+                "UPDATE BOOK SET FILE_HASH = ?, FILE_HASH_KOREADER = ? WHERE ID = ?",
+                rusqlite::params![hash, "stale-koreader-hash", book.id],
+            )
+            .unwrap();
+
+        // different size: no baseline hash, straight into the "content changed" branch
+        std::fs::write(&path, b"the file has been replaced with different content!").unwrap();
+        scan_root_folder(&state, &lib, true).unwrap();
+
+        let updated = book_dao.find_by_id(&book.id).unwrap().unwrap();
+        assert!(updated.file_hash.is_empty());
+        assert!(
+            updated.file_hash_koreader.is_empty(),
+            "stale KOReader hash must be cleared when the file changed"
+        );
+        let media = MediaDao::new(state.db.clone())
+            .find_by_id(&book.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(media.status, MediaStatus::Outdated);
+    }
+
+    /// A moved/renamed book matched against a soft-deleted row inherits its KOReader hash:
+    /// same content means same KOReader identity, no re-hash needed.
+    #[test]
+    fn restored_book_keeps_koreader_hash() {
+        let state = test_state();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = scan_root(&tmp);
+        write_file(&root.join("s1"), "v01.cbz", b"content-bytes");
+        let lib = library(&state.db, "lib1", &root);
+        scan(&state, &lib);
+
+        let book = all_books(&state).into_iter().next().unwrap();
+        let hash = compute_hash(std::path::Path::new(&komga_core::dto::url_to_file_path(
+            &book.url,
+        )))
+        .unwrap();
+        state
+            .db
+            .rw()
+            .unwrap()
+            .execute(
+                "UPDATE BOOK SET FILE_HASH = ?, FILE_HASH_KOREADER = ? WHERE ID = ?",
+                rusqlite::params![hash, "koreader-hash-from-deleted", book.id],
+            )
+            .unwrap();
+
+        std::fs::remove_dir_all(root.join("s1")).unwrap();
+        scan(&state, &lib);
+        write_file(&root.join("s2"), "v01-renamed.cbz", b"content-bytes");
+        scan(&state, &lib);
+
+        let restored = all_books(&state)
+            .into_iter()
+            .find(|b| b.name == "v01-renamed")
+            .unwrap();
+        assert_eq!(restored.file_hash, hash);
+        assert_eq!(
+            restored.file_hash_koreader, "koreader-hash-from-deleted",
+            "restored book must inherit the KOReader hash of the matched deleted book"
+        );
+    }
+
+    #[test]
+    fn moved_series_is_restored_with_locked_metadata_and_collections() {
+        let state = test_state();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = scan_root(&tmp);
+        write_file(&root.join("s1"), "v01.cbz", b"aaa");
+        write_file(&root.join("s1"), "v02.cbz", b"bbbb");
+        // a second series keeps default metadata, to pin the follow-new-name branch
+        write_file(&root.join("t1"), "v01.cbz", b"ccc");
+        let lib = library(&state.db, "lib1", &root);
+        scan(&state, &lib);
+
+        let seeded = all_series(&state);
+        let s1 = seeded.iter().find(|s| s.name == "s1").unwrap();
+        let t1 = seeded.iter().find(|s| s.name == "t1").unwrap();
+        // lock a custom title, and set a customized (unlocked) titleSort
+        let metadata_dao = SeriesMetadataDao::new(state.db.clone());
+        let mut metadata = metadata_dao.find_by_id(&s1.id).unwrap().unwrap();
+        metadata.title = "Custom Title".into();
+        metadata.title_lock = true;
+        metadata.title_sort = "Custom Sort".into();
+        metadata_dao.update(&metadata).unwrap();
+        // hash the books and put the series in a collection
+        for book in all_books(&state) {
+            let hash = compute_hash(std::path::Path::new(&komga_core::dto::url_to_file_path(
+                &book.url,
+            )))
+            .unwrap();
+            state
+                .db
+                .rw()
+                .unwrap()
+                .execute(
+                    "UPDATE BOOK SET FILE_HASH = ? WHERE ID = ?",
+                    rusqlite::params![hash, book.id],
+                )
+                .unwrap();
+        }
+        let collection_dao = CollectionDao::new(state.db.clone());
+        let collection_id = collection_dao
+            .insert(&komga_core::model::collection::SeriesCollection {
+                id: String::new(),
+                name: "col".into(),
+                ordered: false,
+                series_ids: vec![s1.id.clone()],
+                filtered: false,
+                created_date: time_codec::now_utc(),
+                last_modified_date: time_codec::now_utc(),
+            })
+            .unwrap();
+        // give books READY media so restore has something to copy
+        let media_dao = MediaDao::new(state.db.clone());
+        for book in all_books(&state) {
+            let mut media = media_dao.find_by_id(&book.id).unwrap().unwrap();
+            media.status = MediaStatus::Ready;
+            media_dao.update(&media).unwrap();
+        }
+
+        // both series "move" to new directories
+        std::fs::remove_dir_all(root.join("s1")).unwrap();
+        std::fs::remove_dir_all(root.join("t1")).unwrap();
+        scan(&state, &lib);
+        assert!(SeriesDao::new(state.db.clone())
+            .find_by_id(&s1.id)
+            .unwrap()
+            .unwrap()
+            .deleted_date
+            .is_some());
+
+        write_file(&root.join("s2"), "v01.cbz", b"aaa");
+        write_file(&root.join("s2"), "v02.cbz", b"bbbb");
+        write_file(&root.join("t2"), "v01.cbz", b"ccc");
+        scan(&state, &lib);
+
+        let alive: Vec<_> = all_series(&state)
+            .into_iter()
+            .filter(|s| s.deleted_date.is_none())
+            .collect();
+        assert_eq!(alive.len(), 2);
+        let s2 = alive.iter().find(|s| s.name == "s2").unwrap();
+        let t2 = alive.iter().find(|s| s.name == "t2").unwrap();
+        // locked title wins over the directory name
+        let metadata = metadata_dao.find_by_id(&s2.id).unwrap().unwrap();
+        assert_eq!(metadata.title, "Custom Title");
+        // customized (unlocked) titleSort is restored from the deleted series
+        assert_eq!(metadata.title_sort, "Custom Sort");
+        // collection points at the restored series
+        let collection = collection_dao.find_by_id(&collection_id).unwrap().unwrap();
+        assert_eq!(collection.series_ids, vec![s2.id.clone()]);
+        // books have their READY media back
+        for book in BookDao::new(state.db.clone())
+            .find_by_series_id(&s2.id)
+            .unwrap()
+        {
+            let media = media_dao.find_by_id(&book.id).unwrap().unwrap();
+            assert_eq!(media.status, MediaStatus::Ready);
+        }
+        // the deleted series is gone for good
+        assert!(SeriesDao::new(state.db.clone())
+            .find_by_id(&s1.id)
+            .unwrap()
+            .is_none());
+
+        // the default-metadata series was restored too (its deleted row is consumed),
+        // and its echo values follow the new directory name
+        let t2_metadata = metadata_dao.find_by_id(&t2.id).unwrap().unwrap();
+        assert_eq!(t2_metadata.title, "t2");
+        assert_eq!(t2_metadata.title_sort, "t2");
+        assert!(SeriesDao::new(state.db.clone())
+            .find_by_id(&t1.id)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn empty_trash_after_scan_hard_deletes() {
+        let state = test_state();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = scan_root(&tmp);
+        write_file(&root.join("s1"), "v01.cbz", b"one");
+        let lib = library(&state.db, "lib1", &root);
+        scan(&state, &lib);
+        std::fs::remove_dir_all(root.join("s1")).unwrap();
+        scan(&state, &lib);
+        assert!(all_series(&state)
+            .into_iter()
+            .next()
+            .unwrap()
+            .deleted_date
+            .is_some());
+
+        // enable emptyTrashAfterScan
+        state
+            .db
+            .rw()
+            .unwrap()
+            .execute(
+                "UPDATE LIBRARY SET EMPTY_TRASH_AFTER_SCAN = 1 WHERE ID = 'lib1'",
+                [],
+            )
+            .unwrap();
+        let lib = LibraryDao::new(state.db.clone())
+            .find_by_id("lib1")
+            .unwrap()
+            .unwrap();
+        scan(&state, &lib);
+
+        assert!(all_series(&state).is_empty());
+        assert!(all_books(&state).is_empty());
+
+        let events = history_events(&state);
+        // the already-trashed series is not re-reported by the scan that purges it
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| e.type_ == HistoricalEventType::SeriesTrashed)
+                .count(),
+            1
+        );
+        let series_purged: Vec<_> = events
+            .iter()
+            .filter(|e| e.type_ == HistoricalEventType::SeriesPurged)
+            .collect();
+        assert_eq!(series_purged.len(), 1);
+        assert_eq!(
+            series_purged[0]
+                .properties
+                .get("reason")
+                .map(String::as_str),
+            Some("Trash emptied automatically after scan")
+        );
+        // the series' book is trashed and purged alongside it, with its own events
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| e.type_ == HistoricalEventType::BookTrashed)
+                .count(),
+            1
+        );
+        let books_purged: Vec<_> = events
+            .iter()
+            .filter(|e| e.type_ == HistoricalEventType::BookPurged)
+            .collect();
+        assert_eq!(books_purged.len(), 1);
+        assert_eq!(
+            books_purged[0].properties.get("reason").map(String::as_str),
+            Some("Trash emptied automatically after scan")
+        );
+    }
+
+    #[test]
+    fn manual_empty_trash_records_purged_events() {
+        let state = test_state();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = scan_root(&tmp);
+        write_file(&root.join("s1"), "v01.cbz", b"one");
+        let path2 = write_file(&root.join("s1"), "v02.cbz", b"two!");
+        let lib = library(&state.db, "lib1", &root);
+        scan(&state, &lib);
+
+        std::fs::remove_file(&path2).unwrap();
+        scan(&state, &lib);
+        let gone = all_books(&state)
+            .into_iter()
+            .find(|b| b.name == "v02")
+            .unwrap();
+        assert!(gone.deleted_date.is_some());
+
+        empty_trash(&state, &lib, "Trash emptied by user request").unwrap();
+
+        let events = history_events(&state);
+        let purged: Vec<_> = events
+            .iter()
+            .filter(|e| e.type_ == HistoricalEventType::BookPurged)
+            .collect();
+        assert_eq!(purged.len(), 1);
+        assert_eq!(purged[0].book_id.as_deref(), Some(gone.id.as_str()));
+        assert_eq!(
+            purged[0].properties.get("reason").map(String::as_str),
+            Some("Trash emptied by user request")
+        );
+        // the series itself survived, so no series purge
+        assert!(!events
+            .iter()
+            .any(|e| e.type_ == HistoricalEventType::SeriesPurged));
+    }
+
+    #[test]
+    fn cleanup_removes_empty_collections_and_readlists() {
+        let state = test_state();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = scan_root(&tmp);
+        write_file(&root.join("s1"), "v01.cbz", b"one");
+        let lib = library(&state.db, "lib1", &root);
+
+        let settings_dao = SettingsDao::new(state.db.clone());
+        settings_dao
+            .save_setting_bool("DELETE_EMPTY_COLLECTIONS", true)
+            .unwrap();
+        settings_dao
+            .save_setting_bool("DELETE_EMPTY_READLISTS", true)
+            .unwrap();
+        state.settings.reload();
+
+        let collection_dao = CollectionDao::new(state.db.clone());
+        collection_dao
+            .insert(&komga_core::model::collection::SeriesCollection {
+                id: String::new(),
+                name: "empty-col".into(),
+                ordered: false,
+                series_ids: vec![],
+                filtered: false,
+                created_date: time_codec::now_utc(),
+                last_modified_date: time_codec::now_utc(),
+            })
+            .unwrap();
+        let readlist_dao = ReadListDao::new(state.db.clone());
+        readlist_dao
+            .insert(&komga_core::model::readlist::ReadList {
+                id: String::new(),
+                name: "empty-rl".into(),
+                summary: String::new(),
+                ordered: false,
+                book_ids: Default::default(),
+                filtered: false,
+                created_date: time_codec::now_utc(),
+                last_modified_date: time_codec::now_utc(),
+            })
+            .unwrap();
+
+        let mut rx = state.events.subscribe();
+        scan(&state, &lib);
+
+        assert!(collection_dao.find_all().unwrap().is_empty());
+        assert!(readlist_dao.find_all().unwrap().is_empty());
+        let events: Vec<_> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, DomainEvent::CollectionDeleted(_))));
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, DomainEvent::ReadListDeleted(_))));
+    }
+
+    #[test]
+    fn unavailable_library_is_marked_then_recovered() {
+        let state = test_state();
+        let tmp = tempfile::tempdir().unwrap();
+        let missing = scan_root(&tmp).join("missing");
+        let lib = library(&state.db, "lib1", &missing);
+
+        let mut rx = state.events.subscribe();
+        let err = scan_root_folder(&state, &lib, false).unwrap_err();
+        assert!(matches!(
+            err,
+            ScanRootError::Scan(ScanError::DirectoryNotFound(_))
+        ));
+        let lib_after = LibraryDao::new(state.db.clone())
+            .find_by_id("lib1")
+            .unwrap()
+            .unwrap();
+        assert!(lib_after.unavailable_date.is_some());
+        assert!(std::iter::from_fn(|| rx.try_recv().ok())
+            .any(|e| matches!(e, DomainEvent::LibraryUpdated(_))));
+
+        // the root comes back: the flag is cleared on the next scan
+        std::fs::create_dir_all(&missing).unwrap();
+        write_file(&missing, "v01.cbz", b"one");
+        scan(&state, &lib_after);
+        let lib_recovered = LibraryDao::new(state.db.clone())
+            .find_by_id("lib1")
+            .unwrap()
+            .unwrap();
+        assert!(lib_recovered.unavailable_date.is_none());
+    }
+
+    #[test]
+    fn oneshot_directory_creates_oneshot_series_per_book() {
+        let state = test_state();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = scan_root(&tmp);
+        write_file(&root.join("oneshots"), "story-a.cbz", b"aaa");
+        write_file(&root.join("oneshots"), "story-b.cbz", b"bbb");
+        library(&state.db, "lib1", &root);
+        state
+            .db
+            .rw()
+            .unwrap()
+            .execute(
+                "UPDATE LIBRARY SET ONESHOTS_DIRECTORY = 'oneshots' WHERE ID = 'lib1'",
+                [],
+            )
+            .unwrap();
+        let lib = LibraryDao::new(state.db.clone())
+            .find_by_id("lib1")
+            .unwrap()
+            .unwrap();
+
+        scan(&state, &lib);
+
+        let series = all_series(&state);
+        assert_eq!(series.len(), 2);
+        assert!(series.iter().all(|s| s.oneshot));
+        let names: Vec<&str> = series.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"story-a"));
+        assert!(names.contains(&"story-b"));
+        // books are oneshot too
+        assert!(all_books(&state).iter().all(|b| b.oneshot));
+    }
+
+    #[test]
+    fn scan_force_modified_time_takes_max_of_dir_and_books() {
+        let state = test_state();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = scan_root(&tmp);
+        let book = write_file(&root.join("s1"), "v01.cbz", b"one");
+        library(&state.db, "lib1", &root);
+        state
+            .db
+            .rw()
+            .unwrap()
+            .execute(
+                "UPDATE LIBRARY SET SCAN_FORCE_MODIFIED_TIME = 1 WHERE ID = 'lib1'",
+                [],
+            )
+            .unwrap();
+        let lib = LibraryDao::new(state.db.clone())
+            .find_by_id("lib1")
+            .unwrap()
+            .unwrap();
+
+        // make the book clearly newer than its parent directory
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+        std::fs::File::open(&book)
+            .unwrap()
+            .set_modified(later)
+            .unwrap();
+        let book_mtime_millis = later
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+
+        scan(&state, &lib);
+
+        let series = all_series(&state).into_iter().next().unwrap();
+        let series_millis = (series.file_last_modified.unix_timestamp_nanos() / 1_000_000) as u128;
+        assert_eq!(series_millis, book_mtime_millis);
+    }
+}

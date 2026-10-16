@@ -1,0 +1,101 @@
+{
+  "language": {
+    "title": "언어",
+    "label": "인터페이스 언어"
+  },
+  "profile": {
+    "title": "프로필",
+    "email": "이메일",
+    "roles": "역할",
+    "libraries": "라이브러리",
+    "allLibraries": "모든 라이브러리",
+    "sharedLibraries_other": "라이브러리 {{count}}개",
+    "role": {
+      "admin": "관리자",
+      "user": "사용자",
+      "fileDownload": "파일 다운로드",
+      "pageStreaming": "페이지 스트리밍",
+      "koboSync": "Kobo 동기화",
+      "koreaderSync": "KOReader 동기화"
+    }
+  },
+  "security": {
+    "title": "보안",
+    "subtitle": "비밀번호 및 로그인 활동",
+    "password": {
+      "title": "비밀번호 변경",
+      "new": "새 비밀번호",
+      "confirm": "비밀번호 확인",
+      "staySignedIn": "이 기기에서는 로그인 상태가 유지됩니다.",
+      "mismatch": "비밀번호가 일치하지 않습니다.",
+      "updated": "비밀번호가 변경되었습니다. 다른 세션은 로그아웃되었습니다.",
+      "failed": "비밀번호를 변경할 수 없습니다.",
+      "submit": "비밀번호 변경"
+    },
+    "activity": {
+      "title": "로그인 활동",
+      "failed": "로그인 활동을 불러올 수 없습니다.",
+      "empty": "아직 로그인 활동이 없습니다.",
+      "when": "시간",
+      "ip": "IP",
+      "source": "출처",
+      "status": "상태",
+      "agent": "에이전트",
+      "success": "성공",
+      "statusFailed": "실패",
+      "page": "{{current}} / {{total}} 페이지",
+      "previous": "이전",
+      "next": "다음"
+    }
+  },
+  "apiKeys": {
+    "title": "API 키",
+    "subtitle": "서드파티 클라이언트와 동기화를 위한 키",
+    "failed": "API 키를 불러올 수 없습니다.",
+    "empty": "아직 API 키가 없습니다.",
+    "resyncHint": "재동기화하면 KOReader와 Kobo 기기가 모든 것을 다시 가져옵니다.",
+    "resyncAll": "모든 기기 재동기화",
+    "untitled": "제목 없음",
+    "createdOnly": "생성일 {{date}}",
+    "createdAndUsed": "생성일 {{date}} · 마지막 사용 {{time}}",
+    "resyncKey": "{{name}} 강제 재동기화",
+    "delete": "API 키 삭제",
+    "deleteFailed": "API 키를 삭제할 수 없습니다.",
+    "resyncDone": "{{name}}에 재동기화를 요청했습니다.",
+    "allDevices": "모든 기기",
+    "new": "새 API 키",
+    "commentPlaceholder": "메모, 예: Boox의 KOReader",
+    "createFailed": "API 키를 만들 수 없습니다.",
+    "createdTitle": "API 키 생성됨",
+    "shownOnce": "이 키는 한 번만 표시됩니다.",
+    "copy": "복사",
+    "copied": "복사됨",
+    "resyncTitle": "강제 재동기화",
+    "resyncKeyBody": "<name>{{name}}</name>의 동기화 지점을 초기화하시겠습니까? 이 키를 사용하는 다음 KOReader 또는 Kobo 기기가 전체 진행 상황을 다시 다운로드합니다.",
+    "resyncAllBody": "모든 API 키의 동기화 지점을 초기화하시겠습니까? 모든 KOReader 및 Kobo 기기가 다음 동기화에서 전체 진행 상황을 다시 다운로드합니다.",
+    "resyncFailed": "재동기화를 요청할 수 없습니다."
+  },
+  "reader": {
+    "title": "리더",
+    "subtitle": "만화 리더 기본값",
+    "defaultsTitle": "리더 기본값",
+    "direction": "읽기 방향",
+    "scale": "배율",
+    "scaleScreen": "화면에 맞춤",
+    "scaleWidth": "너비에 맞춤",
+    "scaleShrinkWidth": "너비에 맞춰 축소",
+    "scaleHeight": "높이에 맞춤",
+    "scaleOriginal": "원본",
+    "pageLayout": "페이지 레이아웃",
+    "layoutSingle": "한 페이지",
+    "layoutDouble": "두 페이지",
+    "layoutDoubleNoCover": "두 페이지(표지 제외)",
+    "background": "배경",
+    "backgroundLabel": "배경 {{color}}",
+    "backgrounds": {
+      "black": "검정",
+      "gray": "회색",
+      "white": "흰색"
+    }
+  }
+}

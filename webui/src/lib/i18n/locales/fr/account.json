@@ -1,0 +1,103 @@
+{
+  "language": {
+    "title": "Langue",
+    "label": "Langue de l'interface"
+  },
+  "profile": {
+    "title": "Profil",
+    "email": "E-mail",
+    "roles": "Rôles",
+    "libraries": "Bibliothèques",
+    "allLibraries": "Toutes les bibliothèques",
+    "sharedLibraries_one": "{{count}} bibliothèque",
+    "sharedLibraries_many": "{{count}} bibliothèques",
+    "sharedLibraries_other": "{{count}} bibliothèques",
+    "role": {
+      "admin": "Admin",
+      "user": "Utilisateur",
+      "fileDownload": "Téléchargement de fichiers",
+      "pageStreaming": "Diffusion de pages",
+      "koboSync": "Synchro Kobo",
+      "koreaderSync": "Synchro KOReader"
+    }
+  },
+  "security": {
+    "title": "Sécurité",
+    "subtitle": "Mot de passe et activité de connexion",
+    "password": {
+      "title": "Changer le mot de passe",
+      "new": "Nouveau mot de passe",
+      "confirm": "Confirmer le mot de passe",
+      "staySignedIn": "Vous resterez connecté sur cet appareil.",
+      "mismatch": "Les mots de passe ne correspondent pas.",
+      "updated": "Mot de passe mis à jour. Les autres sessions ont été déconnectées.",
+      "failed": "Impossible de mettre à jour le mot de passe.",
+      "submit": "Mettre à jour le mot de passe"
+    },
+    "activity": {
+      "title": "Activité de connexion",
+      "failed": "Impossible de charger l'activité de connexion.",
+      "empty": "Aucune activité de connexion pour le moment.",
+      "when": "Quand",
+      "ip": "IP",
+      "source": "Source",
+      "status": "Statut",
+      "agent": "Agent",
+      "success": "Réussite",
+      "statusFailed": "Échec",
+      "page": "Page {{current}} sur {{total}}",
+      "previous": "Précédent",
+      "next": "Suivant"
+    }
+  },
+  "apiKeys": {
+    "title": "Clés API",
+    "subtitle": "Clés pour les clients tiers et la synchronisation",
+    "failed": "Impossible de charger les clés API.",
+    "empty": "Aucune clé API pour le moment.",
+    "resyncHint": "La resynchronisation force les appareils KOReader et Kobo à tout retélécharger.",
+    "resyncAll": "Resynchroniser tous les appareils",
+    "untitled": "Sans titre",
+    "createdOnly": "Créée le {{date}}",
+    "createdAndUsed": "Créée le {{date}} · Dernière utilisation {{time}}",
+    "resyncKey": "Forcer la resynchronisation pour {{name}}",
+    "delete": "Supprimer la clé API",
+    "deleteFailed": "Impossible de supprimer la clé API.",
+    "resyncDone": "Resynchronisation demandée pour {{name}}.",
+    "allDevices": "tous les appareils",
+    "new": "Nouvelle clé API",
+    "commentPlaceholder": "Commentaire, p. ex. KOReader sur Boox",
+    "createFailed": "Impossible de créer la clé API.",
+    "createdTitle": "Clé API créée",
+    "shownOnce": "Cette clé n'est affichée qu'une seule fois.",
+    "copy": "Copier",
+    "copied": "Copié",
+    "resyncTitle": "Forcer la resynchronisation",
+    "resyncKeyBody": "Réinitialiser le point de synchronisation de <name>{{name}}</name> ? Le prochain appareil KOReader ou Kobo utilisant cette clé retéléchargera toute sa progression.",
+    "resyncAllBody": "Réinitialiser les points de synchronisation de toutes les clés API ? Tous vos appareils KOReader et Kobo retéléchargeront toute leur progression à la prochaine synchronisation.",
+    "resyncFailed": "Impossible de demander la resynchronisation."
+  },
+  "reader": {
+    "title": "Lecteur",
+    "subtitle": "Réglages par défaut du lecteur de comics",
+    "defaultsTitle": "Réglages par défaut du lecteur",
+    "direction": "Sens de lecture",
+    "scale": "Échelle",
+    "scaleScreen": "Ajuster à l'écran",
+    "scaleWidth": "Ajuster à la largeur",
+    "scaleShrinkWidth": "Réduire à la largeur",
+    "scaleHeight": "Ajuster à la hauteur",
+    "scaleOriginal": "Originale",
+    "pageLayout": "Disposition des pages",
+    "layoutSingle": "Simple",
+    "layoutDouble": "Double",
+    "layoutDoubleNoCover": "Double sans couverture",
+    "background": "Arrière-plan",
+    "backgroundLabel": "Arrière-plan {{color}}",
+    "backgrounds": {
+      "black": "Noir",
+      "gray": "Gris",
+      "white": "Blanc"
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "title": "搜尋",
+  "titleWithQuery": "搜尋：{{q}}",
+  "scope": {
+    "all": "所有書庫",
+    "pinned": "釘選的書庫",
+    "library": "書庫",
+    "ariaLabel": "搜尋範圍：{{label}}"
+  },
+  "tabs": {
+    "all": "全部",
+    "series": "系列",
+    "books": "書籍",
+    "collections": "收藏",
+    "readlists": "閱讀清單"
+  },
+  "placeholderTop": "搜尋系列、書籍、作者…",
+  "placeholderPage": "搜尋系列、書籍、收藏、閱讀清單…",
+  "clear": "清除搜尋",
+  "emptyTitle": "搜尋你的書庫",
+  "emptyBody": "尋找系列、書籍、收藏與閱讀清單。也支援 title:berserk AND tag:seinen 這類欄位查詢。",
+  "viewAll": "檢視全部",
+  "noResultsTitle": "沒有「{{q}}」的結果",
+  "noResultsBody": "試試其他關鍵字，或在單一分類中搜尋。",
+  "failedTitle": "搜尋失敗",
+  "failedBody": "發生錯誤。"
+}

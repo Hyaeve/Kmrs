@@ -1,0 +1,59 @@
+{
+  "title": "閱讀統計",
+  "subtitle": "你在各書庫的閱讀情況",
+  "failed": "無法載入閱讀統計。",
+  "library": {
+    "all": "所有書庫",
+    "ariaLabel": "{{label}} 的統計"
+  },
+  "summary": {
+    "booksRead": "已讀書籍",
+    "ofTotal_other": "共 {{total}} 本",
+    "inProgress": "閱讀中",
+    "pagesRead": "已讀頁數",
+    "readingDays": "閱讀天數",
+    "currentStreak": "目前連續",
+    "longestStreak": "最長連續",
+    "avgPages": "平均每本頁數",
+    "lastRead": "最近閱讀",
+    "never": "從未",
+    "days_other": "{{count}} 天"
+  },
+  "heatmap": {
+    "title": "閱讀活動",
+    "range3m": "近 3 個月",
+    "range6m": "近 6 個月",
+    "range1y": "近 12 個月",
+    "empty": "此期間沒有閱讀活動。",
+    "less": "較少",
+    "more": "較多",
+    "pages_other": "{{count}} 頁",
+    "completed_other": "讀完 {{count}} 本書",
+    "noActivity": "沒有閱讀",
+    "dayLabel": "{{date}}：{{activity}}"
+  },
+  "status": {
+    "title": "書籍狀態分布",
+    "read": "已讀",
+    "inProgress": "閱讀中",
+    "unread": "未讀",
+    "empty": "還沒有書籍。"
+  },
+  "chart": {
+    "tooltip": "{{label}}：{{value}}"
+  },
+  "weekday": {
+    "title": "星期分布"
+  },
+  "hourly": {
+    "title": "時段分布"
+  },
+  "tops": {
+    "title": "最常閱讀",
+    "authors": "作者",
+    "genres": "類型",
+    "tags": "標籤",
+    "series_other": "{{count}} 個系列",
+    "empty": "讀完幾本書後，這裡會顯示你最常閱讀的作者、類型與標籤。"
+  }
+}

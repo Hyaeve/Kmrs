@@ -1,0 +1,17 @@
+pub mod book;
+pub mod client_settings;
+pub mod collection;
+pub mod common;
+pub mod kobo;
+pub mod komf;
+pub mod koreader;
+pub mod library;
+pub mod loose;
+pub mod oauth2;
+pub mod page_hash;
+pub mod readlist;
+pub mod series;
+pub mod settings;
+pub mod smart_list;
+pub mod stats;
+pub mod user;

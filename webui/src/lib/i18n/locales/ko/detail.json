@@ -1,0 +1,143 @@
+{
+  "read": "읽기",
+  "peek": "미리 읽기",
+  "peekTooltip": "진행 상황을 저장하지 않고 읽기",
+  "continue": "계속",
+  "continueWithPage": "계속 · {{page}}페이지",
+  "markAsRead": "읽음으로 표시",
+  "markAsUnread": "읽지 않음으로 표시",
+  "moreActions": "더 많은 작업",
+  "addToReadList": "읽기 목록에 추가",
+  "addToCollection": "컬렉션에 추가",
+  "addSeries": "시리즈 추가",
+  "addBooks": "책 추가",
+  "removeFromCollection": "{{name}}에서 제거",
+  "removeFromReadList": "{{name}}에서 제거",
+  "rename": "이름 변경",
+  "nameLabel": "이름",
+  "summaryLabel": "요약",
+  "previous": "이전",
+  "next": "다음",
+  "inCollections": "컬렉션에 포함됨",
+  "inReadLists": "읽기 목록에 포함됨",
+  "booksHeading": "책",
+  "bookCount_other": "책 {{count}}권",
+  "seriesCount": "시리즈 {{count}}개",
+  "selectedCount": "{{count}}개 선택됨",
+  "menu": {
+    "editMetadata": "메타데이터 편집",
+    "editBookMetadata": "책 메타데이터 편집",
+    "managePosters": "포스터 관리",
+    "analyze": "분석",
+    "refreshMetadata": "메타데이터 새로 고침",
+    "identifyKomf": "komf로 식별",
+    "matchKomf": "komf로 매칭",
+    "resetKomf": "komf로 메타데이터 초기화",
+    "deleteFile": "파일 삭제",
+    "previousBook": "이전 책",
+    "nextBook": "다음 책",
+    "editDetails": "세부 정보 편집"
+  },
+  "toast": {
+    "analysisQueued": "분석이 큐에 추가됨",
+    "queueAnalysisFailed": "분석을 큐에 추가할 수 없습니다",
+    "refreshQueued": "메타데이터 새로 고침이 큐에 추가됨",
+    "queueRefreshFailed": "새로 고침을 큐에 추가할 수 없습니다",
+    "identifyQueued": "식별이 큐에 추가됨",
+    "metadataReset": "메타데이터가 초기화됨",
+    "resetMetadataFailed": "메타데이터를 초기화할 수 없습니다",
+    "queueMatchFailed": "매칭을 큐에 추가할 수 없습니다",
+    "deleteFileFailed": "파일을 삭제할 수 없습니다",
+    "deleteFilesFailed": "파일을 삭제할 수 없습니다",
+    "removedFromCollection": "{{name}}에서 제거됨",
+    "removedFromReadList": "{{name}}에서 제거됨",
+    "collectionDeleted": "컬렉션 삭제됨",
+    "readListDeleted": "읽기 목록 삭제됨",
+    "removeFromCollectionFailed": "컬렉션에서 제거할 수 없습니다",
+    "removeFromReadListFailed": "읽기 목록에서 제거할 수 없습니다"
+  },
+  "notFound": {
+    "book": "책을 찾을 수 없음",
+    "series": "시리즈를 찾을 수 없음",
+    "collection": "컬렉션을 찾을 수 없음",
+    "readList": "읽기 목록을 찾을 수 없음"
+  },
+  "field": {
+    "pages": "페이지",
+    "size": "크기",
+    "format": "형식",
+    "profile": "프로필",
+    "releaseDate": "발매일",
+    "file": "파일",
+    "added": "추가됨"
+  },
+  "progress": {
+    "completed": "완료",
+    "pageOf": "페이지 {{page}} / {{total}}"
+  },
+  "stats": {
+    "books_other": "<num>{{count}}</num>권",
+    "read": "<num>{{count}}</num>권 읽음",
+    "unread": "<num>{{count}}</num>권 읽지 않음"
+  },
+  "empty": {
+    "loadBooksFailed": "책을 불러올 수 없습니다",
+    "loadSeriesFailed": "시리즈를 불러올 수 없습니다",
+    "noBooks": "책 없음",
+    "noBooksFiltered": "필터와 일치하는 책이 없습니다.",
+    "seriesEmpty": "이 시리즈에는 책이 없습니다.",
+    "noSeries": "시리즈 없음",
+    "noSeriesFiltered": "필터와 일치하는 시리즈가 없습니다.",
+    "collectionEmpty": "이 컬렉션은 비어 있습니다.",
+    "readListEmpty": "이 읽기 목록은 비어 있습니다.",
+    "noBook": "책 없음",
+    "oneshotNoBook": "이 단편에는 아직 책이 없습니다."
+  },
+  "confirmDelete": {
+    "body": "<name>{{name}}</name>을(를) 삭제하시겠습니까? 되돌릴 수 없습니다."
+  },
+  "error": {
+    "title": "문제가 발생했습니다",
+    "unknown": "알 수 없는 오류",
+    "notFoundBody": "삭제되었거나 접근 권한이 없을 수 있습니다."
+  },
+  "addToReadListDialog": {
+    "empty": "아직 읽기 목록 없음"
+  },
+  "collection": {
+    "renameTitle": "컬렉션 이름 변경",
+    "deleteTitle": "컬렉션 삭제",
+    "editMembersEmpty": "컬렉션에는 시리즈가 하나 이상 필요합니다. 비우는 대신 삭제하세요.",
+    "selectedSeriesCount_other": "{{count}}개 선택됨"
+  },
+  "readList": {
+    "editTitle": "읽기 목록 편집",
+    "deleteTitle": "읽기 목록 삭제"
+  },
+  "deleteDialog": {
+    "bookFileTitle": "책 파일 삭제",
+    "bookFileName": "{{name}}의 파일",
+    "seriesFilesTitle": "시리즈 파일 삭제",
+    "seriesFilesName": "{{name}}의 모든 파일"
+  },
+  "picker": {
+    "searchPlaceholder": "책 검색…",
+    "searchSeriesPlaceholder": "시리즈 검색…",
+    "noBooksFound": "책을 찾을 수 없음",
+    "noSeriesFound": "시리즈를 찾을 수 없음",
+    "tryDifferentSearch": "다른 검색어를 시도해 보세요.",
+    "addedBadge": "추가됨",
+    "pickOne": "책 하나 선택",
+    "pickOneSeries": "시리즈 하나 선택",
+    "noneSelected": "선택 없음"
+  },
+  "editBooks": {
+    "selectAll": "모두 선택",
+    "clearSelection": "선택 해제",
+    "removeSelected": "선택 항목 제거",
+    "manualOrdering": "수동 정렬",
+    "emptyNotAllowed": "읽기 목록에는 책이 하나 이상 필요합니다. 비우는 대신 삭제하세요.",
+    "selectRow": "행 선택",
+    "dragToReorder": "드래그하여 순서 변경"
+  }
+}

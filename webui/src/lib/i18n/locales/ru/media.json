@@ -1,0 +1,57 @@
+{
+  "card": {
+    "actionsFor": "Действия для {{title}}",
+    "continueReading": "Продолжить чтение: {{title}}",
+    "pageCount_one": "{{count}} страница",
+    "pageCount_few": "{{count}} страницы",
+    "pageCount_many": "{{count}} страниц",
+    "pageCount_other": "{{count}} страницы"
+  },
+  "menu": {
+    "select": "Выбрать",
+    "read": "Читать",
+    "peek": "Просмотр",
+    "bookDetails": "О книге",
+    "markAsRead": "Отметить прочитанным",
+    "markAsUnread": "Отметить непрочитанным",
+    "addToReadList": "Добавить в список чтения",
+    "addToCollection": "Добавить в коллекцию",
+    "download": "Скачать",
+    "editMetadata": "Изменить метаданные",
+    "deleteFile": "Удалить файл",
+    "deleteFiles": "Удалить файлы",
+    "identifyWithKomf": "Определить через komf"
+  },
+  "identifyQueued": "Определение поставлено в очередь",
+  "select": {
+    "select": "Выбрать {{title}}",
+    "deselect": "Снять выбор с {{title}}"
+  },
+  "series": {
+    "progressSummary_one": "{{pct}}% · {{count}} книга",
+    "progressSummary_few": "{{pct}}% · {{count}} книги",
+    "progressSummary_many": "{{pct}}% · {{count}} книг",
+    "progressSummary_other": "{{pct}}% · {{count}} книги",
+    "unreadSummary": "Непрочитано {{unread}} из {{total}}",
+    "booksCount_one": "{{count}} книга",
+    "booksCount_few": "{{count}} книги",
+    "booksCount_many": "{{count}} книг",
+    "booksCount_other": "{{count}} книги"
+  },
+  "collection": {
+    "seriesCount_one": "{{count}} серия",
+    "seriesCount_few": "{{count}} серии",
+    "seriesCount_many": "{{count}} серий",
+    "seriesCount_other": "{{count}} серии"
+  },
+  "readList": {
+    "bookCount_one": "{{count}} книга",
+    "bookCount_few": "{{count}} книги",
+    "bookCount_many": "{{count}} книг",
+    "bookCount_other": "{{count}} книги"
+  },
+  "row": {
+    "scrollLeft": "Прокрутить влево",
+    "scrollRight": "Прокрутить вправо"
+  }
+}

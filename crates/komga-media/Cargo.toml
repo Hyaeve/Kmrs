@@ -1,0 +1,28 @@
+[package]
+name = "komga-media"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+komga-core = { path = "../komga-core" }
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+image.workspace = true
+zip = { workspace = true, features = ["bzip2", "deflate64", "lzma", "xz"] }
+pdfium-render.workspace = true
+roxmltree.workspace = true
+scraper.workspace = true
+quick-xml.workspace = true
+unrar = "0.5"
+icu_locale.workspace = true
+xxhash-rust.workspace = true
+md5.workspace = true
+flate2.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+regex = "1"
+time.workspace = true
+rxing = "0.9.3"
+tempfile = "3"

@@ -1,0 +1,69 @@
+{
+  "title": "Estadísticas de lectura",
+  "subtitle": "Tu lectura en todas tus bibliotecas",
+  "failed": "No se pudieron cargar las estadísticas de lectura.",
+  "library": {
+    "all": "Todas las bibliotecas",
+    "ariaLabel": "Estadísticas de {{label}}"
+  },
+  "summary": {
+    "booksRead": "Libros leídos",
+    "ofTotal_one": "de {{total}} libro",
+    "ofTotal_many": "de {{total}} libros",
+    "ofTotal_other": "de {{total}} libros",
+    "inProgress": "En curso",
+    "pagesRead": "Páginas leídas",
+    "readingDays": "Días de lectura",
+    "currentStreak": "Racha actual",
+    "longestStreak": "Racha más larga",
+    "avgPages": "Páginas medias / libro",
+    "lastRead": "Última lectura",
+    "never": "Nunca",
+    "days_one": "{{count}} día",
+    "days_many": "{{count}} días",
+    "days_other": "{{count}} días"
+  },
+  "heatmap": {
+    "title": "Actividad de lectura",
+    "range3m": "Últimos 3 meses",
+    "range6m": "Últimos 6 meses",
+    "range1y": "Últimos 12 meses",
+    "empty": "Sin actividad de lectura en este periodo.",
+    "less": "Menos",
+    "more": "Más",
+    "pages_one": "{{count}} página",
+    "pages_many": "{{count}} páginas",
+    "pages_other": "{{count}} páginas",
+    "completed_one": "{{count}} libro completado",
+    "completed_many": "{{count}} libros completados",
+    "completed_other": "{{count}} libros completados",
+    "noActivity": "Sin lectura",
+    "dayLabel": "{{date}}: {{activity}}"
+  },
+  "status": {
+    "title": "Libros por estado",
+    "read": "Leídos",
+    "inProgress": "En curso",
+    "unread": "No leídos",
+    "empty": "Aún no hay libros."
+  },
+  "chart": {
+    "tooltip": "{{label}}: {{value}}"
+  },
+  "weekday": {
+    "title": "Por día de la semana"
+  },
+  "hourly": {
+    "title": "Por hora del día"
+  },
+  "tops": {
+    "title": "Más leídos",
+    "authors": "Autores",
+    "genres": "Géneros",
+    "tags": "Etiquetas",
+    "series_one": "{{count}} serie",
+    "series_many": "{{count}} series",
+    "series_other": "{{count}} series",
+    "empty": "Termina algunos libros para ver tus autores, géneros y etiquetas más leídos."
+  }
+}

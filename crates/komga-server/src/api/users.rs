@@ -1,0 +1,1032 @@
+//! Equivalent of `UserController`: /api/v2/users/**.
+
+use crate::api::claim::is_valid_email;
+use crate::auth::RequireAuth;
+use crate::dto::common::{Page, Pageable};
+use crate::dto::user::*;
+use crate::error::{ApiError, Violation};
+use crate::events::DomainEvent;
+use crate::http::pagination::{QueryExt, QueryPageable};
+use crate::state::AppState;
+use axum::extract::{Path, State};
+use axum::http::StatusCode;
+use axum::{routing, Json, Router};
+use komga_core::model::user::{
+    AgeRestriction, AllowExclude, ContentRestrictions, KomgaUser, UserRole,
+};
+use komga_core::time_codec::now_utc;
+use komga_db::dao::user::UserDao;
+use std::collections::BTreeSet;
+
+pub fn router() -> Router<AppState> {
+    Router::new()
+        .route("/api/v2/users/me", routing::get(get_me))
+        .route(
+            "/api/v2/users/me/password",
+            routing::patch(update_my_password),
+        )
+        .route("/api/v2/users", routing::get(list_users).post(create_user))
+        .route(
+            "/api/v2/users/{id}",
+            routing::patch(update_user).delete(delete_user),
+        )
+        .route(
+            "/api/v2/users/{id}/password",
+            routing::patch(update_password_by_id),
+        )
+        .route(
+            "/api/v2/users/me/authentication-activity",
+            routing::get(my_authentication_activity),
+        )
+        .route(
+            "/api/v2/users/authentication-activity",
+            routing::get(authentication_activity),
+        )
+        .route(
+            "/api/v2/users/{id}/authentication-activity/latest",
+            routing::get(latest_authentication_activity),
+        )
+        .route(
+            "/api/v2/users/me/api-keys",
+            routing::get(my_api_keys).post(create_api_key),
+        )
+        .route(
+            "/api/v2/users/me/api-keys/{keyId}",
+            routing::delete(delete_api_key),
+        )
+}
+
+fn user_dao(state: &AppState) -> UserDao {
+    UserDao::new(state.db.clone())
+}
+
+async fn get_me(auth: RequireAuth) -> Json<UserDto> {
+    Json(UserDto::from(&auth.0.user))
+}
+
+fn validate_password(password: &str) -> Result<(), ApiError> {
+    if password.trim().is_empty() {
+        return Err(ApiError::Violations(vec![Violation {
+            field_name: "password".into(),
+            message: "must not be blank".into(),
+        }]));
+    }
+    Ok(())
+}
+
+async fn update_my_password(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Json(body): Json<PasswordUpdateDto>,
+) -> Result<StatusCode, ApiError> {
+    validate_password(&body.password)?;
+    let dao = user_dao(&state);
+    let mut user = dao
+        .find_by_email_ignore_case(&auth.0.user.email)?
+        .ok_or_else(|| ApiError::not_found(""))?;
+    user.password =
+        bcrypt::hash(&body.password, 10).map_err(|e| ApiError::Internal(e.to_string()))?;
+    dao.update(&user)?;
+    // changing your own password keeps the current session (KomgaUserLifecycle semantics)
+    let _ = state.events.send(DomainEvent::UserUpdated {
+        user,
+        expire_session: false,
+    });
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn list_users(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+) -> Result<Json<Vec<UserDto>>, ApiError> {
+    auth.0.require_admin()?;
+    let users = user_dao(&state).find_all()?;
+    Ok(Json(users.iter().map(UserDto::from).collect()))
+}
+
+/// `UserRoles.valuesOf`: invalid role names are silently ignored.
+fn values_of(roles: &[String]) -> BTreeSet<UserRole> {
+    roles
+        .iter()
+        .filter_map(|r| r.parse::<UserRole>().ok())
+        .collect()
+}
+
+fn age_restriction_of(dto: Option<AgeRestrictionUpdateDto>) -> Option<AgeRestriction> {
+    match dto {
+        None
+        | Some(AgeRestrictionUpdateDto {
+            restriction: AllowExcludeDto::None,
+            ..
+        }) => None,
+        Some(d) => Some(AgeRestriction {
+            age: d.age,
+            restriction: match d.restriction {
+                AllowExcludeDto::AllowOnly => AllowExclude::AllowOnly,
+                AllowExcludeDto::Exclude => AllowExclude::Exclude,
+                AllowExcludeDto::None => unreachable!(),
+            },
+        }),
+    }
+}
+
+async fn create_user(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Json(body): Json<UserCreationDto>,
+) -> Result<(StatusCode, Json<UserDto>), ApiError> {
+    auth.0.require_admin()?;
+    let mut violations = Vec::new();
+    if !is_valid_email(&body.email) {
+        violations.push(Violation {
+            field_name: "email".into(),
+            message: "must be a well-formed email address".into(),
+        });
+    }
+    if body.password.trim().is_empty() {
+        violations.push(Violation {
+            field_name: "password".into(),
+            message: "must not be blank".into(),
+        });
+    }
+    if let Some(ar) = &body.age_restriction {
+        if ar.age < 0 {
+            violations.push(Violation {
+                field_name: "ageRestriction.age".into(),
+                message: "must be greater than or equal to 0".into(),
+            });
+        }
+    }
+    if !violations.is_empty() {
+        return Err(ApiError::Violations(violations));
+    }
+
+    let dao = user_dao(&state);
+    if dao.exists_by_email_ignore_case(&body.email)? {
+        return Err(ApiError::bad_request(
+            "A user with this email already exists",
+        ));
+    }
+    // legacy behavior: when sharedLibraries is not provided, all libraries are shared by default
+    let (shared_all, shared_ids) = match &body.shared_libraries {
+        None => (true, BTreeSet::new()),
+        Some(sl) if sl.all => (true, BTreeSet::new()),
+        Some(sl) => (false, sl.library_ids.clone()),
+    };
+    let user = KomgaUser {
+        id: String::new(),
+        email: body.email.clone(),
+        password: bcrypt::hash(&body.password, 10)
+            .map_err(|e| ApiError::Internal(e.to_string()))?,
+        roles: values_of(&body.roles),
+        shared_all_libraries: shared_all,
+        shared_libraries_ids: shared_ids,
+        restrictions: ContentRestrictions::new(
+            age_restriction_of(body.age_restriction),
+            body.labels_allow.unwrap_or_default(),
+            body.labels_exclude.unwrap_or_default(),
+        ),
+        created_date: now_utc(),
+        last_modified_date: now_utc(),
+    };
+    let id = dao.insert(&user)?;
+    let created = dao
+        .find_by_id(&id)?
+        .ok_or_else(|| ApiError::Internal("user not found after insert".into()))?;
+    Ok((StatusCode::CREATED, Json(UserDto::from(&created))))
+}
+
+async fn update_user(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(id): Path<String>,
+    Json(patch): Json<UserUpdateDto>,
+) -> Result<StatusCode, ApiError> {
+    auth.0.require_admin()?;
+    if auth.0.user.id == id {
+        return Err(ApiError::forbidden(""));
+    }
+    let dao = user_dao(&state);
+    let mut existing = dao
+        .find_by_id(&id)?
+        .ok_or_else(|| ApiError::not_found(""))?;
+    let before = existing.clone();
+
+    if let Some(roles) = &patch.roles {
+        // komga NPEs on explicit null (roles!!); aligned here as a 500
+        let roles = roles
+            .as_ref()
+            .ok_or_else(|| ApiError::Internal("null value for roles".into()))?;
+        existing.roles = values_of(&roles.iter().cloned().collect::<Vec<_>>());
+    }
+    if let Some(shared) = &patch.shared_libraries {
+        let shared = shared
+            .as_ref()
+            .ok_or_else(|| ApiError::Internal("null value for sharedLibraries".into()))?;
+        existing.shared_all_libraries = shared.all;
+        existing.shared_libraries_ids = if shared.all {
+            BTreeSet::new()
+        } else {
+            shared.library_ids.clone()
+        };
+    }
+    let restrictions = &mut existing.restrictions;
+    if let Some(age_restriction) = &patch.age_restriction {
+        restrictions.age_restriction = age_restriction_of(*age_restriction);
+    }
+    if let Some(labels) = &patch.labels_allow {
+        restrictions.labels_allow =
+            komga_core::model::user::lower_not_blank(labels.clone().unwrap_or_default());
+    }
+    if let Some(labels) = &patch.labels_exclude {
+        restrictions.labels_exclude =
+            komga_core::model::user::lower_not_blank(labels.clone().unwrap_or_default());
+    }
+    // ContentRestrictions construction semantics: allow minus exclude
+    existing.restrictions = ContentRestrictions::new(
+        existing.restrictions.age_restriction,
+        existing.restrictions.labels_allow.clone(),
+        existing.restrictions.labels_exclude.clone(),
+    );
+
+    dao.update(&existing)?;
+    // only permission/sharing changes invalidate sessions (KomgaUserLifecycle semantics)
+    let expire_sessions = before.roles != existing.roles
+        || before.restrictions != existing.restrictions
+        || before.shared_all_libraries != existing.shared_all_libraries
+        || before.shared_libraries_ids != existing.shared_libraries_ids;
+    if expire_sessions {
+        state.sessions.invalidate_user(&id)?;
+    }
+    let _ = state.events.send(DomainEvent::UserUpdated {
+        user: existing,
+        expire_session: expire_sessions,
+    });
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn delete_user(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    auth.0.require_admin()?;
+    if auth.0.user.id == id {
+        return Err(ApiError::forbidden(""));
+    }
+    let dao = user_dao(&state);
+    let user = dao
+        .find_by_id(&id)?
+        .ok_or_else(|| ApiError::not_found(""))?;
+    dao.delete(&id, &user.email)?;
+    state.sessions.invalidate_user(&id)?;
+    // Java publishes UserUpdated (not UserDeleted) on delete, with sessions expired
+    let _ = state.events.send(DomainEvent::UserUpdated {
+        user,
+        expire_session: true,
+    });
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn update_password_by_id(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(id): Path<String>,
+    Json(body): Json<PasswordUpdateDto>,
+) -> Result<StatusCode, ApiError> {
+    validate_password(&body.password)?;
+    if !auth.0.is_admin() && auth.0.user.id != id {
+        return Err(ApiError::forbidden(""));
+    }
+    let dao = user_dao(&state);
+    let mut user = dao
+        .find_by_id(&id)?
+        .ok_or_else(|| ApiError::not_found(""))?;
+    user.password =
+        bcrypt::hash(&body.password, 10).map_err(|e| ApiError::Internal(e.to_string()))?;
+    dao.update(&user)?;
+    // changing someone else's password invalidates their sessions; changing your own does not
+    let expire_sessions = auth.0.user.id != id;
+    if expire_sessions {
+        state.sessions.invalidate_user(&id)?;
+    }
+    let _ = state.events.send(DomainEvent::UserUpdated {
+        user,
+        expire_session: expire_sessions,
+    });
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn my_authentication_activity(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    query: QueryPageable,
+) -> Result<Json<Page<AuthenticationActivityDto>>, ApiError> {
+    let (items, total) = activity_page(&state, &query.pageable, Some(&auth.0.user))?;
+    Ok(Json(Page::of(
+        items.iter().map(AuthenticationActivityDto::from).collect(),
+        total,
+        &query.pageable,
+    )))
+}
+
+async fn authentication_activity(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    query: QueryPageable,
+) -> Result<Json<Page<AuthenticationActivityDto>>, ApiError> {
+    auth.0.require_admin()?;
+    let (items, total) = activity_page(&state, &query.pageable, None)?;
+    Ok(Json(Page::of(
+        items.iter().map(AuthenticationActivityDto::from).collect(),
+        total,
+        &query.pageable,
+    )))
+}
+
+/// Defaults to dateTime desc; returns everything when unpaged.
+fn activity_page(
+    state: &AppState,
+    pageable: &Pageable,
+    user: Option<&KomgaUser>,
+) -> Result<(Vec<komga_core::model::user::AuthenticationActivity>, u64), ApiError> {
+    let dao = user_dao(state);
+    let (limit, offset) = if pageable.unpaged {
+        (None, 0)
+    } else {
+        (Some(pageable.size), pageable.offset() as u32)
+    };
+    let (items, total) = match user {
+        Some(user) => dao.find_activities_by_user(&user.id, &user.email, limit, offset)?,
+        None => dao.find_all_activities(limit, offset)?,
+    };
+    Ok((items, total as u64))
+}
+
+async fn latest_authentication_activity(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(id): Path<String>,
+    query: QueryPageable,
+) -> Result<Json<AuthenticationActivityDto>, ApiError> {
+    if !auth.0.is_admin() && auth.0.user.id != id {
+        return Err(ApiError::forbidden(""));
+    }
+    let dao = user_dao(&state);
+    let user = dao
+        .find_by_id(&id)?
+        .ok_or_else(|| ApiError::not_found(""))?;
+    let api_key_id = query.params.first("apikey_id").map(str::to_string);
+    let activity = dao
+        .find_most_recent_activity_by_user(&user.id, &user.email, api_key_id.as_deref())?
+        .ok_or_else(|| ApiError::not_found(""))?;
+    Ok(Json(AuthenticationActivityDto::from(&activity)))
+}
+
+async fn my_api_keys(
+    auth: RequireAuth,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<ApiKeyDto>>, ApiError> {
+    let keys = user_dao(&state).find_api_keys_by_user_id(&auth.0.user.id)?;
+    Ok(Json(keys.iter().map(ApiKeyDto::of_redacted).collect()))
+}
+
+async fn create_api_key(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Json(body): Json<ApiKeyRequestDto>,
+) -> Result<Json<ApiKeyDto>, ApiError> {
+    if body.comment.trim().is_empty() {
+        return Err(ApiError::Violations(vec![Violation {
+            field_name: "comment".into(),
+            message: "must not be blank".into(),
+        }]));
+    }
+    let dao = user_dao(&state);
+    if dao.exists_api_key_by_comment_and_user_id(&body.comment, &auth.0.user.id)? {
+        return Err(ApiError::bad_request(komga_core::error::codes::ERR_1034));
+    }
+    let (api_key, plain) =
+        crate::service::user::mint_api_key(state.db.clone(), &auth.0.user.id, &body.comment)
+            .map_err(|_| ApiError::Status {
+                status: StatusCode::SERVICE_UNAVAILABLE,
+                message: "Failed to generate API key".into(),
+            })?;
+    let mut dto = ApiKeyDto::of(&api_key);
+    dto.key = plain; // the plaintext is returned only this once
+    Ok(Json(dto))
+}
+
+async fn delete_api_key(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+    Path(key_id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let dao = user_dao(&state);
+    if !dao.exists_api_key_by_id_and_user_id(&key_id, &auth.0.user.id)? {
+        return Err(ApiError::not_found(""));
+    }
+    dao.delete_api_key_by_id_and_user_id(&key_id, &auth.0.user.id)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settings::SettingsProvider;
+    use crate::state::test_kmrs_db;
+    use axum::body::Body;
+    use axum::http::Request;
+    use komga_core::model::user::ApiKey;
+    use komga_db::pool::Database;
+    use komga_db::{Migrator, Placeholders};
+    use std::sync::Arc;
+    use tower::ServiceExt;
+
+    fn test_state() -> (AppState, tokio::sync::watch::Receiver<bool>) {
+        let db = Database::open_in_memory(true).unwrap();
+        let migrations = komga_db::main_migrations();
+        Migrator::new(&migrations, Placeholders::default())
+            .migrate(&db.rw().unwrap())
+            .unwrap();
+        let tasks_db = Database::open_in_memory(false).unwrap();
+        // dedicated task pools reuse the same in-memory database: task execution and assertions stay in sync
+        let task_db = db.clone();
+        let tasks_migrations = komga_db::tasks_migrations();
+        Migrator::new(&tasks_migrations, Placeholders::default())
+            .migrate(&tasks_db.rw().unwrap())
+            .unwrap();
+        let config = crate::config::ServerConfig::from_env();
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+        let state = AppState {
+            config: Arc::new(config.clone()),
+            settings: Arc::new(SettingsProvider::load(db.clone())),
+            task_emitter: Arc::new(crate::service::TaskEmitter::new(
+                db.clone(),
+                tasks_db.clone(),
+                std::sync::Arc::new(tokio::sync::Notify::new()),
+            )),
+            db,
+            task_db,
+            tasks_db,
+            kmrs_db: test_kmrs_db(),
+            sessions: crate::auth::SessionStore::new(config.session_timeout),
+            tsid: Arc::new(komga_core::tsid::TsidFactory::new_random_node()),
+            events: crate::events::event_bus(),
+            search_index: crate::state::test_search_index(),
+            kepub: crate::service::kepub::KepubConverter::new(tempfile::tempdir().unwrap().keep()),
+            kobo_proxy: crate::service::kobo_proxy::KoboProxy::new(),
+
+            shutdown_tx,
+            api_key_activity_throttle: Arc::new(crate::auth::ApiKeyActivityThrottle::new()),
+        };
+        (state, shutdown_rx)
+    }
+
+    fn test_router(state: AppState) -> Router {
+        Router::new()
+            .merge(router())
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::auth_middleware,
+            ))
+            .with_state(state)
+    }
+
+    fn seed_user(state: &AppState, email: &str) -> String {
+        let dao = UserDao::new(state.db.clone());
+        let user_id = dao
+            .insert(&KomgaUser {
+                id: String::new(),
+                email: email.to_string(),
+                password: bcrypt::hash("pass", 10).unwrap(),
+                roles: [UserRole::Admin].into_iter().collect(),
+                shared_libraries_ids: BTreeSet::new(),
+                shared_all_libraries: true,
+                restrictions: ContentRestrictions::default(),
+                created_date: now_utc(),
+                last_modified_date: now_utc(),
+            })
+            .unwrap();
+        dao.insert_api_key(&ApiKey {
+            id: String::new(),
+            user_id: user_id.clone(),
+            key: crate::auth::sha512_hex("secret"),
+            comment: "test".into(),
+            created_date: now_utc(),
+            last_modified_date: now_utc(),
+        })
+        .unwrap();
+        user_id
+    }
+
+    /// Activity is persisted on a spawned task; poll until it lands.
+    async fn wait_activity(
+        state: &AppState,
+        user_id: &str,
+        email: &str,
+    ) -> komga_core::model::user::AuthenticationActivity {
+        let dao = UserDao::new(state.db.clone());
+        for _ in 0..100 {
+            if let Ok(Some(activity)) = dao.find_most_recent_activity_by_user(user_id, email, None)
+            {
+                return activity;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        panic!("authentication activity was not recorded");
+    }
+
+    #[tokio::test]
+    async fn api_key_success_records_user_id_and_email() {
+        let (state, _rx) = test_state();
+        let user_id = seed_user(&state, "Admin@Example.com");
+        let app = test_router(state.clone());
+        let request = Request::builder()
+            .method("GET")
+            .uri("/api/v2/users/me")
+            .header("X-API-Key", "secret")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let activity = wait_activity(&state, &user_id, "Admin@Example.com").await;
+        assert_eq!(activity.user_id.as_deref(), Some(user_id.as_str()));
+        assert_eq!(activity.email.as_deref(), Some("Admin@Example.com"));
+        assert!(activity.success);
+        assert_eq!(activity.source.as_deref(), Some("ApiKey"));
+    }
+
+    #[tokio::test]
+    async fn password_success_records_user_id_and_canonical_email() {
+        let (state, _rx) = test_state();
+        let user_id = seed_user(&state, "Admin@Example.com");
+        let app = test_router(state.clone());
+        // credentials in a different case than the stored email
+        let credentials = base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            "admin@example.com:pass",
+        );
+        let request = Request::builder()
+            .method("GET")
+            .uri("/api/v2/users/me")
+            .header("Authorization", format!("Basic {credentials}"))
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // LoginListener records the canonical user.email, not the submitted principal
+        let activity = wait_activity(&state, &user_id, "Admin@Example.com").await;
+        assert_eq!(activity.user_id.as_deref(), Some(user_id.as_str()));
+        assert_eq!(activity.email.as_deref(), Some("Admin@Example.com"));
+        assert!(activity.success);
+        assert_eq!(activity.source.as_deref(), Some("Password"));
+    }
+
+    async fn activity_count(state: &AppState, user_id: &str, email: &str) -> i64 {
+        UserDao::new(state.db.clone())
+            .find_activities_by_user(user_id, email, None, 0)
+            .unwrap()
+            .1
+    }
+
+    /// Waits until `expected` activities are persisted (they are recorded on a spawned task).
+    async fn wait_activity_count(state: &AppState, user_id: &str, email: &str, expected: i64) {
+        for _ in 0..100 {
+            if activity_count(state, user_id, email).await >= expected {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        panic!("expected {expected} activities");
+    }
+
+    /// Waits until at least `min` activities landed, then lets stragglers settle and returns
+    /// the exact count (recording happens on a spawned task per request).
+    async fn settled_activity_count(state: &AppState, user_id: &str, email: &str, min: i64) -> i64 {
+        wait_activity_count(state, user_id, email, min).await;
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        activity_count(state, user_id, email).await
+    }
+
+    /// 1.29 made API-key authentication stateless (request-scoped SecurityContext, no session
+    /// persistence): a session presented alongside the key neither suppresses re-authentication
+    /// nor is marked with the key. Repeated successes with the same key collapse into a single
+    /// throttled activity row.
+    #[tokio::test]
+    async fn api_key_with_session_is_stateless_and_activity_throttled() {
+        let (state, _rx) = test_state();
+        let user_id = seed_user(&state, "admin@example.com");
+        let session_id = state.sessions.create(&user_id).unwrap();
+        let app = test_router(state.clone());
+
+        let call = |key: &str| {
+            let app = app.clone();
+            let session_id = session_id.clone();
+            let key = key.to_string();
+            async move {
+                app.oneshot(
+                    Request::builder()
+                        .method("GET")
+                        .uri("/api/v2/users/me")
+                        .header("X-API-Key", key)
+                        .header("X-Auth-Token", session_id)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap()
+            }
+        };
+
+        for _ in 0..3 {
+            let response = call("secret").await;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert!(
+                response.headers().get("set-cookie").is_none(),
+                "API-key authentication must not issue a session cookie"
+            );
+        }
+        assert_eq!(
+            settled_activity_count(&state, &user_id, "admin@example.com", 1).await,
+            1
+        );
+    }
+
+    /// Without a session there is no stored context to reuse: every API-key request
+    /// re-authenticates, but successful activity is throttled to one row per key per window.
+    #[tokio::test]
+    async fn api_key_without_session_records_activity_once() {
+        let (state, _rx) = test_state();
+        let user_id = seed_user(&state, "admin@example.com");
+        let app = test_router(state.clone());
+
+        for _ in 0..2 {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("GET")
+                        .uri("/api/v2/users/me")
+                        .header("X-API-Key", "secret")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+        assert_eq!(
+            settled_activity_count(&state, &user_id, "admin@example.com", 1).await,
+            1
+        );
+    }
+
+    /// The throttle is per key: two keys of the same user each get their own row.
+    #[tokio::test]
+    async fn api_key_activity_throttle_is_per_key() {
+        let (state, _rx) = test_state();
+        let user_id = seed_user(&state, "admin@example.com");
+        UserDao::new(state.db.clone())
+            .insert_api_key(&ApiKey {
+                id: String::new(),
+                user_id: user_id.clone(),
+                key: crate::auth::sha512_hex("secret2"),
+                comment: "second".into(),
+                created_date: now_utc(),
+                last_modified_date: now_utc(),
+            })
+            .unwrap();
+        let app = test_router(state.clone());
+
+        for key in ["secret", "secret", "secret2", "secret2"] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("GET")
+                        .uri("/api/v2/users/me")
+                        .header("X-API-Key", key)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+        assert_eq!(
+            settled_activity_count(&state, &user_id, "admin@example.com", 2).await,
+            2
+        );
+    }
+
+    /// Once the throttle window has passed, the next success records a fresh row.
+    #[tokio::test]
+    async fn api_key_activity_records_again_after_window() {
+        let (state, _rx) = test_state();
+        let user_id = seed_user(&state, "admin@example.com");
+        let app = test_router(state.clone());
+
+        let call = || {
+            let app = app.clone();
+            async move {
+                app.oneshot(
+                    Request::builder()
+                        .method("GET")
+                        .uri("/api/v2/users/me")
+                        .header("X-API-Key", "secret")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap()
+            }
+        };
+
+        assert_eq!(call().await.status(), StatusCode::OK);
+        assert_eq!(
+            settled_activity_count(&state, &user_id, "admin@example.com", 1).await,
+            1
+        );
+
+        let (_, api_key) = UserDao::new(state.db.clone())
+            .find_by_api_key(&crate::auth::sha512_hex("secret"))
+            .unwrap()
+            .unwrap();
+        state.api_key_activity_throttle.expire(&api_key.id);
+
+        assert_eq!(call().await.status(), StatusCode::OK);
+        assert_eq!(
+            settled_activity_count(&state, &user_id, "admin@example.com", 2).await,
+            2
+        );
+    }
+
+    /// 1.29's API-key filter never creates a session: no Set-Cookie/X-Auth-Token on the
+    /// response, and a cookie the client might still hold from an earlier login is not
+    /// touched by API-key requests.
+    #[tokio::test]
+    async fn api_key_never_issues_session_cookie() {
+        let (state, _rx) = test_state();
+        let user_id = seed_user(&state, "admin@example.com");
+        let app = test_router(state.clone());
+
+        for _ in 0..2 {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("GET")
+                        .uri("/api/v2/users/me")
+                        .header("X-API-Key", "secret")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            assert!(response.headers().get("set-cookie").is_none());
+            assert!(response.headers().get("x-auth-token").is_none());
+        }
+
+        assert_eq!(
+            settled_activity_count(&state, &user_id, "admin@example.com", 1).await,
+            1
+        );
+    }
+
+    /// LoginListener.onFailure for an ApiKey source records the masked key (XXH3-128) as
+    /// apiKeyComment and the BadCredentialsException message; user/email stay null.
+    #[tokio::test]
+    async fn api_key_failure_records_masked_key_and_bad_credentials() {
+        let (state, _rx) = test_state();
+        seed_user(&state, "admin@example.com");
+        let app = test_router(state.clone());
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/api/v2/users/me")
+                    .header("X-API-Key", "wrong")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        // the failure row has no user_id/email, so poll the unfiltered listing
+        let dao = UserDao::new(state.db.clone());
+        let expected_comment = komga_media::hash::compute_hash_bytes(b"wrong");
+        let activity = {
+            let mut found = None;
+            for _ in 0..100 {
+                let (rows, _) = dao.find_all_activities(Some(1), 0).unwrap();
+                if let Some(row) = rows.into_iter().next() {
+                    found = Some(row);
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            found.expect("authentication activity was not recorded")
+        };
+        assert_eq!(activity.user_id, None);
+        assert_eq!(activity.email, None);
+        assert!(!activity.success);
+        assert_eq!(activity.source.as_deref(), Some("ApiKey"));
+        assert_eq!(activity.error.as_deref(), Some("Bad credentials"));
+        assert_eq!(
+            activity.api_key_comment.as_deref(),
+            Some(expected_comment.as_str())
+        );
+    }
+
+    /// Failed API-key authentications are the brute-force signal: they stay per-request and
+    /// are not covered by the success throttle.
+    #[tokio::test]
+    async fn api_key_failure_is_not_throttled() {
+        let (state, _rx) = test_state();
+        seed_user(&state, "admin@example.com");
+        let app = test_router(state.clone());
+
+        for _ in 0..2 {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("GET")
+                        .uri("/api/v2/users/me")
+                        .header("X-API-Key", "wrong")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        }
+
+        let dao = UserDao::new(state.db.clone());
+        for _ in 0..100 {
+            if dao.find_all_activities(None, 0).unwrap().1 >= 2 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        assert_eq!(dao.find_all_activities(None, 0).unwrap().1, 2);
+    }
+
+    fn seed_plain_user(state: &AppState, email: &str) -> String {
+        UserDao::new(state.db.clone())
+            .insert(&KomgaUser {
+                id: String::new(),
+                email: email.to_string(),
+                password: bcrypt::hash("pass", 10).unwrap(),
+                roles: BTreeSet::new(),
+                shared_libraries_ids: BTreeSet::new(),
+                shared_all_libraries: true,
+                restrictions: ContentRestrictions::default(),
+                created_date: now_utc(),
+                last_modified_date: now_utc(),
+            })
+            .unwrap()
+    }
+
+    async fn call_with_body(
+        state: &AppState,
+        method: &str,
+        uri: &str,
+        body: serde_json::Value,
+    ) -> StatusCode {
+        let request = Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("X-API-Key", "secret")
+            .header("Content-Type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        test_router(state.clone())
+            .oneshot(request)
+            .await
+            .unwrap()
+            .status()
+    }
+
+    /// Next `UserUpdated` on the bus; anything else (notably `UserDeleted`) fails the test.
+    async fn next_user_updated(
+        rx: &mut tokio::sync::broadcast::Receiver<crate::events::DomainEvent>,
+    ) -> (String, bool) {
+        let event = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        match event {
+            crate::events::DomainEvent::UserUpdated {
+                user,
+                expire_session,
+            } => (user.id, expire_session),
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn update_user_roles_expires_sessions_and_emits() {
+        let (state, _rx) = test_state();
+        seed_user(&state, "admin@b.c");
+        let target = seed_plain_user(&state, "user@b.c");
+        let sid = state.sessions.create(&target).unwrap();
+        let mut events = state.events.subscribe();
+
+        let status = call_with_body(
+            &state,
+            "PATCH",
+            &format!("/api/v2/users/{target}"),
+            serde_json::json!({"roles": ["ADMIN"]}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+
+        assert_eq!(next_user_updated(&mut events).await, (target.clone(), true));
+        assert!(state.sessions.get(&sid).unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn update_user_noop_keeps_sessions_and_emits_unexpired() {
+        let (state, _rx) = test_state();
+        seed_user(&state, "admin@b.c");
+        let target = seed_plain_user(&state, "user@b.c");
+        let sid = state.sessions.create(&target).unwrap();
+        let mut events = state.events.subscribe();
+
+        let status = call_with_body(
+            &state,
+            "PATCH",
+            &format!("/api/v2/users/{target}"),
+            serde_json::json!({}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+
+        assert_eq!(
+            next_user_updated(&mut events).await,
+            (target.clone(), false)
+        );
+        assert!(state.sessions.get(&sid).unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn delete_user_emits_updated_expired_not_deleted() {
+        let (state, _rx) = test_state();
+        seed_user(&state, "admin@b.c");
+        let target = seed_plain_user(&state, "user@b.c");
+        let mut events = state.events.subscribe();
+
+        let request = Request::builder()
+            .method("DELETE")
+            .uri(format!("/api/v2/users/{target}"))
+            .header("X-API-Key", "secret")
+            .body(Body::empty())
+            .unwrap();
+        let status = test_router(state.clone())
+            .oneshot(request)
+            .await
+            .unwrap()
+            .status();
+        assert_eq!(status, StatusCode::NO_CONTENT);
+
+        // Java parity: delete publishes UserUpdated (not UserDeleted) with sessions expired
+        assert_eq!(next_user_updated(&mut events).await, (target, true));
+    }
+
+    #[tokio::test]
+    async fn password_change_flag_follows_whose_password() {
+        let (state, _rx) = test_state();
+        let admin = seed_user(&state, "admin@b.c");
+        let target = seed_plain_user(&state, "user@b.c");
+        let mut events = state.events.subscribe();
+
+        // admin changes someone else's password: sessions expire
+        let status = call_with_body(
+            &state,
+            "PATCH",
+            &format!("/api/v2/users/{target}/password"),
+            serde_json::json!({"password": "newpass123"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert_eq!(next_user_updated(&mut events).await, (target, true));
+
+        // changing your own password keeps the session
+        let status = call_with_body(
+            &state,
+            "PATCH",
+            "/api/v2/users/me/password",
+            serde_json::json!({"password": "newpass123"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert_eq!(next_user_updated(&mut events).await, (admin, false));
+    }
+}

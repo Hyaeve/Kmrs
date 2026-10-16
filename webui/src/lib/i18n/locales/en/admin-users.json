@@ -1,0 +1,73 @@
+{
+  "title": "Users",
+  "subtitle_one": "{{count}} user · roles, library access and content restrictions",
+  "subtitle_other": "{{count}} users · roles, library access and content restrictions",
+  "subtitleEmpty": "Roles, library access and content restrictions",
+  "addUser": "Add user",
+  "loadFailed": "Could not load users.",
+  "emptyTitle": "No users yet",
+  "emptyBody": "Add a user to give someone access to this server.",
+  "you": "you",
+  "user": "User",
+  "rowActions": "Actions for {{email}}",
+  "selfEditHint": "You can't edit your own account here",
+  "selfDeleteHint": "You can't delete your own account",
+  "table": {
+    "restrictions": "Restrictions",
+    "actions": "Actions"
+  },
+  "restrictions": {
+    "ageAllow": "Age ≤ {{age}}",
+    "ageExclude": "Age > {{age}} excluded",
+    "labelsAllowed_one": "{{count}} label allowed",
+    "labelsAllowed_other": "{{count}} labels allowed",
+    "labelsExcluded_one": "{{count}} label excluded",
+    "labelsExcluded_other": "{{count}} labels excluded"
+  },
+  "roles": {
+    "adminDesc": "Full access, including server settings",
+    "fileDownloadDesc": "Download book files",
+    "pageStreamingDesc": "Stream pages for online reading",
+    "koboSyncDesc": "Sync with Kobo e-readers",
+    "koreaderSyncDesc": "Sync reading progress with KOReader"
+  },
+  "form": {
+    "editTitle": "Edit user",
+    "saveFailed": "Could not save the user.",
+    "sectionAccount": "Account",
+    "password": "Password",
+    "sectionLibraryAccess": "Library access",
+    "allLibrariesDesc": "Share every library, including ones created later",
+    "sectionContentRestrictions": "Content restrictions",
+    "ageRestriction": "Age restriction",
+    "age": "Age",
+    "ageMode": {
+      "none": "None",
+      "allow": "Allow only",
+      "exclude": "Exclude"
+    },
+    "ageInvalid": "Enter a whole number of 0 or more.",
+    "ageAllowHint": "Only show content with an age rating at or below this age.",
+    "ageExcludeHint": "Hide content with an age rating above this age.",
+    "allowedLabels": "Allowed labels",
+    "excludedLabels": "Excluded labels"
+  },
+  "changePassword": {
+    "body": "Set a new password for <email>{{email}}</email>. All of their sessions will be signed out."
+  },
+  "deleteDialog": {
+    "title": "Delete user",
+    "body": "Delete <email>{{email}}</email>? Their reading progress, API keys and sessions will be permanently removed. This cannot be undone.",
+    "failed": "Could not delete the user."
+  },
+  "labelList": {
+    "remove": "Remove {{label}}"
+  },
+  "activity": {
+    "title": "Authentication activity",
+    "events_one": "{{count, number}} event",
+    "events_other": "{{count, number}} events",
+    "loadFailed": "Could not load authentication activity.",
+    "empty": "No activity yet."
+  }
+}

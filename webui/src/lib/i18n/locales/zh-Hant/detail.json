@@ -1,0 +1,143 @@
+{
+  "read": "閱讀",
+  "peek": "預覽",
+  "peekTooltip": "閱讀但不儲存進度",
+  "continue": "繼續",
+  "continueWithPage": "繼續 · 第 {{page}} 頁",
+  "markAsRead": "標記為已讀",
+  "markAsUnread": "標記為未讀",
+  "moreActions": "更多動作",
+  "addToReadList": "加入閱讀清單",
+  "addToCollection": "加入收藏",
+  "addSeries": "新增系列",
+  "addBooks": "新增書籍",
+  "removeFromCollection": "從 {{name}} 移除",
+  "removeFromReadList": "從 {{name}} 移除",
+  "rename": "重新命名",
+  "nameLabel": "名稱",
+  "summaryLabel": "簡介",
+  "previous": "上一頁",
+  "next": "下一頁",
+  "inCollections": "所屬收藏",
+  "inReadLists": "所屬閱讀清單",
+  "booksHeading": "書籍",
+  "bookCount_other": "{{count}} 本書",
+  "seriesCount": "{{count}} 個系列",
+  "selectedCount": "已選取 {{count}} 項",
+  "menu": {
+    "editMetadata": "編輯詮釋資料",
+    "editBookMetadata": "編輯書籍詮釋資料",
+    "managePosters": "管理海報",
+    "analyze": "分析",
+    "refreshMetadata": "重新整理詮釋資料",
+    "identifyKomf": "以 komf 識別",
+    "matchKomf": "以 komf 比對",
+    "resetKomf": "以 komf 重設詮釋資料",
+    "deleteFile": "刪除檔案",
+    "previousBook": "上一本書",
+    "nextBook": "下一本書",
+    "editDetails": "編輯詳細資訊"
+  },
+  "toast": {
+    "analysisQueued": "已排入分析",
+    "queueAnalysisFailed": "無法排入分析",
+    "refreshQueued": "已排入詮釋資料重新整理",
+    "queueRefreshFailed": "無法排入重新整理",
+    "identifyQueued": "已排入識別",
+    "metadataReset": "詮釋資料已重設",
+    "resetMetadataFailed": "無法重設詮釋資料",
+    "queueMatchFailed": "無法排入比對",
+    "deleteFileFailed": "無法刪除檔案",
+    "deleteFilesFailed": "無法刪除檔案",
+    "removedFromCollection": "已從 {{name}} 移除",
+    "removedFromReadList": "已從 {{name}} 移除",
+    "collectionDeleted": "收藏已刪除",
+    "readListDeleted": "閱讀清單已刪除",
+    "removeFromCollectionFailed": "無法從收藏移除",
+    "removeFromReadListFailed": "無法從閱讀清單移除"
+  },
+  "notFound": {
+    "book": "找不到書籍",
+    "series": "找不到系列",
+    "collection": "找不到收藏",
+    "readList": "找不到閱讀清單"
+  },
+  "field": {
+    "pages": "頁數",
+    "size": "大小",
+    "format": "格式",
+    "profile": "設定檔",
+    "releaseDate": "發行日期",
+    "file": "檔案",
+    "added": "加入時間"
+  },
+  "progress": {
+    "completed": "已完成",
+    "pageOf": "第 {{page}} 頁，共 {{total}} 頁"
+  },
+  "stats": {
+    "books_other": "<num>{{count}}</num> 本書",
+    "read": "<num>{{count}}</num> 已讀",
+    "unread": "<num>{{count}}</num> 未讀"
+  },
+  "empty": {
+    "loadBooksFailed": "無法載入書籍",
+    "loadSeriesFailed": "無法載入系列",
+    "noBooks": "沒有書籍",
+    "noBooksFiltered": "沒有符合篩選條件的書籍。",
+    "seriesEmpty": "此系列沒有書籍。",
+    "noSeries": "沒有系列",
+    "noSeriesFiltered": "沒有符合篩選條件的系列。",
+    "collectionEmpty": "此收藏是空的。",
+    "readListEmpty": "此閱讀清單是空的。",
+    "noBook": "沒有書籍",
+    "oneshotNoBook": "此單篇還沒有書籍。"
+  },
+  "confirmDelete": {
+    "body": "刪除 <name>{{name}}</name>？此操作無法復原。"
+  },
+  "error": {
+    "title": "發生錯誤",
+    "unknown": "未知錯誤",
+    "notFoundBody": "它可能已被刪除，或你沒有存取權限。"
+  },
+  "addToReadListDialog": {
+    "empty": "還沒有閱讀清單"
+  },
+  "collection": {
+    "renameTitle": "重新命名收藏",
+    "deleteTitle": "刪除收藏",
+    "editMembersEmpty": "收藏至少需要一個系列。若要清空，請改為刪除此收藏。",
+    "selectedSeriesCount_other": "已選取 {{count}} 項"
+  },
+  "readList": {
+    "editTitle": "編輯閱讀清單",
+    "deleteTitle": "刪除閱讀清單"
+  },
+  "deleteDialog": {
+    "bookFileTitle": "刪除書籍檔案",
+    "bookFileName": "{{name}} 的檔案",
+    "seriesFilesTitle": "刪除系列檔案",
+    "seriesFilesName": "{{name}} 的所有檔案"
+  },
+  "picker": {
+    "searchPlaceholder": "搜尋書籍…",
+    "searchSeriesPlaceholder": "搜尋系列…",
+    "noBooksFound": "找不到書籍",
+    "noSeriesFound": "找不到系列",
+    "tryDifferentSearch": "試試其他搜尋內容。",
+    "addedBadge": "已加入",
+    "pickOne": "選擇一本書",
+    "pickOneSeries": "選擇一個系列",
+    "noneSelected": "未選取任何項目"
+  },
+  "editBooks": {
+    "selectAll": "全選",
+    "clearSelection": "清除選取",
+    "removeSelected": "移除選取項目",
+    "manualOrdering": "手動排序",
+    "emptyNotAllowed": "閱讀清單至少需要一本書。若要清空，請改為刪除此清單。",
+    "selectRow": "選取列",
+    "dragToReorder": "拖曳以重新排序"
+  }
+}
