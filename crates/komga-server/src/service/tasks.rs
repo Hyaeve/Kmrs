@@ -221,7 +221,6 @@ impl TaskEmitter {
     pub fn analyze_books(&self, books: &[Book], priority: i32) -> komga_db::Result<()> {
         let tasks: Vec<Task> = books
             .iter()
-            .filter(|b| !b.is_strm())
             .map(|b| Task::analyze_book(&b.id, priority, b.series_id.clone()))
             .collect();
         self.submit_many(&tasks)

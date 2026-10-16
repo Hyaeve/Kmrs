@@ -118,23 +118,20 @@ async fn process_one(state: &AppState, worker: u32) {
             return;
         }
     };
-    let st = state.clone();
-    let task_for_blocking = task.clone();
-    // lifecycle work is synchronous and can run for minutes; keep it off the async threads,
-    // and run it against the dedicated task pools so it never contends with API connections
-    let result = tokio::task::spawn_blocking(move || {
-        let st = st.task_context();
-        handle_task(&st, &task_for_blocking)
-    })
-    .await;
+    let task_state = state.task_context();
+    tracing::info!("Executing task: {}", task.describe());
+    hook_start(&task.unique_id());
+    let start = std::time::Instant::now();
+    let result = execute_task(&task_state, &task).await;
+    crate::service::metrics::record_task_execution(
+        task.simple_type(),
+        start.elapsed(),
+        result.is_ok(),
+    );
     if let Err(e) = result {
-        tracing::error!("Task {} execution panicked: {e}", task.describe());
-        crate::service::metrics::record_task_execution(
-            task.simple_type(),
-            std::time::Duration::ZERO,
-            false,
-        );
+        tracing::error!("Task {} execution failed: {e}", task.describe());
     }
+    hook_end(&task.unique_id());
     let unique_id = task.unique_id();
     let deleted = {
         let db = state.tasks_db.clone();
@@ -148,20 +145,21 @@ async fn process_one(state: &AppState, worker: u32) {
     }
 }
 
-fn handle_task(state: &AppState, task: &Task) {
-    tracing::info!("Executing task: {}", task.describe());
-    hook_start(&task.unique_id());
-    let start = std::time::Instant::now();
-    let result = dispatch_task(state, task);
-    crate::service::metrics::record_task_execution(
-        task.simple_type(),
-        start.elapsed(),
-        result.is_ok(),
-    );
-    if let Err(e) = result {
-        tracing::error!("Task {} execution failed: {e}", task.describe());
+async fn execute_task(state: &AppState, task: &Task) -> anyhow::Result<()> {
+    if let Task::AnalyzeBook(t) = task {
+        if let Some(book) = BookDao::new(state.db.clone()).find_by_id(&t.book_id)? {
+            if book.is_strm() {
+                crate::service::strm::resolve_strm(state, &book).await?;
+                return Ok(());
+            }
+        }
     }
-    hook_end(&task.unique_id());
+
+    // Lifecycle work is synchronous and can run for minutes; keep it off the async threads.
+    // STRM analysis stays async because it performs the remote request and cache download.
+    let state = state.clone();
+    let task = task.clone();
+    tokio::task::spawn_blocking(move || dispatch_task(&state, &task)).await?
 }
 
 #[cfg(test)]
@@ -946,6 +944,97 @@ mod tests {
             .unwrap();
         assert_eq!(status, "UNKNOWN");
         assert_eq!(page_count, 0);
+    }
+
+    #[tokio::test]
+    async fn manual_analyze_strm_task_resolves_remote_content() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let mut state = series_tests::test_state();
+        let config_dir = tempfile::tempdir().unwrap();
+        state.config = std::sync::Arc::new(crate::config::ServerConfig {
+            config_dir: config_dir.path().to_path_buf(),
+            ..(*state.config).clone()
+        });
+
+        let body = std::fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/resources/archives/zip.zip"),
+        )
+        .unwrap();
+        let hits = std::sync::Arc::new(AtomicUsize::new(0));
+        let server_hits = hits.clone();
+        let server_body = body.clone();
+        let upstream = axum::Router::new().route(
+            "/remote.cbz",
+            axum::routing::get(move || {
+                let hits = server_hits.clone();
+                let body = server_body.clone();
+                async move {
+                    hits.fetch_add(1, Ordering::SeqCst);
+                    (
+                        [(axum::http::header::CONTENT_TYPE, "application/zip")],
+                        body,
+                    )
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, upstream).await.unwrap();
+        });
+
+        let root = visible_tempdir("strm-task");
+        let series_dir = root.join("series");
+        std::fs::create_dir_all(&series_dir).unwrap();
+        let strm_path = series_dir.join("remote.strm");
+        std::fs::write(&strm_path, format!("http://{address}/remote.cbz\n")).unwrap();
+
+        let library = test_library("lib-strm-task", &format!("file:{}/", root.display()));
+        seed_library(&state.db, &library);
+        seed_series(&state.db, &library.id, "s1");
+        let book = seed_book(
+            &state.db,
+            &library.id,
+            "s1",
+            &komga_media::scanner::path_to_url(&strm_path),
+        );
+
+        let notify: TaskNotify = std::sync::Arc::new(tokio::sync::Notify::new());
+        let emitter = crate::service::TaskEmitter::new(
+            state.db.clone(),
+            state.tasks_db.clone(),
+            notify.clone(),
+        );
+        let handle = TaskProcessor::start(state.clone(), notify);
+        emitter.analyze_book(&book, DEFAULT_PRIORITY).unwrap();
+
+        let done = wait_until(|| {
+            let ready = state
+                .db
+                .ro()
+                .ok()
+                .and_then(|conn| {
+                    conn.query_row(
+                        "SELECT STATUS FROM MEDIA WHERE BOOK_ID = ?",
+                        [&book.id],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .ok()
+                })
+                .is_some_and(|status| status == "READY");
+            ready && queue_empty(&state)
+        })
+        .await;
+        handle.abort();
+        server.abort();
+
+        assert!(
+            done,
+            "STRM analyze task did not finish: {:?}",
+            task_ids(&state)
+        );
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

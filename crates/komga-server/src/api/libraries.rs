@@ -924,6 +924,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn manual_library_analyze_queues_strm_books() {
+        let (app, key) = admin_app();
+        insert_library(&app.state.db, "l1", "Manga");
+        let db = &app.state.db;
+        let now = now_utc();
+        db.rw()
+            .unwrap()
+            .execute(
+                "INSERT INTO SERIES (ID, NAME, URL, FILE_LAST_MODIFIED, LIBRARY_ID) \
+                 VALUES ('s1', 'Series', 'file:/data/manga/s1/', ?, 'l1')",
+                [komga_core::time_codec::format_datetime(now)],
+            )
+            .unwrap();
+        let book = komga_core::model::book::Book {
+            id: String::new(),
+            name: "Remote".into(),
+            url: "file:/data/manga/s1/remote.strm".into(),
+            file_last_modified: now,
+            series_id: "s1".into(),
+            library_id: "l1".into(),
+            file_size: 0,
+            number: 1,
+            file_hash: String::new(),
+            file_hash_koreader: String::new(),
+            deleted_date: None,
+            oneshot: false,
+            created_date: now,
+            last_modified_date: now,
+        };
+        let book_id = BookDao::new(db.clone()).insert(&book).unwrap();
+
+        let (status, _) = app
+            .request_json("POST", "/api/v1/libraries/l1/analyze", &key, None)
+            .await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        let tasks = komga_db::dao::tasks::TasksDao::new(app.state.tasks_db.clone())
+            .find_all()
+            .unwrap();
+        assert!(
+            tasks
+                .iter()
+                .any(|task| task.unique_id() == format!("ANALYZE_BOOK_{book_id}")),
+            "{tasks:?}"
+        );
+    }
+
+    #[tokio::test]
     async fn scan_strm_setting_round_trips_and_triggers_rescan() {
         use komga_db::dao::library_setting::LibrarySettingDao;
 
