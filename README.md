@@ -1,9 +1,9 @@
 # kmrs
 
-[![CI](https://github.com/kmworks/kmrs/actions/workflows/ci.yml/badge.svg)](https://github.com/kmworks/kmrs/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/kmworks/kmrs)](https://github.com/kmworks/kmrs/releases/latest)
-[![Docker image](https://img.shields.io/badge/ghcr.io-kmworks%2Fkmrs-blue)](https://github.com/kmworks/kmrs/pkgs/container/kmrs)
-[![License: MIT](https://img.shields.io/github/license/kmworks/kmrs)](LICENSE)
+[![CI](https://github.com/Hyaeve/Kmrs/actions/workflows/ci.yml/badge.svg)](https://github.com/Hyaeve/Kmrs/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Hyaeve/Kmrs)](https://github.com/Hyaeve/Kmrs/releases/latest)
+[![Docker image](https://img.shields.io/badge/ghcr.io-hyaeve%2Fkmrs-blue)](https://github.com/Hyaeve/Kmrs/pkgs/container/kmrs)
+[![License: MIT](https://img.shields.io/github/license/Hyaeve/Kmrs)](LICENSE)
 
 **[Documentation](https://kmworks.date/server/)** · [Installation](https://kmworks.date/server/installation) · [Configuration](https://kmworks.date/server/configuration)
 
@@ -26,10 +26,10 @@ docker run -d \
   --mount type=bind,source=/path/to/config,target=/config \
   --mount type=bind,source=/path/to/data,target=/data \
   --restart unless-stopped \
-  ghcr.io/kmworks/kmrs
+  ghcr.io/hyaeve/kmrs:latest
 ```
 
-The kmweb React web UI (built from [`webui/`](webui/) in this repo) is embedded in the binary and served at `/` out of the box — nothing to configure. Prebuilt binaries (Linux, macOS, Windows; x86_64 and aarch64) are on the [releases page](https://github.com/kmworks/kmrs/releases/latest); API-only clients like [KMReader](https://github.com/kmworks/kmreader), KOReader, or Kobo work too.
+The kmweb React web UI (built from [`webui/`](webui/) in this repo) is embedded in the binary and served at `/` out of the box — nothing to configure. Prebuilt binaries (Linux, macOS, Windows; x86_64 and aarch64) are on the [releases page](https://github.com/Hyaeve/Kmrs/releases/latest); API-only clients like KMReader, KOReader, or Kobo work too.
 
 ## Documentation
 

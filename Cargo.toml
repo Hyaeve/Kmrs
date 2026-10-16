@@ -13,7 +13,7 @@ members = [
 version = "0.21.1"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/kmworks/kmrs"
+repository = "https://github.com/Hyaeve/Kmrs"
 
 [workspace.dependencies]
 # async runtime
