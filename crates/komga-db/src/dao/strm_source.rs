@@ -18,6 +18,7 @@ pub struct StrmSource {
     pub created_date: OffsetDateTime,
     pub last_modified_date: OffsetDateTime,
     pub cached_at: OffsetDateTime,
+    pub last_accessed_at: OffsetDateTime,
 }
 
 pub struct StrmSourceDao {
@@ -25,10 +26,12 @@ pub struct StrmSourceDao {
 }
 
 const COLUMNS: &str = "BOOK_ID, SOURCE_URL, STRM_LAST_MODIFIED, CACHE_PATH, FILE_NAME, \
-                       MEDIA_TYPE, FILE_SIZE, CREATED_DATE, LAST_MODIFIED_DATE, CACHED_AT";
+                       MEDIA_TYPE, FILE_SIZE, CREATED_DATE, LAST_MODIFIED_DATE, CACHED_AT, \
+                       LAST_ACCESSED_AT";
 
 fn row_to_source(row: &Row<'_>) -> rusqlite::Result<StrmSource> {
     let last_modified_date = super::get_datetime(row, 8)?;
+    let cached_at = super::get_datetime_opt(row, 9)?.unwrap_or(last_modified_date);
     Ok(StrmSource {
         book_id: row.get(0)?,
         source_url: row.get(1)?,
@@ -39,7 +42,8 @@ fn row_to_source(row: &Row<'_>) -> rusqlite::Result<StrmSource> {
         file_size: row.get(6)?,
         created_date: super::get_datetime(row, 7)?,
         last_modified_date,
-        cached_at: super::get_datetime_opt(row, 9)?.unwrap_or(last_modified_date),
+        cached_at,
+        last_accessed_at: super::get_datetime_opt(row, 10)?.unwrap_or(cached_at),
     })
 }
 
@@ -64,6 +68,7 @@ impl StrmSourceDao {
         source_url: &str,
         strm_last_modified: OffsetDateTime,
         cached_at: OffsetDateTime,
+        last_accessed_at: OffsetDateTime,
         cache_path: &str,
         file_name: &str,
         media_type: Option<&str>,
@@ -72,8 +77,8 @@ impl StrmSourceDao {
         let now = time_codec::format_datetime(time_codec::now_utc());
         self.db.rw()?.execute(
             "INSERT INTO STRM_SOURCE \
-             (BOOK_ID, SOURCE_URL, STRM_LAST_MODIFIED, CACHE_PATH, FILE_NAME, MEDIA_TYPE, FILE_SIZE, CREATED_DATE, LAST_MODIFIED_DATE, CACHED_AT) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+             (BOOK_ID, SOURCE_URL, STRM_LAST_MODIFIED, CACHE_PATH, FILE_NAME, MEDIA_TYPE, FILE_SIZE, CREATED_DATE, LAST_MODIFIED_DATE, CACHED_AT, LAST_ACCESSED_AT) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
              ON CONFLICT (BOOK_ID) DO UPDATE SET \
                  SOURCE_URL = excluded.SOURCE_URL, \
                  STRM_LAST_MODIFIED = excluded.STRM_LAST_MODIFIED, \
@@ -82,7 +87,8 @@ impl StrmSourceDao {
                  MEDIA_TYPE = excluded.MEDIA_TYPE, \
                  FILE_SIZE = excluded.FILE_SIZE, \
                  LAST_MODIFIED_DATE = excluded.LAST_MODIFIED_DATE, \
-                 CACHED_AT = excluded.CACHED_AT",
+                 CACHED_AT = excluded.CACHED_AT, \
+                 LAST_ACCESSED_AT = excluded.LAST_ACCESSED_AT",
             rusqlite::params![
                 book_id,
                 source_url,
@@ -94,9 +100,30 @@ impl StrmSourceDao {
                 now,
                 now,
                 time_codec::format_datetime(cached_at),
+                time_codec::format_datetime(last_accessed_at),
             ],
         )?;
         Ok(())
+    }
+
+    pub fn touch(&self, book_id: &str, last_accessed_at: OffsetDateTime) -> Result<()> {
+        self.db.rw()?.execute(
+            "UPDATE STRM_SOURCE SET LAST_ACCESSED_AT = ? WHERE BOOK_ID = ?",
+            rusqlite::params![time_codec::format_datetime(last_accessed_at), book_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn find_all_by_lru(&self) -> Result<Vec<StrmSource>> {
+        let conn = self.db.ro()?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {COLUMNS} FROM STRM_SOURCE \
+             ORDER BY LAST_ACCESSED_AT ASC, BOOK_ID ASC"
+        ))?;
+        let sources = stmt
+            .query_map([], row_to_source)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(sources)
     }
 
     pub fn delete(&self, book_id: &str) -> Result<Option<StrmSource>> {
@@ -131,6 +158,7 @@ mod tests {
             "https://example.test/book.cbz",
             modified,
             modified,
+            modified,
             "/cache/b1.cbz",
             "book.cbz",
             Some("application/zip"),
@@ -147,9 +175,49 @@ mod tests {
         assert_eq!(row.media_type.as_deref(), Some("application/zip"));
         assert_eq!(row.file_size, 42);
         assert_eq!(row.cached_at, modified);
+        assert_eq!(row.last_accessed_at, modified);
 
         let deleted = dao.delete("b1").unwrap().unwrap();
         assert_eq!(deleted.book_id, "b1");
         assert!(dao.get("b1").unwrap().is_none());
+    }
+
+    #[test]
+    fn orders_by_lru_and_touch_moves_entry_to_most_recent() {
+        let dao = test_dao();
+        let cached = time_codec::parse_datetime_utc("2026-10-17 00:00:00").unwrap();
+        for (book_id, accessed_hour) in [("b1", 0), ("b2", 1), ("b3", 2)] {
+            dao.upsert(
+                book_id,
+                "https://example.test/book.cbz",
+                cached,
+                cached,
+                cached + time::Duration::hours(accessed_hour),
+                "/cache/book.cbz",
+                "book.cbz",
+                Some("application/zip"),
+                42,
+            )
+            .unwrap();
+        }
+
+        assert_eq!(
+            dao.find_all_by_lru()
+                .unwrap()
+                .into_iter()
+                .map(|source| source.book_id)
+                .collect::<Vec<_>>(),
+            ["b1", "b2", "b3"]
+        );
+
+        dao.touch("b1", cached + time::Duration::hours(3)).unwrap();
+        assert_eq!(
+            dao.find_all_by_lru()
+                .unwrap()
+                .into_iter()
+                .map(|source| source.book_id)
+                .collect::<Vec<_>>(),
+            ["b2", "b3", "b1"]
+        );
     }
 }

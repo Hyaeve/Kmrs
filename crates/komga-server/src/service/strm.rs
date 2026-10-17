@@ -22,6 +22,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 const MAX_STRM_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 const PREFIX_BYTES: usize = 8192;
 const STRM_CACHE_TTL_HOURS: i64 = 12;
+const STRM_CACHE_MAX_BYTES: u64 = 20 * 1024 * 1024 * 1024;
+const STRM_CACHE_ROOT: &str = "/data/strm-cache";
 
 #[derive(Debug, thiserror::Error)]
 pub enum StrmError {
@@ -60,6 +62,15 @@ impl From<StrmError> for ApiError {
     }
 }
 
+struct ResolvedCache<'a> {
+    source_url: &'a str,
+    strm_last_modified: time::OffsetDateTime,
+    cached_at: time::OffsetDateTime,
+    last_accessed_at: time::OffsetDateTime,
+    path: &'a Path,
+    file_name: &'a str,
+}
+
 fn http_client() -> &'static Client {
     static CLIENT: OnceLock<Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
@@ -74,7 +85,11 @@ fn http_client() -> &'static Client {
 }
 
 fn cache_dir(state: &AppState) -> PathBuf {
-    state.config.config_dir.join("strm-cache")
+    if cfg!(test) {
+        state.config.config_dir.join("strm-cache")
+    } else {
+        PathBuf::from(STRM_CACHE_ROOT)
+    }
 }
 
 fn book_cache_dir(state: &AppState, book_id: &str) -> PathBuf {
@@ -167,6 +182,55 @@ fn cache_path_uses_file_name(path: &Path, file_name: &str) -> bool {
         .is_some_and(|name| name == file_name)
 }
 
+fn remove_cache_file(book_id: &str, path: &Path) {
+    if let Err(error) = std::fs::remove_file(path) {
+        if error.kind() != std::io::ErrorKind::NotFound {
+            tracing::warn!(
+                book_id,
+                path = %path.display(),
+                %error,
+                "failed to remove resolved STRM cache file"
+            );
+        }
+    }
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::remove_dir(parent);
+    }
+}
+
+fn cached_file_size(source: &StrmSource) -> u64 {
+    std::fs::metadata(&source.cache_path)
+        .map(|metadata| metadata.len())
+        .unwrap_or_else(|_| u64::try_from(source.file_size).unwrap_or(0))
+}
+
+fn enforce_cache_limit(
+    state: &AppState,
+    keep_book_id: &str,
+    max_bytes: u64,
+) -> Result<(), StrmError> {
+    let dao = StrmSourceDao::new(state.kmrs_db.clone());
+    let sources = dao.find_all_by_lru()?;
+    let mut total_bytes = sources.iter().map(cached_file_size).sum::<u64>();
+    if total_bytes <= max_bytes {
+        return Ok(());
+    }
+
+    for source in sources {
+        if source.book_id == keep_book_id {
+            continue;
+        }
+        let removed_bytes = cached_file_size(&source);
+        remove_cache_file(&source.book_id, Path::new(&source.cache_path));
+        dao.delete(&source.book_id)?;
+        total_bytes = total_bytes.saturating_sub(removed_bytes);
+        if total_bytes <= max_bytes {
+            break;
+        }
+    }
+    Ok(())
+}
+
 fn resolved_cache_path(state: &AppState, book: &Book) -> Option<PathBuf> {
     if !book.is_strm() {
         return None;
@@ -197,52 +261,36 @@ pub fn delete_resolution(state: &AppState, book_id: &str) -> komga_db::Result<()
     let Some(source) = StrmSourceDao::new(state.kmrs_db.clone()).delete(book_id)? else {
         return Ok(());
     };
-    let cache_path = Path::new(&source.cache_path);
-    if let Err(error) = std::fs::remove_file(cache_path) {
-        if error.kind() != std::io::ErrorKind::NotFound {
-            tracing::warn!(
-                book_id,
-                path = %source.cache_path,
-                %error,
-                "failed to remove resolved STRM cache file"
-            );
-        }
-    }
-    if let Some(parent) = cache_path.parent() {
-        let _ = std::fs::remove_dir(parent);
-    }
+    remove_cache_file(book_id, Path::new(&source.cache_path));
     Ok(())
 }
 
 async fn analyze_resolved(
     state: &AppState,
     book: &Book,
-    source_url: &str,
-    strm_last_modified: time::OffsetDateTime,
-    cached_at: time::OffsetDateTime,
-    path: &Path,
-    file_name: &str,
+    cache: ResolvedCache<'_>,
 ) -> Result<StrmSource, StrmError> {
-    let (actions, sources) = book::analyze_and_persist_at(state, book, path)
+    let (actions, sources) = book::analyze_and_persist_at(state, book, cache.path)
         .map_err(|e| StrmError::Analysis(e.to_string()))?;
     let media = MediaDao::new(state.db.clone())
         .find_by_id(&book.id)?
         .ok_or_else(|| StrmError::Analysis("book has no media row".to_string()))?;
     let media_type = media.media_type.clone();
-    let file_size = std::fs::metadata(path)?.len() as i64;
+    let file_size = std::fs::metadata(cache.path)?.len() as i64;
     StrmSourceDao::new(state.kmrs_db.clone()).upsert(
         &book.id,
-        source_url,
-        strm_last_modified,
-        cached_at,
-        &path.to_string_lossy(),
-        file_name,
+        cache.source_url,
+        cache.strm_last_modified,
+        cache.cached_at,
+        cache.last_accessed_at,
+        &cache.path.to_string_lossy(),
+        cache.file_name,
         media_type.as_deref(),
         file_size,
     )?;
 
     if actions.contains(&book::BookAction::GenerateThumbnail) {
-        book::generate_thumbnail_and_persist_at(state, book, false, path)
+        book::generate_thumbnail_and_persist_at(state, book, false, cache.path)
             .map_err(|e| StrmError::Analysis(e.to_string()))?;
     }
     if actions.contains(&book::BookAction::RefreshMetadata) {
@@ -279,7 +327,8 @@ pub async fn resolve_strm(state: &AppState, book: &Book) -> Result<StrmSource, S
     let source_url = read_source_url(&content)?;
     let source_url_string = source_url.to_string();
 
-    let existing = StrmSourceDao::new(state.kmrs_db.clone()).get(&book.id)?;
+    let source_dao = StrmSourceDao::new(state.kmrs_db.clone());
+    let existing = source_dao.get(&book.id)?;
     if let Some(existing) = existing.as_ref() {
         if existing.source_url == source_url_string
             && time_codec::truncate_to_millis(existing.strm_last_modified)
@@ -289,6 +338,7 @@ pub async fn resolve_strm(state: &AppState, book: &Book) -> Result<StrmSource, S
             && cache_is_fresh(existing.cached_at, time_codec::now_utc())
         {
             let media = MediaDao::new(state.db.clone()).find_by_id(&book.id)?;
+            let last_accessed_at = time_codec::now_utc();
             if media
                 .as_ref()
                 .is_some_and(|media| media.status != MediaStatus::Ready)
@@ -296,15 +346,22 @@ pub async fn resolve_strm(state: &AppState, book: &Book) -> Result<StrmSource, S
                 return analyze_resolved(
                     state,
                     book,
-                    &existing.source_url,
-                    existing.strm_last_modified,
-                    existing.cached_at,
-                    Path::new(&existing.cache_path),
-                    &existing.file_name,
+                    ResolvedCache {
+                        source_url: &existing.source_url,
+                        strm_last_modified: existing.strm_last_modified,
+                        cached_at: existing.cached_at,
+                        last_accessed_at,
+                        path: Path::new(&existing.cache_path),
+                        file_name: &existing.file_name,
+                    },
                 )
                 .await;
             }
-            return Ok(existing.clone());
+            source_dao.touch(&book.id, last_accessed_at)?;
+            return Ok(StrmSource {
+                last_accessed_at,
+                ..existing.clone()
+            });
         }
     }
 
@@ -360,18 +417,22 @@ pub async fn resolve_strm(state: &AppState, book: &Book) -> Result<StrmSource, S
     let resolved = analyze_resolved(
         state,
         book,
-        &source_url_string,
-        strm_last_modified,
-        cached_at,
-        &final_path,
-        &file_name,
+        ResolvedCache {
+            source_url: &source_url_string,
+            strm_last_modified,
+            cached_at,
+            last_accessed_at: cached_at,
+            path: &final_path,
+            file_name: &file_name,
+        },
     )
     .await?;
     if let Some(previous) = existing {
         if previous.cache_path != resolved.cache_path {
-            let _ = tokio::fs::remove_file(previous.cache_path).await;
+            remove_cache_file(&previous.book_id, Path::new(&previous.cache_path));
         }
     }
+    enforce_cache_limit(state, &book.id, STRM_CACHE_MAX_BYTES)?;
     Ok(resolved)
 }
 
@@ -419,5 +480,47 @@ mod tests {
             Path::new("/cache/b1.cbz"),
             &file_name
         ));
+    }
+
+    #[test]
+    fn production_cache_root_uses_the_data_mount() {
+        assert_eq!(STRM_CACHE_ROOT, "/data/strm-cache");
+    }
+
+    #[test]
+    fn cache_limit_evicts_least_recently_used_entries() {
+        let mut state = crate::service::series::tests::test_state();
+        let config_dir = tempfile::tempdir().unwrap();
+        state.config = std::sync::Arc::new(crate::config::ServerConfig {
+            config_dir: config_dir.path().to_path_buf(),
+            ..(*state.config).clone()
+        });
+
+        let now = time_codec::now_utc();
+        let dao = StrmSourceDao::new(state.kmrs_db.clone());
+        for (book_id, accessed_hours_ago) in [("b1", 3), ("b2", 2), ("b3", 1)] {
+            let path = cache_dir(&state).join(book_id).join("book.cbz");
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, b"123456").unwrap();
+            dao.upsert(
+                book_id,
+                "https://example.test/book.cbz",
+                now,
+                now,
+                now - time::Duration::hours(accessed_hours_ago),
+                &path.to_string_lossy(),
+                "book.cbz",
+                Some(detect::APPLICATION_ZIP),
+                6,
+            )
+            .unwrap();
+        }
+
+        enforce_cache_limit(&state, "b3", 12).unwrap();
+
+        assert!(dao.get("b1").unwrap().is_none());
+        assert!(!cache_dir(&state).join("b1").exists());
+        assert!(dao.get("b2").unwrap().is_some());
+        assert!(dao.get("b3").unwrap().is_some());
     }
 }
