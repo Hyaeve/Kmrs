@@ -186,9 +186,6 @@ impl Scanner {
         if options.scan_pdf {
             extensions.push("pdf".to_string());
         }
-        if options.scan_strm {
-            extensions.push("strm".to_string());
-        }
         if options.scan_epub {
             extensions.push("epub".to_string());
         }
@@ -202,6 +199,7 @@ impl Scanner {
 
         let mut ctx = WalkContext {
             extensions,
+            scan_strm: options.scan_strm,
             force_directory_modified_time: options.force_directory_modified_time,
             oneshots_dir: options
                 .oneshots_dir
@@ -300,6 +298,7 @@ struct TempSidecar {
 
 struct WalkContext<'a> {
     extensions: Vec<String>,
+    scan_strm: bool,
     force_directory_modified_time: bool,
     oneshots_dir: Option<String>,
     exclusions: Vec<String>,
@@ -440,7 +439,8 @@ fn walk_dir(ctx: &mut WalkContext, dir: &Path, ancestors: &mut Vec<PathBuf>) {
             .extension()
             .map(|e| e.to_string_lossy().to_lowercase())
             .unwrap_or_default();
-        if ctx.extensions.contains(&ext) && !file_name.starts_with('.') {
+        let is_supported_strm = ctx.scan_strm && is_supported_strm(&file_name, &ctx.extensions);
+        if (ctx.extensions.contains(&ext) || is_supported_strm) && !file_name.starts_with('.') {
             books.push(path_to_book(&path, &meta));
         }
 
@@ -597,6 +597,18 @@ fn contains_ignore_case(haystack: &str, needle: &str) -> bool {
     haystack.to_lowercase().contains(&needle.to_lowercase())
 }
 
+/// STRM files carry the expected entity extension before the pointer extension:
+/// `cbz.strm`, `book.cbz.strm`, `book.pdf.strm`.
+fn is_supported_strm(file_name: &str, extensions: &[String]) -> bool {
+    let lower = file_name.to_ascii_lowercase();
+    let Some(pointer_stem) = lower.strip_suffix(".strm") else {
+        return false;
+    };
+    extensions.iter().any(|extension| {
+        pointer_stem == extension || pointer_stem.ends_with(&format!(".{extension}"))
+    })
+}
+
 fn is_url_path_char(b: u8) -> bool {
     matches!(b,
         b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' |
@@ -750,7 +762,13 @@ mod tests {
         touch(&root.join("s"), "a.cbz");
         touch(&root.join("s"), "b.pdf");
         touch(&root.join("s"), "c.epub");
-        touch(&root.join("s"), "e.strm");
+        touch(&root.join("s"), "e.cbz.strm");
+        touch(&root.join("s"), "zip.strm");
+        touch(&root.join("s"), "book.pdf.strm");
+        touch(&root.join("s"), "book.epub.strm");
+        touch(&root.join("s"), "book.mkv.strm");
+        touch(&root.join("s"), "book.txt.strm");
+        touch(&root.join("s"), "plain.strm");
         touch(&root.join("s"), "d.txt");
 
         let all = Scanner::new()
@@ -797,7 +815,30 @@ mod tests {
             .iter()
             .map(|b| b.name.as_str())
             .collect();
-        assert_eq!(names, ["a", "b", "c", "e"].into_iter().collect());
+        assert_eq!(
+            names,
+            ["a", "b", "c", "e.cbz", "zip", "book.pdf", "book.epub"]
+                .into_iter()
+                .collect()
+        );
+
+        let pdf_strm = Scanner::new()
+            .scan_root_folder(
+                &root,
+                &ScanOptions {
+                    scan_cbx: false,
+                    scan_epub: false,
+                    scan_strm: true,
+                    ..ScanOptions::default()
+                },
+            )
+            .unwrap();
+        let names: HashSet<&str> = pdf_strm.series[0]
+            .1
+            .iter()
+            .map(|b| b.name.as_str())
+            .collect();
+        assert_eq!(names, ["b", "book.pdf"].into_iter().collect());
     }
 
     #[test]
@@ -1133,6 +1174,20 @@ mod tests {
         assert_eq!(commons_get_base_name(".foo.bar"), ".foo");
         assert_eq!(commons_get_base_name("foo."), "foo");
         assert_eq!(commons_get_base_name("foo.bar.jpg"), "foo.bar");
+    }
+
+    #[test]
+    fn strm_requires_a_supported_secondary_extension() {
+        let extensions = ["cbz", "zip", "pdf", "epub"]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        assert!(is_supported_strm("cbz.strm", &extensions));
+        assert!(is_supported_strm("book.cbz.strm", &extensions));
+        assert!(is_supported_strm("BOOK.PDF.STRM", &extensions));
+        assert!(!is_supported_strm("mkv.strm", &extensions));
+        assert!(!is_supported_strm("book.txt.strm", &extensions));
+        assert!(!is_supported_strm("plain.strm", &extensions));
     }
 
     #[test]

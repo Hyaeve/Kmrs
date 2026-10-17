@@ -899,7 +899,7 @@ mod tests {
         let book_dir = root.join("series1");
         std::fs::create_dir_all(&book_dir).unwrap();
         std::fs::write(
-            book_dir.join("remote.strm"),
+            book_dir.join("remote.cbz.strm"),
             b"http://127.0.0.1:1/never-requested.cbz\n",
         )
         .unwrap();
@@ -939,7 +939,7 @@ mod tests {
                 Ok((r.get(0)?, r.get(1)?))
             })
             .unwrap();
-        assert!(url.ends_with("/remote.strm"));
+        assert!(url.ends_with("/remote.cbz.strm"));
         assert!(file_hash.is_empty());
 
         let (status, page_count): (String, i32) = state
