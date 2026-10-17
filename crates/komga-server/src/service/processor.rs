@@ -901,6 +901,16 @@ mod tests {
             b"http://127.0.0.1:1/never-requested.cbz\n",
         )
         .unwrap();
+        std::fs::write(
+            book_dir.join("remote_cas.pdf.cas.strm"),
+            b"http://127.0.0.1:1/never-requested-cas.pdf\n",
+        )
+        .unwrap();
+        std::fs::write(
+            book_dir.join("remote_ed2k.pdf.ed2k.strm"),
+            b"http://127.0.0.1:1/never-requested-ed2k.pdf\n",
+        )
+        .unwrap();
 
         let library = test_library("lib-strm", &format!("file:{}/", root.display()));
         seed_library(&state.db, &library);
@@ -929,27 +939,45 @@ mod tests {
         handle.abort();
         assert!(done, "queue did not drain: {:?}", task_ids(&state));
 
-        let (url, file_hash): (String, String) = state
-            .db
-            .ro()
-            .unwrap()
-            .query_row("SELECT URL, FILE_HASH FROM BOOK", [], |r| {
-                Ok((r.get(0)?, r.get(1)?))
-            })
+        let db = state.db.ro().unwrap();
+        let mut books_stmt = db
+            .prepare("SELECT NAME, URL, FILE_HASH FROM BOOK ORDER BY NAME")
             .unwrap();
-        assert!(url.ends_with("/remote.cbz.strm"));
-        assert!(file_hash.is_empty());
+        let books = books_stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(books.len(), 3);
+        for ((name, url, file_hash), (expected_name, file_name)) in books.iter().zip([
+            ("remote", "remote.cbz.strm"),
+            ("remote_cas", "remote_cas.pdf.cas.strm"),
+            ("remote_ed2k", "remote_ed2k.pdf.ed2k.strm"),
+        ]) {
+            assert_eq!(name.as_str(), expected_name);
+            assert!(url.ends_with(file_name));
+            assert!(file_hash.is_empty());
+        }
 
-        let (status, page_count): (String, i32) = state
-            .db
-            .ro()
+        let media = db
+            .prepare("SELECT STATUS, PAGE_COUNT FROM MEDIA")
             .unwrap()
-            .query_row("SELECT STATUS, PAGE_COUNT FROM MEDIA", [], |r| {
-                Ok((r.get(0)?, r.get(1)?))
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i32>(1)?))
             })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
             .unwrap();
-        assert_eq!(status, "UNKNOWN");
-        assert_eq!(page_count, 0);
+        assert_eq!(media.len(), 3);
+        assert!(media
+            .iter()
+            .all(|(status, page_count)| status == "UNKNOWN" && *page_count == 0));
     }
 
     #[test]

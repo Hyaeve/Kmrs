@@ -570,26 +570,60 @@ fn kotlin_name_without_extension(name: &str) -> String {
     }
 }
 
-fn book_name(name: &str) -> String {
-    let without_pointer = kotlin_name_without_extension(name);
-    if !name.to_ascii_lowercase().ends_with(".strm") {
-        return without_pointer;
-    }
-    let extension = Path::new(&without_pointer)
+struct ParsedStrmName {
+    name: String,
+    entity_extension: String,
+}
+
+fn path_extension_lower(name: &str) -> Option<String> {
+    Path::new(name)
         .extension()
-        .map(|extension| extension.to_string_lossy().to_ascii_lowercase());
-    let is_supported_entity = extension.as_deref().is_some_and(|extension| {
-        CBX_EXTENSIONS.contains(&extension) || matches!(extension, "pdf" | "epub")
-    });
-    if !is_supported_entity {
-        return without_pointer;
+        .map(|extension| extension.to_string_lossy().to_ascii_lowercase())
+}
+
+fn is_supported_entity_extension(extension: &str) -> bool {
+    CBX_EXTENSIONS.contains(&extension) || matches!(extension, "pdf" | "epub")
+}
+
+fn is_strm_transport_extension(extension: &str) -> bool {
+    matches!(extension, "cas" | "ed2k")
+}
+
+fn strip_suffix_ignore_ascii_case<'a>(value: &'a str, suffix: &str) -> Option<&'a str> {
+    let index = value.len().checked_sub(suffix.len())?;
+    value
+        .get(index..)
+        .is_some_and(|tail| tail.eq_ignore_ascii_case(suffix))
+        .then_some(&value[..index])
+}
+
+fn parse_strm_name(name: &str) -> Option<ParsedStrmName> {
+    let pointer_stem = strip_suffix_ignore_ascii_case(name, ".strm")?;
+    let mut entity_stem = pointer_stem.to_string();
+    if path_extension_lower(&entity_stem)
+        .as_deref()
+        .is_some_and(is_strm_transport_extension)
+    {
+        entity_stem = kotlin_name_without_extension(&entity_stem);
     }
-    let without_entity = kotlin_name_without_extension(&without_pointer);
-    if without_entity.is_empty() {
-        without_pointer
-    } else {
-        without_entity
-    }
+
+    let entity_extension = path_extension_lower(&entity_stem)
+        .filter(|extension| is_supported_entity_extension(extension))
+        .or_else(|| {
+            let whole = entity_stem.to_ascii_lowercase();
+            is_supported_entity_extension(&whole).then_some(whole)
+        })?;
+    let name = kotlin_name_without_extension(&entity_stem);
+    Some(ParsedStrmName {
+        name: if name.is_empty() { entity_stem } else { name },
+        entity_extension,
+    })
+}
+
+fn book_name(name: &str) -> String {
+    parse_strm_name(name)
+        .map(|parsed| parsed.name)
+        .unwrap_or_else(|| kotlin_name_without_extension(name))
 }
 
 /// commons-io `FilenameUtils.getBaseName`: strips the last extension unless the name starts
@@ -619,16 +653,10 @@ fn contains_ignore_case(haystack: &str, needle: &str) -> bool {
     haystack.to_lowercase().contains(&needle.to_lowercase())
 }
 
-/// STRM files carry the expected entity extension before the pointer extension:
-/// `cbz.strm`, `book.cbz.strm`, `book.pdf.strm`.
+/// STRM files carry the expected entity extension before the pointer extension, with an optional
+/// CAS/ED2K transport layer: `cbz.strm`, `book.pdf.strm`, `book.pdf.cas.strm`.
 fn is_supported_strm(file_name: &str, extensions: &[String]) -> bool {
-    let lower = file_name.to_ascii_lowercase();
-    let Some(pointer_stem) = lower.strip_suffix(".strm") else {
-        return false;
-    };
-    extensions.iter().any(|extension| {
-        pointer_stem == extension || pointer_stem.ends_with(&format!(".{extension}"))
-    })
+    parse_strm_name(file_name).is_some_and(|parsed| extensions.contains(&parsed.entity_extension))
 }
 
 fn is_url_path_char(b: u8) -> bool {
@@ -788,7 +816,13 @@ mod tests {
         touch(&root.join("s"), "zip.strm");
         touch(&root.join("s"), "bookpdf.pdf.strm");
         touch(&root.join("s"), "bookepub.epub.strm");
+        touch(&root.join("s"), "casbook.pdf.cas.strm");
+        touch(&root.join("s"), "ed2kbook.pdf.ed2k.strm");
+        touch(&root.join("s"), "bookcbz.cbz.cas.strm");
         touch(&root.join("s"), "book.mkv.strm");
+        touch(&root.join("s"), "book.mkv.cas.strm");
+        touch(&root.join("s"), "book.pdf.foo.strm");
+        touch(&root.join("s"), "cas.strm");
         touch(&root.join("s"), "book.txt.strm");
         touch(&root.join("s"), "plain.strm");
         touch(&root.join("s"), "d.txt");
@@ -839,7 +873,7 @@ mod tests {
             .collect();
         assert_eq!(
             names,
-            ["a", "b", "c", "e", "zip", "bookpdf", "bookepub"]
+            ["a", "b", "c", "e", "zip", "bookpdf", "bookepub", "casbook", "ed2kbook", "bookcbz"]
                 .into_iter()
                 .collect()
         );
@@ -860,7 +894,12 @@ mod tests {
             .iter()
             .map(|b| b.name.as_str())
             .collect();
-        assert_eq!(names, ["b", "bookpdf"].into_iter().collect());
+        assert_eq!(
+            names,
+            ["b", "bookpdf", "casbook", "ed2kbook"]
+                .into_iter()
+                .collect()
+        );
     }
 
     #[test]
@@ -939,6 +978,7 @@ mod tests {
         let oneshots = root.join("oneshots");
         create_dir_all(&oneshots).unwrap();
         touch(&oneshots, "aa.pdf.strm");
+        touch(&oneshots, "bb.pdf.ed2k.strm");
 
         let result = Scanner::new()
             .scan_root_folder(
@@ -951,14 +991,17 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(result.series.len(), 1);
-        let (series, books) = &result.series[0];
-        assert_eq!(series.name, "aa");
-        assert!(series.oneshot);
-        assert_eq!(books.len(), 1);
-        assert_eq!(books[0].name, "aa");
-        assert!(books[0].oneshot);
-        assert!(books[0].url.ends_with("aa.pdf.strm"));
+        assert_eq!(result.series.len(), 2);
+        let by_name = series_by_name(&result);
+        for (name, file_name) in [("aa", "aa.pdf.strm"), ("bb", "bb.pdf.ed2k.strm")] {
+            let (series, books) = by_name[name];
+            assert_eq!(series.name, name);
+            assert!(series.oneshot);
+            assert_eq!(books.len(), 1);
+            assert_eq!(books[0].name, name);
+            assert!(books[0].oneshot);
+            assert!(books[0].url.ends_with(file_name));
+        }
     }
 
     #[test]
@@ -1234,9 +1277,15 @@ mod tests {
         assert_eq!(book_name("aa.rar.strm"), "aa");
         assert_eq!(book_name("aa.epub.strm"), "aa");
         assert_eq!(book_name("AA.CBR.STRM"), "AA");
+        assert_eq!(book_name("aa.pdf.cas.strm"), "aa");
+        assert_eq!(book_name("bb.pdf.ed2k.strm"), "bb");
+        assert_eq!(book_name("cc.cbz.cas.strm"), "cc");
+        assert_eq!(book_name("DD.RAR.ED2K.STRM"), "DD");
+        assert_eq!(book_name("pdf.cas.strm"), "pdf");
         assert_eq!(book_name("zip.strm"), "zip");
         assert_eq!(book_name("plain.strm"), "plain");
         assert_eq!(book_name("book.mkv.strm"), "book.mkv");
+        assert_eq!(book_name("book.mkv.cas.strm"), "book.mkv.cas");
         assert_eq!(book_name("normal.cbz"), "normal");
     }
 
@@ -1249,7 +1298,15 @@ mod tests {
         assert!(is_supported_strm("cbz.strm", &extensions));
         assert!(is_supported_strm("book.cbz.strm", &extensions));
         assert!(is_supported_strm("BOOK.PDF.STRM", &extensions));
+        assert!(is_supported_strm("book.pdf.cas.strm", &extensions));
+        assert!(is_supported_strm("BOOK.PDF.ED2K.STRM", &extensions));
+        assert!(is_supported_strm("pdf.cas.strm", &extensions));
         assert!(!is_supported_strm("mkv.strm", &extensions));
+        assert!(!is_supported_strm("book.mkv.cas.strm", &extensions));
+        assert!(!is_supported_strm("book.pdf.foo.strm", &extensions));
+        assert!(!is_supported_strm("book.cas.strm", &extensions));
+        assert!(!is_supported_strm("cas.strm", &extensions));
+        assert!(!is_supported_strm("ed2k.strm", &extensions));
         assert!(!is_supported_strm("book.txt.strm", &extensions));
         assert!(!is_supported_strm("plain.strm", &extensions));
     }
