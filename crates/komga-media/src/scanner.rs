@@ -539,7 +539,7 @@ fn walk_dir(ctx: &mut WalkContext, dir: &Path, ancestors: &mut Vec<PathBuf>) {
 fn path_to_book(path: &Path, meta: &std::fs::Metadata) -> Book {
     Book {
         id: String::new(),
-        name: kotlin_name_without_extension(&entry_name(path)),
+        name: book_name(&entry_name(path)),
         url: path_to_url(path),
         file_last_modified: updated_time(meta),
         series_id: String::new(),
@@ -567,6 +567,28 @@ fn kotlin_name_without_extension(name: &str) -> String {
     match name.rfind('.') {
         Some(idx) => name[..idx].to_string(),
         None => name.to_string(),
+    }
+}
+
+fn book_name(name: &str) -> String {
+    let without_pointer = kotlin_name_without_extension(name);
+    if !name.to_ascii_lowercase().ends_with(".strm") {
+        return without_pointer;
+    }
+    let extension = Path::new(&without_pointer)
+        .extension()
+        .map(|extension| extension.to_string_lossy().to_ascii_lowercase());
+    let is_supported_entity = extension.as_deref().is_some_and(|extension| {
+        CBX_EXTENSIONS.contains(&extension) || matches!(extension, "pdf" | "epub")
+    });
+    if !is_supported_entity {
+        return without_pointer;
+    }
+    let without_entity = kotlin_name_without_extension(&without_pointer);
+    if without_entity.is_empty() {
+        without_pointer
+    } else {
+        without_entity
     }
 }
 
@@ -764,8 +786,8 @@ mod tests {
         touch(&root.join("s"), "c.epub");
         touch(&root.join("s"), "e.cbz.strm");
         touch(&root.join("s"), "zip.strm");
-        touch(&root.join("s"), "book.pdf.strm");
-        touch(&root.join("s"), "book.epub.strm");
+        touch(&root.join("s"), "bookpdf.pdf.strm");
+        touch(&root.join("s"), "bookepub.epub.strm");
         touch(&root.join("s"), "book.mkv.strm");
         touch(&root.join("s"), "book.txt.strm");
         touch(&root.join("s"), "plain.strm");
@@ -817,7 +839,7 @@ mod tests {
             .collect();
         assert_eq!(
             names,
-            ["a", "b", "c", "e.cbz", "zip", "book.pdf", "book.epub"]
+            ["a", "b", "c", "e", "zip", "bookpdf", "bookepub"]
                 .into_iter()
                 .collect()
         );
@@ -838,7 +860,7 @@ mod tests {
             .iter()
             .map(|b| b.name.as_str())
             .collect();
-        assert_eq!(names, ["b", "book.pdf"].into_iter().collect());
+        assert_eq!(names, ["b", "bookpdf"].into_iter().collect());
     }
 
     #[test]
@@ -909,6 +931,34 @@ mod tests {
         assert!(!by_name["normal"].0.oneshot);
         // no sidecars are collected from oneshot directories
         assert!(result.sidecars.is_empty());
+    }
+
+    #[test]
+    fn strm_oneshot_series_uses_entity_stripped_name() {
+        let (_tmp, root) = test_root();
+        let oneshots = root.join("oneshots");
+        create_dir_all(&oneshots).unwrap();
+        touch(&oneshots, "aa.pdf.strm");
+
+        let result = Scanner::new()
+            .scan_root_folder(
+                &root,
+                &ScanOptions {
+                    scan_strm: true,
+                    oneshots_dir: Some("oneshots".to_string()),
+                    ..ScanOptions::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(result.series.len(), 1);
+        let (series, books) = &result.series[0];
+        assert_eq!(series.name, "aa");
+        assert!(series.oneshot);
+        assert_eq!(books.len(), 1);
+        assert_eq!(books[0].name, "aa");
+        assert!(books[0].oneshot);
+        assert!(books[0].url.ends_with("aa.pdf.strm"));
     }
 
     #[test]
@@ -1174,6 +1224,20 @@ mod tests {
         assert_eq!(commons_get_base_name(".foo.bar"), ".foo");
         assert_eq!(commons_get_base_name("foo."), "foo");
         assert_eq!(commons_get_base_name("foo.bar.jpg"), "foo.bar");
+    }
+
+    #[test]
+    fn strm_book_names_drop_entity_and_pointer_extensions() {
+        assert_eq!(book_name("aa.pdf.strm"), "aa");
+        assert_eq!(book_name("aa.cbz.strm"), "aa");
+        assert_eq!(book_name("aa.zip.strm"), "aa");
+        assert_eq!(book_name("aa.rar.strm"), "aa");
+        assert_eq!(book_name("aa.epub.strm"), "aa");
+        assert_eq!(book_name("AA.CBR.STRM"), "AA");
+        assert_eq!(book_name("zip.strm"), "zip");
+        assert_eq!(book_name("plain.strm"), "plain");
+        assert_eq!(book_name("book.mkv.strm"), "book.mkv");
+        assert_eq!(book_name("normal.cbz"), "normal");
     }
 
     #[test]
