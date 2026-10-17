@@ -15,7 +15,6 @@ use komga_core::model::media::MediaStatus;
 use komga_core::task::{BookMetadataPatchCapability, Task, LOWEST_PRIORITY, LOW_PRIORITY};
 use komga_db::dao::book::BookDao;
 use komga_db::dao::library::LibraryDao;
-use komga_db::dao::library_setting::LibrarySettingDao;
 use komga_db::dao::media::MediaDao;
 use komga_db::dao::series::SeriesDao;
 use komga_db::dao::tasks::TasksDao;
@@ -238,8 +237,7 @@ pub(crate) fn dispatch_task(state: &AppState, task: &Task) -> anyhow::Result<()>
             };
             library_content::scan_root_folder(state, &library, t.scan_deep)?;
             let emitter = &state.task_emitter;
-            let settings = LibrarySettingDao::new(state.kmrs_db.clone()).get(&library.id)?;
-            emitter.analyze_unknown_and_outdated_books(&library, settings.real_time_scan)?;
+            emitter.analyze_unknown_and_outdated_books(&library)?;
             if library.repair_extensions {
                 let books = convert::get_mismatched_extension_books(state, &library)?;
                 let tasks: Vec<komga_core::task::Task> = books
@@ -955,7 +953,7 @@ mod tests {
     }
 
     #[test]
-    fn realtime_scan_candidates_include_unknown_strm_books() {
+    fn scan_candidates_exclude_strm_even_when_realtime_is_enabled() {
         let state = series_tests::test_state();
         let root = visible_tempdir("strm-realtime");
         let book_dir = root.join("series1");
@@ -988,11 +986,11 @@ mod tests {
         );
 
         emitter
-            .analyze_unknown_and_outdated_books(&library, true)
+            .analyze_unknown_and_outdated_books(&library)
             .unwrap();
 
         let tasks = TasksDao::new(state.tasks_db.clone()).find_all().unwrap();
-        assert!(tasks
+        assert!(!tasks
             .iter()
             .any(|task| task.unique_id() == format!("ANALYZE_BOOK_{}", book.id)));
     }
