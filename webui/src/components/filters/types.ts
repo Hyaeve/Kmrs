@@ -27,6 +27,8 @@ export type GroupMode = 'any' | 'all'
 export interface AuthorFilter {
   name: string
   role: string
+  /** per-entry negation; the UI only sets it on role-level any/none pseudo entries (name === '') */
+  exclude?: boolean
 }
 
 export interface NotableEntityFilter {
@@ -94,6 +96,8 @@ export interface FilterGroupDef {
   adminOnly?: boolean
   /** offers an is / is-not switch once values are selected */
   negatable?: boolean
+  /** offers an any/none pseudo-value (isNotNull / isNull, or the publisher/language '' equivalent) */
+  anyNone?: boolean
   /** yes/no enum rendered as one tri-state row instead of a chip group */
   flag?: boolean
 }
@@ -127,6 +131,10 @@ export const LETTERS = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ']
 // filter UI injects the sentinel itself; the value stays "None" so v1-era bookmarked URLs keep working
 export const AGE_RATING_UNSET = 'None'
 
+/** pseudo-value offered by anyNone groups: "has any value" on its own, "has none" once the
+    group is negated; an improbable real value, so it can ride the plain string list */
+export const REFERENTIAL_ANY = '__any__'
+
 export const SERIES_FILTER_GROUPS: FilterGroupDef[] = [
   { key: 'readStatus', labelKey: 'filters:group.readStatus', kind: 'enum', options: READ_STATUS_OPTIONS, negatable: true },
   {
@@ -139,27 +147,29 @@ export const SERIES_FILTER_GROUPS: FilterGroupDef[] = [
       { value: 'ABANDONED', labelKey: 'common:seriesStatus.abandoned' },
       { value: 'HIATUS', labelKey: 'common:seriesStatus.hiatus' },
     ],
+    negatable: true,
   },
   { key: 'letter', labelKey: 'filters:group.letter', kind: 'letters' },
   { key: 'complete', labelKey: 'filters:group.complete', kind: 'enum', options: YES_NO_OPTIONS, flag: true },
   { key: 'oneshot', labelKey: 'common:oneshot', kind: 'enum', options: YES_NO_OPTIONS, flag: true },
   { key: 'deleted', labelKey: 'filters:group.deleted', kind: 'enum', options: YES_NO_OPTIONS, adminOnly: true, flag: true },
-  { key: 'publishers', labelKey: 'filters:group.publishers', kind: 'referential', referential: 'publishers' },
-  { key: 'genres', labelKey: 'filters:group.genres', kind: 'referential', referential: 'genres' },
+  { key: 'publishers', labelKey: 'filters:group.publishers', kind: 'referential', referential: 'publishers', negatable: true, anyNone: true },
+  { key: 'genres', labelKey: 'filters:group.genres', kind: 'referential', referential: 'genres', negatable: true, anyNone: true },
   // series-level tag options come from the combined series+aggregation tag view, so oneshots (whose
   // tags live on the book) contribute too; the series search `tag` condition matches the same union
-  { key: 'tags', labelKey: 'filters:group.tags', kind: 'referential', referential: 'tags' },
-  { key: 'sharingLabels', labelKey: 'filters:group.sharingLabels', kind: 'referential', referential: 'sharingLabels' },
-  { key: 'ageRatings', labelKey: 'filters:group.ageRatings', kind: 'referential', referential: 'ageRatings' },
-  { key: 'languages', labelKey: 'filters:group.languages', kind: 'referential', referential: 'languages' },
-  { key: 'releaseYears', labelKey: 'filters:group.releaseYears', kind: 'referential', referential: 'releaseDates' },
+  { key: 'tags', labelKey: 'filters:group.tags', kind: 'referential', referential: 'tags', negatable: true, anyNone: true },
+  { key: 'sharingLabels', labelKey: 'filters:group.sharingLabels', kind: 'referential', referential: 'sharingLabels', negatable: true, anyNone: true },
+  // no anyNone: the unset sentinel already covers "none", and negating it yields "any"
+  { key: 'ageRatings', labelKey: 'filters:group.ageRatings', kind: 'referential', referential: 'ageRatings', negatable: true },
+  { key: 'languages', labelKey: 'filters:group.languages', kind: 'referential', referential: 'languages', negatable: true, anyNone: true },
+  { key: 'releaseYears', labelKey: 'filters:group.releaseYears', kind: 'referential', referential: 'releaseDates', negatable: true, anyNone: true },
   { key: 'authors', labelKey: 'filters:group.authors', kind: 'authors' },
   { key: 'notableEntities', labelKey: 'filters:group.notableEntities', kind: 'notableEntities' },
 ]
 
 export const BOOK_FILTER_GROUPS: FilterGroupDef[] = [
   { key: 'readStatus', labelKey: 'filters:group.readStatus', kind: 'enum', options: READ_STATUS_OPTIONS, negatable: true },
-  { key: 'tags', labelKey: 'filters:group.tags', kind: 'referential', referential: 'bookTags' },
+  { key: 'tags', labelKey: 'filters:group.tags', kind: 'referential', referential: 'bookTags', negatable: true, anyNone: true },
   {
     key: 'mediaProfiles',
     labelKey: 'filters:group.mediaProfiles',
@@ -169,6 +179,7 @@ export const BOOK_FILTER_GROUPS: FilterGroupDef[] = [
       { value: 'PDF', labelKey: 'filters:option.mediaProfile.pdf' },
       { value: 'EPUB', labelKey: 'filters:option.mediaProfile.epub' },
     ],
+    negatable: true,
   },
   {
     key: 'mediaStatuses',
@@ -181,6 +192,7 @@ export const BOOK_FILTER_GROUPS: FilterGroupDef[] = [
       { value: 'UNSUPPORTED', labelKey: 'common:cardStatus.unsupported' },
       { value: 'OUTDATED', labelKey: 'filters:option.mediaStatus.outdated' },
     ],
+    negatable: true,
   },
   {
     key: 'poster',
@@ -196,7 +208,7 @@ export const BOOK_FILTER_GROUPS: FilterGroupDef[] = [
       { value: 'USER_UPLOADED', labelKey: 'metadata:poster.type.uploaded' },
     ],
   },
-  { key: 'releaseYears', labelKey: 'filters:group.releaseYears', kind: 'referential', referential: 'releaseDates' },
+  { key: 'releaseYears', labelKey: 'filters:group.releaseYears', kind: 'referential', referential: 'releaseDates', negatable: true, anyNone: true },
   { key: 'authors', labelKey: 'filters:group.authors', kind: 'authors' },
   { key: 'notableEntities', labelKey: 'filters:group.notableEntities', kind: 'notableEntities' },
 ]

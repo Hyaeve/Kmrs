@@ -24,6 +24,19 @@ fn main() {
     );
     println!("cargo:rerun-if-changed=.git/HEAD");
 
+    // Explorer, taskbar and tray icons all come from the exe's embedded resources;
+    // without this kmrs.exe shows the stock application icon. manifest_optional
+    // skips hosts without a resource compiler (local cross `cargo check`) instead
+    // of failing the build over a cosmetic asset; windows-latest CI has rc.exe,
+    // so a genuine compile error there still fails the release build.
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        println!("cargo:rerun-if-changed=resources/windows/kmrs.rc");
+        println!("cargo:rerun-if-changed=resources/windows/kmrs.ico");
+        embed_resource::compile("resources/windows/kmrs.rc", embed_resource::NONE)
+            .manifest_optional()
+            .unwrap();
+    }
+
     // webui.rs embeds ../../webui/dist into the binary. A fresh checkout has no such
     // directory (it is vite's output), so substitute a placeholder page: the crate must
     // compile for builders who never touch the UI.

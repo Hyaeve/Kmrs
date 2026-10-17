@@ -53,6 +53,8 @@
     "notableEntities": "주요 엔터티"
   },
   "option": {
+    "any": "임의",
+    "none": "없음",
     "readStatus": {
       "read": "읽음",
       "unread": "읽지 않음",
