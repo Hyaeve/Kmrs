@@ -57,6 +57,8 @@
     "notableEntities": "Notable entities"
   },
   "option": {
+    "any": "Any",
+    "none": "None",
     "readStatus": {
       "read": "Read",
       "unread": "Unread",

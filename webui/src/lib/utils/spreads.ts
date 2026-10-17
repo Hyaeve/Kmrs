@@ -12,8 +12,7 @@ export const isLandscape = (p: { width?: number; height?: number }): boolean =>
   !!p.width && !!p.height && p.width > p.height
 
 /**
- * Port of komga-webui's buildSpreads: cover page pairs with a blank on its
- * outer side, landscape pages always get a solo spread.
+ * Cover page pairs with a blank on its outer side, landscape pages always get a solo spread.
  */
 export function buildSpreads(pages: SpreadPage[], layout: PagedReaderLayout): SpreadPage[][] {
   if (pages.length === 0) return []

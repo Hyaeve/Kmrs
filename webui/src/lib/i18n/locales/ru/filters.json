@@ -65,6 +65,8 @@
     "notableEntities": "Заметные сущности"
   },
   "option": {
+    "any": "Любые",
+    "none": "Нет",
     "readStatus": {
       "read": "Прочитано",
       "unread": "Непрочитано",

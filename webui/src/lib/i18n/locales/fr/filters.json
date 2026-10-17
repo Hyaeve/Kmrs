@@ -61,6 +61,8 @@
     "notableEntities": "Entités marquantes"
   },
   "option": {
+    "any": "Tous",
+    "none": "Aucun",
     "readStatus": {
       "read": "Lu",
       "unread": "Non lu",

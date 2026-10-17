@@ -53,6 +53,8 @@
     "notableEntities": "注目のエンティティ"
   },
   "option": {
+    "any": "任意",
+    "none": "なし",
     "readStatus": {
       "read": "既読",
       "unread": "未読",

@@ -61,6 +61,8 @@
     "notableEntities": "Entidades destacadas"
   },
   "option": {
+    "any": "Cualquiera",
+    "none": "Ninguno",
     "readStatus": {
       "read": "Leído",
       "unread": "No leído",

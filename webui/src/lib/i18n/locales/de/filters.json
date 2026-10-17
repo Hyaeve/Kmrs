@@ -57,6 +57,8 @@
     "notableEntities": "Bemerkenswerte Entitäten"
   },
   "option": {
+    "any": "Beliebig",
+    "none": "Keine",
     "readStatus": {
       "read": "Gelesen",
       "unread": "Ungelesen",

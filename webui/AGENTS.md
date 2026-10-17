@@ -16,7 +16,7 @@ pnpm lint     # eslint
 
 ## Coding Conventions
 
-1. **Comments**: minimal, English only; explain why, not what; no issue/PR numbers (link issues in the PR description instead).
+1. **Comments**: minimal, English only; explain why, not what; no issue/PR numbers (link issues in the PR description instead). A comment stands on behavior visible in this repo alone — never cite external implementations, packages, or file names as the reason a shape exists.
 2. **Git-facing text**: commit messages, PR titles/bodies, and review comments are always in English.
 3. Light/dark color differences belong in the CSS custom properties of the global stylesheet (`--ink`, `--raised`, `--line`, …), not in JS theme branching.
 4. Icon weight (phosphor `weight="fill"` and friends) is a render-site decision: components expose the base icon and the site that knows its context picks the weight. Exception: an icon that renders filled in every context is part of the status's identity (e.g. the completed checkmark).

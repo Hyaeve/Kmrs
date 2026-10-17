@@ -53,6 +53,8 @@
     "notableEntities": "著名实体"
   },
   "option": {
+    "any": "任意",
+    "none": "无",
     "readStatus": {
       "read": "已读",
       "unread": "未读",

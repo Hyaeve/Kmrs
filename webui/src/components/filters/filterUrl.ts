@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import i18n from '@/lib/i18n'
 import { useLibraryPrefs } from '@/lib/store/libraryPrefs'
 import { entityKindLabel } from '@/lib/utils/notableEntities'
-import { AGE_RATING_UNSET, NOTABLE_ENTITY_ANYKIND, type AuthorFilter, type FilterGroupDef, type FilterState, type GroupKey, type GroupMode, type NotableEntityFilter } from './types'
+import { AGE_RATING_UNSET, NOTABLE_ENTITY_ANYKIND, REFERENTIAL_ANY, type AuthorFilter, type FilterGroupDef, type FilterState, type GroupKey, type GroupMode, type NotableEntityFilter } from './types'
 
 /** multi-value URL params, one key per filter group (values repeat the key) */
 const MULTI_KEYS: GroupKey[] = [
@@ -43,14 +43,25 @@ function extractFilterParams(params: URLSearchParams): string {
   return out.toString()
 }
 
-// names may contain commas, so the role is split off at the last comma
+// names may contain commas, so the role is split off at the last comma; a per-entry negation is a
+// '!' prefix on the serialized form (same convention as notable entities; a name starting with '!'
+// would not survive)
 export function parseAuthor(raw: string): AuthorFilter {
-  const i = raw.lastIndexOf(',')
-  return i < 0 ? { name: raw, role: '' } : { name: raw.slice(0, i), role: raw.slice(i + 1) }
+  const exclude = raw.startsWith('!')
+  const s = exclude ? raw.slice(1) : raw
+  const i = s.lastIndexOf(',')
+  const base: AuthorFilter = i < 0 ? { name: s, role: '' } : { name: s.slice(0, i), role: s.slice(i + 1) }
+  return exclude ? { ...base, exclude: true } : base
 }
 
 export function serializeAuthor(a: AuthorFilter): string {
-  return `${a.name},${a.role}`
+  return `${a.exclude ? '!' : ''}${a.name},${a.role}`
+}
+
+/** chip and group-summary label: "Xu (writer)", "Any (colorist)", "None (editor)" */
+export function authorChipLabel(a: AuthorFilter): string {
+  const base = a.name || i18n.t(`filters:option.${a.exclude ? 'none' : 'any'}`)
+  return a.role ? `${base} (${a.role})` : base
 }
 
 // a per-value negation is a '!' prefix on the serialized form; the kind is split off at the
@@ -83,7 +94,8 @@ export function parseFilterState(params: URLSearchParams): FilterState {
     ageRatings: params.getAll('ageRatings'),
     languages: params.getAll('languages'),
     releaseYears: params.getAll('releaseYears'),
-    authors: params.getAll('authors').map(parseAuthor),
+    // a fully empty entry (",") would only render as a phantom chip; the builder drops it anyway
+    authors: params.getAll('authors').map(parseAuthor).filter((a) => a.name || a.role),
     notableEntities: params.getAll('notableEntities').map(parseNotableEntity),
     mediaProfiles: params.getAll('mediaProfiles'),
     mediaStatuses: params.getAll('mediaStatuses'),
@@ -143,6 +155,7 @@ export interface ActiveFilterItem {
 
 // the sentinel is an English token baked into bookmarked URLs, so it has to go through i18n at display time
 export function displayFilterValue(key: string, v: string): string {
+  if (v === REFERENTIAL_ANY) return i18n.t('filters:option.any')
   return key === 'ageRatings' && v === AGE_RATING_UNSET ? i18n.t('filters:option.ageRating.unset') : v
 }
 
@@ -167,7 +180,11 @@ export function describeActiveFilters(state: FilterState, groups: FilterGroupDef
       for (const a of state.authors) {
         items.push({
           key: `authors:${serializeAuthor(a)}`,
-          label: i18n.t('filters:chip.author', { name: a.role ? `${a.name} (${a.role})` : a.name }),
+          // a negated named entry spells "Authors: not X (role)"; the role pseudo self-negates ("None (role)")
+          label:
+            a.name && a.exclude
+              ? i18n.t('filters:chip.value', { context: 'negated', group: i18n.t(def.labelKey), value: authorChipLabel(a) })
+              : i18n.t('filters:chip.author', { name: authorChipLabel(a) }),
           group: 'authors',
           value: serializeAuthor(a),
         })
@@ -189,12 +206,14 @@ export function describeActiveFilters(state: FilterState, groups: FilterGroupDef
     const values = state[def.key] as string[]
     for (const v of values) {
       const labelKey = def.options?.find((o) => o.value === v)?.labelKey
+      // the any/none pseudo spells its own negation; wrapping it in "not" would double-negate
+      const selfNegating = v === REFERENTIAL_ANY
       items.push({
         key: `${def.key}:${v}`,
         label: i18n.t('filters:chip.value', {
-          context: negated ? 'negated' : undefined,
+          context: negated && !selfNegating ? 'negated' : undefined,
           group: i18n.t(def.labelKey),
-          value: labelKey ? i18n.t(labelKey) : displayFilterValue(def.key, v),
+          value: selfNegating && negated ? i18n.t('filters:option.none') : labelKey ? i18n.t(labelKey) : displayFilterValue(def.key, v),
         }),
         group: def.key,
         value: v,
@@ -273,7 +292,18 @@ export function useBrowseFilters(scope?: string, disabledKeys: readonly GroupKey
   )
 
   const toggleAuthor = useCallback(
-    (author: AuthorFilter) => update((p) => toggleParam(p, 'authors', serializeAuthor(author))),
+    (author: AuthorFilter) =>
+      update((p) => {
+        const all = p.getAll('authors').map(parseAuthor)
+        const same = (a: AuthorFilter) => a.name === author.name && a.role === author.role
+        const cur = all.find(same)
+        p.delete('authors')
+        const next = all.filter((a) => !same(a))
+        // the same include/exclude form toggles off; a different form replaces the entry, so a
+        // tri-state chip can move include → exclude in one call
+        if (!cur || !cur.exclude !== !author.exclude) next.push(author)
+        for (const a of next) p.append('authors', serializeAuthor(a))
+      }),
     [update],
   )
 
