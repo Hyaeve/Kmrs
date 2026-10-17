@@ -182,6 +182,10 @@ fn cache_path_uses_file_name(path: &Path, file_name: &str) -> bool {
         .is_some_and(|name| name == file_name)
 }
 
+fn cache_path_is_within(root: &Path, path: &Path) -> bool {
+    path.starts_with(root)
+}
+
 fn remove_cache_file(book_id: &str, path: &Path) {
     if let Err(error) = std::fs::remove_file(path) {
         if error.kind() != std::io::ErrorKind::NotFound {
@@ -239,7 +243,10 @@ fn resolved_cache_path(state: &AppState, book: &Book) -> Option<PathBuf> {
         .get(&book.id)
         .ok()??;
     let path = PathBuf::from(source.cache_path);
-    (path.is_file() && cache_path_uses_file_name(&path, &source.file_name)).then_some(path)
+    (path.is_file()
+        && cache_path_is_within(&cache_dir(state), &path)
+        && cache_path_uses_file_name(&path, &source.file_name))
+    .then_some(path)
 }
 
 /// Path used by services that may run after resolution. Unresolved STRM books fall back to
@@ -330,10 +337,12 @@ pub async fn resolve_strm(state: &AppState, book: &Book) -> Result<StrmSource, S
     let source_dao = StrmSourceDao::new(state.kmrs_db.clone());
     let existing = source_dao.get(&book.id)?;
     if let Some(existing) = existing.as_ref() {
+        let current_cache_root = cache_dir(state);
         if existing.source_url == source_url_string
             && time_codec::truncate_to_millis(existing.strm_last_modified)
                 == time_codec::truncate_to_millis(strm_last_modified)
             && Path::new(&existing.cache_path).is_file()
+            && cache_path_is_within(&current_cache_root, Path::new(&existing.cache_path))
             && cache_path_uses_file_name(Path::new(&existing.cache_path), &existing.file_name)
             && cache_is_fresh(existing.cached_at, time_codec::now_utc())
         {
@@ -485,6 +494,14 @@ mod tests {
     #[test]
     fn production_cache_root_uses_the_data_mount() {
         assert_eq!(STRM_CACHE_ROOT, "/data/strm-cache");
+        assert!(cache_path_is_within(
+            Path::new(STRM_CACHE_ROOT),
+            Path::new("/data/strm-cache/b1/book.cbz")
+        ));
+        assert!(!cache_path_is_within(
+            Path::new(STRM_CACHE_ROOT),
+            Path::new("/config/strm-cache/b1/book.cbz")
+        ));
     }
 
     #[test]
