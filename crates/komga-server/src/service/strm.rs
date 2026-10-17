@@ -21,6 +21,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 const MAX_STRM_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 const PREFIX_BYTES: usize = 8192;
+const STRM_CACHE_TTL_HOURS: i64 = 12;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StrmError {
@@ -76,6 +77,14 @@ fn cache_dir(state: &AppState) -> PathBuf {
     state.config.config_dir.join("strm-cache")
 }
 
+fn book_cache_dir(state: &AppState, book_id: &str) -> PathBuf {
+    cache_dir(state).join(book_id)
+}
+
+fn cache_is_fresh(cached_at: time::OffsetDateTime, now: time::OffsetDateTime) -> bool {
+    now - cached_at < time::Duration::hours(STRM_CACHE_TTL_HOURS)
+}
+
 fn source_path(book: &Book) -> PathBuf {
     PathBuf::from(url_to_file_path(&book.url))
 }
@@ -97,18 +106,65 @@ fn read_source_url(content: &str) -> Result<Url, StrmError> {
     Ok(url)
 }
 
+fn sanitize_file_component(value: &str) -> String {
+    value
+        .chars()
+        .map(|character| {
+            if character.is_control()
+                || matches!(
+                    character,
+                    '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'
+                )
+            {
+                '_'
+            } else {
+                character
+            }
+        })
+        .collect::<String>()
+        .trim()
+        .trim_end_matches([' ', '.'])
+        .to_string()
+}
+
+fn is_windows_reserved_name(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or(name).to_ascii_uppercase();
+    matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || (stem.len() == 4
+            && (stem.starts_with("COM") || stem.starts_with("LPT"))
+            && stem.as_bytes()[3].is_ascii_digit())
+}
+
 fn file_name_from_url(url: &Url, media_type: &str, fallback: &str) -> String {
-    let name = url
+    let candidate = url
         .path_segments()
         .and_then(|mut segments| segments.next_back())
         .filter(|name| !name.is_empty())
-        .unwrap_or(fallback)
-        .replace(['/', '\\'], "_");
-    if Path::new(&name).extension().is_some() {
-        return name;
+        .unwrap_or(fallback);
+    let fallback = sanitize_file_component(fallback);
+    let fallback = if fallback.is_empty() {
+        "strm-download".to_string()
+    } else {
+        fallback
+    };
+    let mut name = sanitize_file_component(candidate);
+    if name.is_empty() || matches!(name.as_str(), "." | "..") {
+        name = fallback;
     }
-    let extension = detect::media_type_to_extension(media_type).unwrap_or(".bin");
-    format!("{name}{extension}")
+    if is_windows_reserved_name(&name) {
+        name.insert(0, '_');
+    }
+    if Path::new(&name).extension().is_none() {
+        let extension = detect::media_type_to_extension(media_type).unwrap_or(".bin");
+        name.push_str(extension);
+    }
+    name
+}
+
+fn cache_path_uses_file_name(path: &Path, file_name: &str) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name == file_name)
 }
 
 fn resolved_cache_path(state: &AppState, book: &Book) -> Option<PathBuf> {
@@ -119,7 +175,7 @@ fn resolved_cache_path(state: &AppState, book: &Book) -> Option<PathBuf> {
         .get(&book.id)
         .ok()??;
     let path = PathBuf::from(source.cache_path);
-    path.is_file().then_some(path)
+    (path.is_file() && cache_path_uses_file_name(&path, &source.file_name)).then_some(path)
 }
 
 /// Path used by services that may run after resolution. Unresolved STRM books fall back to
@@ -141,7 +197,8 @@ pub fn delete_resolution(state: &AppState, book_id: &str) -> komga_db::Result<()
     let Some(source) = StrmSourceDao::new(state.kmrs_db.clone()).delete(book_id)? else {
         return Ok(());
     };
-    if let Err(error) = std::fs::remove_file(&source.cache_path) {
+    let cache_path = Path::new(&source.cache_path);
+    if let Err(error) = std::fs::remove_file(cache_path) {
         if error.kind() != std::io::ErrorKind::NotFound {
             tracing::warn!(
                 book_id,
@@ -151,6 +208,9 @@ pub fn delete_resolution(state: &AppState, book_id: &str) -> komga_db::Result<()
             );
         }
     }
+    if let Some(parent) = cache_path.parent() {
+        let _ = std::fs::remove_dir(parent);
+    }
     Ok(())
 }
 
@@ -159,6 +219,7 @@ async fn analyze_resolved(
     book: &Book,
     source_url: &str,
     strm_last_modified: time::OffsetDateTime,
+    cached_at: time::OffsetDateTime,
     path: &Path,
     file_name: &str,
 ) -> Result<StrmSource, StrmError> {
@@ -173,6 +234,7 @@ async fn analyze_resolved(
         &book.id,
         source_url,
         strm_last_modified,
+        cached_at,
         &path.to_string_lossy(),
         file_name,
         media_type.as_deref(),
@@ -201,8 +263,8 @@ async fn analyze_resolved(
         .ok_or_else(|| StrmError::Analysis("resolved source row disappeared".to_string()))
 }
 
-/// Resolve a `.strm` pointer on first reader access. Cached content is reused until the
-/// pointer URL or modification time changes.
+/// Resolve a `.strm` pointer on reader access. Cached content is reused for twelve hours
+/// while the pointer URL and modification time remain unchanged.
 pub async fn resolve_strm(state: &AppState, book: &Book) -> Result<StrmSource, StrmError> {
     if !book.is_strm() {
         return Err(StrmError::NotStrm);
@@ -223,6 +285,8 @@ pub async fn resolve_strm(state: &AppState, book: &Book) -> Result<StrmSource, S
             && time_codec::truncate_to_millis(existing.strm_last_modified)
                 == time_codec::truncate_to_millis(strm_last_modified)
             && Path::new(&existing.cache_path).is_file()
+            && cache_path_uses_file_name(Path::new(&existing.cache_path), &existing.file_name)
+            && cache_is_fresh(existing.cached_at, time_codec::now_utc())
         {
             let media = MediaDao::new(state.db.clone()).find_by_id(&book.id)?;
             if media
@@ -234,6 +298,7 @@ pub async fn resolve_strm(state: &AppState, book: &Book) -> Result<StrmSource, S
                     book,
                     &existing.source_url,
                     existing.strm_last_modified,
+                    existing.cached_at,
                     Path::new(&existing.cache_path),
                     &existing.file_name,
                 )
@@ -243,8 +308,9 @@ pub async fn resolve_strm(state: &AppState, book: &Book) -> Result<StrmSource, S
         }
     }
 
-    tokio::fs::create_dir_all(cache_dir(state)).await?;
-    let partial = cache_dir(state).join(format!("{}.{}.partial", book.id, uuid::Uuid::new_v4()));
+    let book_cache_dir = book_cache_dir(state, &book.id);
+    tokio::fs::create_dir_all(&book_cache_dir).await?;
+    let partial = book_cache_dir.join(format!("{}.partial", uuid::Uuid::new_v4()));
     let response = http_client().get(source_url.clone()).send().await?;
     let status = response.status();
     if !status.is_success() {
@@ -283,22 +349,20 @@ pub async fn resolve_strm(state: &AppState, book: &Book) -> Result<StrmSource, S
         .filter(|value| value != detect::APPLICATION_OCTET_STREAM)
         .unwrap_or(detected_media_type);
     let file_name = file_name_from_url(&final_url, &media_type, &book.name);
-    let extension = Path::new(&file_name)
-        .extension()
-        .map(|extension| format!(".{}", extension.to_string_lossy()))
-        .unwrap_or_else(|| ".bin".to_string());
-    let final_path = cache_dir(state).join(format!("{}{extension}", book.id));
+    let final_path = book_cache_dir.join(&file_name);
 
     if final_path.exists() {
         tokio::fs::remove_file(&final_path).await?;
     }
     tokio::fs::rename(&partial, &final_path).await?;
+    let cached_at = time_codec::now_utc();
 
     let resolved = analyze_resolved(
         state,
         book,
         &source_url_string,
         strm_last_modified,
+        cached_at,
         &final_path,
         &file_name,
     )
@@ -326,6 +390,34 @@ mod tests {
         assert!(matches!(
             read_source_url("\n \n"),
             Err(StrmError::EmptyPointer)
+        ));
+    }
+
+    #[test]
+    fn cache_ttl_expires_after_twelve_hours() {
+        let cached_at = time_codec::parse_datetime_utc("2026-10-17 00:00:00").unwrap();
+        assert!(cache_is_fresh(
+            cached_at,
+            cached_at + time::Duration::hours(11) + time::Duration::minutes(59)
+        ));
+        assert!(!cache_is_fresh(
+            cached_at,
+            cached_at + time::Duration::hours(12)
+        ));
+    }
+
+    #[test]
+    fn cache_paths_preserve_the_remote_file_name() {
+        let url = Url::parse("https://example.test/library/My-Book.cbz").unwrap();
+        let file_name = file_name_from_url(&url, detect::APPLICATION_ZIP, "fallback");
+        assert_eq!(file_name, "My-Book.cbz");
+        assert!(cache_path_uses_file_name(
+            Path::new("/cache/b1/My-Book.cbz"),
+            &file_name
+        ));
+        assert!(!cache_path_uses_file_name(
+            Path::new("/cache/b1.cbz"),
+            &file_name
         ));
     }
 }

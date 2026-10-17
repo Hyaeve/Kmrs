@@ -3326,6 +3326,44 @@ mod tests {
             .unwrap();
         let cache_path = resolved.cache_path.clone();
         assert!(std::path::Path::new(&cache_path).is_file());
+        let expired = komga_core::time_codec::format_datetime(
+            komga_core::time_codec::now_utc() - time::Duration::hours(13),
+        );
+        let updated = state
+            .kmrs_db
+            .rw()
+            .unwrap()
+            .execute(
+                "UPDATE STRM_SOURCE SET CACHED_AT = ? WHERE BOOK_ID = 'b1'",
+                [expired],
+            )
+            .unwrap();
+        assert_eq!(updated, 1);
+        assert_eq!(
+            std::path::Path::new(&cache_path)
+                .file_name()
+                .and_then(|name| name.to_str()),
+            Some("remote.cbz")
+        );
+        assert_eq!(
+            std::path::Path::new(&cache_path)
+                .parent()
+                .and_then(|path| path.file_name())
+                .and_then(|name| name.to_str()),
+            Some("b1")
+        );
+
+        let (status, _, _) = call(
+            &app,
+            "POST",
+            "/api/v1/books/b1/resolve-strm",
+            Some(&auth),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
+
         let book = BookDao::new(db.clone()).find_by_id("b1").unwrap().unwrap();
         crate::service::book::delete_one(&state, &book).unwrap();
         assert!(!std::path::Path::new(&cache_path).exists());

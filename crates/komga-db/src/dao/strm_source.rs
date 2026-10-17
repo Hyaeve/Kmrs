@@ -17,6 +17,7 @@ pub struct StrmSource {
     pub file_size: i64,
     pub created_date: OffsetDateTime,
     pub last_modified_date: OffsetDateTime,
+    pub cached_at: OffsetDateTime,
 }
 
 pub struct StrmSourceDao {
@@ -24,9 +25,10 @@ pub struct StrmSourceDao {
 }
 
 const COLUMNS: &str = "BOOK_ID, SOURCE_URL, STRM_LAST_MODIFIED, CACHE_PATH, FILE_NAME, \
-                       MEDIA_TYPE, FILE_SIZE, CREATED_DATE, LAST_MODIFIED_DATE";
+                       MEDIA_TYPE, FILE_SIZE, CREATED_DATE, LAST_MODIFIED_DATE, CACHED_AT";
 
 fn row_to_source(row: &Row<'_>) -> rusqlite::Result<StrmSource> {
+    let last_modified_date = super::get_datetime(row, 8)?;
     Ok(StrmSource {
         book_id: row.get(0)?,
         source_url: row.get(1)?,
@@ -36,7 +38,8 @@ fn row_to_source(row: &Row<'_>) -> rusqlite::Result<StrmSource> {
         media_type: row.get(5)?,
         file_size: row.get(6)?,
         created_date: super::get_datetime(row, 7)?,
-        last_modified_date: super::get_datetime(row, 8)?,
+        last_modified_date,
+        cached_at: super::get_datetime_opt(row, 9)?.unwrap_or(last_modified_date),
     })
 }
 
@@ -60,6 +63,7 @@ impl StrmSourceDao {
         book_id: &str,
         source_url: &str,
         strm_last_modified: OffsetDateTime,
+        cached_at: OffsetDateTime,
         cache_path: &str,
         file_name: &str,
         media_type: Option<&str>,
@@ -68,8 +72,8 @@ impl StrmSourceDao {
         let now = time_codec::format_datetime(time_codec::now_utc());
         self.db.rw()?.execute(
             "INSERT INTO STRM_SOURCE \
-             (BOOK_ID, SOURCE_URL, STRM_LAST_MODIFIED, CACHE_PATH, FILE_NAME, MEDIA_TYPE, FILE_SIZE, CREATED_DATE, LAST_MODIFIED_DATE) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) \
+             (BOOK_ID, SOURCE_URL, STRM_LAST_MODIFIED, CACHE_PATH, FILE_NAME, MEDIA_TYPE, FILE_SIZE, CREATED_DATE, LAST_MODIFIED_DATE, CACHED_AT) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
              ON CONFLICT (BOOK_ID) DO UPDATE SET \
                  SOURCE_URL = excluded.SOURCE_URL, \
                  STRM_LAST_MODIFIED = excluded.STRM_LAST_MODIFIED, \
@@ -77,7 +81,8 @@ impl StrmSourceDao {
                  FILE_NAME = excluded.FILE_NAME, \
                  MEDIA_TYPE = excluded.MEDIA_TYPE, \
                  FILE_SIZE = excluded.FILE_SIZE, \
-                 LAST_MODIFIED_DATE = excluded.LAST_MODIFIED_DATE",
+                 LAST_MODIFIED_DATE = excluded.LAST_MODIFIED_DATE, \
+                 CACHED_AT = excluded.CACHED_AT",
             rusqlite::params![
                 book_id,
                 source_url,
@@ -88,6 +93,7 @@ impl StrmSourceDao {
                 file_size,
                 now,
                 now,
+                time_codec::format_datetime(cached_at),
             ],
         )?;
         Ok(())
@@ -124,6 +130,7 @@ mod tests {
             "b1",
             "https://example.test/book.cbz",
             modified,
+            modified,
             "/cache/b1.cbz",
             "book.cbz",
             Some("application/zip"),
@@ -139,6 +146,7 @@ mod tests {
         assert_eq!(row.file_name, "book.cbz");
         assert_eq!(row.media_type.as_deref(), Some("application/zip"));
         assert_eq!(row.file_size, 42);
+        assert_eq!(row.cached_at, modified);
 
         let deleted = dao.delete("b1").unwrap().unwrap();
         assert_eq!(deleted.book_id, "b1");
