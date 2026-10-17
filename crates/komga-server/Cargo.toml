@@ -79,6 +79,7 @@ tray-icon = { version = "0.26", default-features = false }
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_System_Console",
+    "Win32_System_Registry",
     "Win32_System_StationsAndDesktops",
     "Win32_System_Threading",
     "Win32_UI_Shell",

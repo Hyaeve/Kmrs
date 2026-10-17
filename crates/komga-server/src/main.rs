@@ -87,6 +87,10 @@ async fn run() -> anyhow::Result<()> {
     // first connection collation registration); later calls are ignored.
     komga_core::sort_locale::set_sort_locale(config.sort_locale.clone());
 
+    // opening the main database creates the file, so its absence beforehand marks
+    // the very first start
+    #[cfg(target_os = "windows")]
+    let first_run = !config.database.file.exists();
     let db = Database::open(&config.database).context("open main database")?;
     // Dedicated pools over the same file for background task execution; task
     // reads/writes never share pool slots with HTTP/API requests. The task side,
@@ -235,6 +239,12 @@ async fn run() -> anyhow::Result<()> {
         },
         state.shutdown_tx.clone(),
     );
+    // the initial admin claim happens in the web UI; only in an interactive
+    // session (tray present) is there a desktop to show it on
+    #[cfg(target_os = "windows")]
+    if first_run && tray.is_some() {
+        tray::open_in_browser(state.config.port);
+    }
     let serve_result = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
