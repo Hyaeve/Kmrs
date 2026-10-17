@@ -1,3 +1,11 @@
+// windows subsystem in release: no console window is ever created and the server
+// surfaces through the tray icon (src/tray.rs); debug builds keep the console so
+// `cargo run` retains log output
+#![cfg_attr(
+    all(target_os = "windows", not(debug_assertions)),
+    windows_subsystem = "windows"
+)]
+
 mod api;
 mod auth;
 mod config;
@@ -14,6 +22,8 @@ mod settings;
 mod sse;
 mod state;
 mod thumbnails;
+#[cfg(target_os = "windows")]
+mod tray;
 mod webhook;
 #[allow(dead_code)]
 mod webpub;
@@ -46,12 +56,26 @@ fn cap_glibc_arenas() {}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let result = run().await;
+    #[cfg(target_os = "windows")]
+    if let Err(e) = &result {
+        tray::show_startup_error(e);
+    }
+    result
+}
+
+async fn run() -> anyhow::Result<()> {
     cap_glibc_arenas();
+    // before Cli::parse, so --help/--version and parse errors print to the
+    // invoking terminal despite the windows subsystem
+    #[cfg(target_os = "windows")]
+    tray::attach_parent_console();
     let cli = config::Cli::parse();
     // Start time must be recorded now, not lazily on the first metrics request,
     // or process.uptime starts counting from that request.
     service::metrics::process_start();
-    let _log_guard = logging::init(&config::config_dir(&cli).join("logs"));
+    let logs_dir = config::config_dir(&cli).join("logs");
+    let _log_guard = logging::init(&logs_dir);
 
     #[cfg(all(feature = "profiling", unix))]
     profiling::spawn_heap_dump_listener();
@@ -193,13 +217,37 @@ async fn main() -> anyhow::Result<()> {
 
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], config.port));
     tracing::info!("kmrs listening on {addr}");
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .with_context(|| format!("bind {addr}"))?;
+    // startup output had its chance to reach an invoking terminal; serving must
+    // not die with a terminal the user closes later
+    #[cfg(target_os = "windows")]
+    {
+        tray::detach_console();
+    }
+    #[cfg(target_os = "windows")]
+    let tray = tray::start(
+        state.config.port,
+        tray::TrayPaths {
+            config_dir: state.config.config_dir.clone(),
+            logs_dir,
+        },
+        state.shutdown_tx.clone(),
+    );
+    let serve_result = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
     .with_graceful_shutdown(shutdown_signal(shutdown_rx))
-    .await?;
+    .await;
+    // the tray stands for a serving server: it goes as soon as serving ends, on
+    // the error path too, not after the task drain below
+    #[cfg(target_os = "windows")]
+    if let Some(tray) = tray {
+        tray.stop();
+    }
+    serve_result?;
 
     // stop the supervisor between drains, then give the claimed tasks a bounded grace
     // period before aborting (a hung task must not prevent the process from exiting)
