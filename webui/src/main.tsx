@@ -12,6 +12,7 @@ import { MotionConfig } from 'motion/react'
 import { router } from './router'
 import { queryClient } from './lib/queryClient'
 import { Toaster } from './components/Toaster'
+import { TooltipProvider } from './components/ui/Tooltip'
 import { KomfJobsPanel } from './components/KomfJobsPanel'
 import { applyTheme, useUiStore } from './lib/store/ui'
 
@@ -28,11 +29,13 @@ window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', ()
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <MotionConfig reducedMotion="user">
-        <RouterProvider router={router} />
-        <Toaster />
-        <KomfJobsPanel />
-      </MotionConfig>
+      <TooltipProvider>
+        <MotionConfig reducedMotion="user">
+          <RouterProvider router={router} />
+          <Toaster />
+          <KomfJobsPanel />
+        </MotionConfig>
+      </TooltipProvider>
     </QueryClientProvider>
   </StrictMode>,
 )
