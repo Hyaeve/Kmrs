@@ -12,7 +12,6 @@
     "actions": "Azioni libreria",
     "actionFailed": "Azione non riuscita.",
     "stats": {
-      "line": "{{series}} · {{books}} · {{size}} · {{sidecars}}",
       "series_one": "{{count}} serie",
       "series_many": "{{count}} serie",
       "series_other": "{{count}} serie",

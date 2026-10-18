@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { Fragment, useCallback, useMemo, useState } from 'react'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Trans, useTranslation } from 'react-i18next'
@@ -215,6 +215,11 @@ export function SeriesDetailPage() {
   const tagItems = seriesTagChipItems(md.tags, series.booksMetadata.tags, i18n.language)
   const sharingItems = sharingLabelChipItems(md.sharingLabels)
   const hasMetadataFlows = genreItems.length + entityGroups.length + tagItems.length + sharingItems.length > 0
+  const statSegments = [
+    { i18nKey: 'detail:stats.books', count: series.booksCount },
+    { i18nKey: 'detail:stats.read', count: series.booksReadCount },
+    { i18nKey: 'detail:stats.unread', count: series.booksUnreadCount },
+  ].filter((s) => s.count > 0)
 
   return (
     <div>
@@ -356,25 +361,16 @@ export function SeriesDetailPage() {
         </div>
       )}
 
-      <p className="mt-4 text-sm text-ink-3">
-        <Trans
-          i18nKey="detail:stats.books"
-          count={series.booksCount}
-          components={{ num: <span className="font-mono text-ink-2" /> }}
-        />
-        {' · '}
-        <Trans
-          i18nKey="detail:stats.read"
-          count={series.booksReadCount}
-          components={{ num: <span className="font-mono text-ink-2" /> }}
-        />
-        {' · '}
-        <Trans
-          i18nKey="detail:stats.unread"
-          count={series.booksUnreadCount}
-          components={{ num: <span className="font-mono text-ink-2" /> }}
-        />
-      </p>
+      {statSegments.length > 0 && (
+        <p className="mt-4 text-sm text-ink-3">
+          {statSegments.map((s, i) => (
+            <Fragment key={s.i18nKey}>
+              {i > 0 && ' · '}
+              <Trans i18nKey={s.i18nKey} count={s.count} components={{ num: <span className="font-mono text-ink-2" /> }} />
+            </Fragment>
+          ))}
+        </p>
+      )}
 
       {collections.length > 0 && (
         <HorizontalRow title={t('inCollections')} collapsible className="mt-10">

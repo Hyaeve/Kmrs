@@ -12,7 +12,6 @@
     "actions": "Actions de la bibliothèque",
     "actionFailed": "L'action a échoué.",
     "stats": {
-      "line": "{{series}} · {{books}} · {{size}} · {{sidecars}}",
       "series_one": "{{count}} série",
       "series_many": "{{count}} séries",
       "series_other": "{{count}} séries",

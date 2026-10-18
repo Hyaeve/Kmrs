@@ -10,7 +10,6 @@
     "actions": "라이브러리 작업",
     "actionFailed": "작업에 실패했습니다.",
     "stats": {
-      "line": "{{series}} · {{books}} · {{size}} · {{sidecars}}",
       "series_other": "시리즈 {{count}}개",
       "books_other": "책 {{count}}권",
       "sidecars_other": "사이드카 {{count}}개"

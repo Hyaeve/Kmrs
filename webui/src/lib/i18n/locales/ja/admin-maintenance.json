@@ -10,7 +10,6 @@
     "actions": "ライブラリ操作",
     "actionFailed": "操作に失敗しました。",
     "stats": {
-      "line": "{{series}} · {{books}} · {{size}} · {{sidecars}}",
       "series_other": "{{count}} シリーズ",
       "books_other": "{{count}} 冊",
       "sidecars_other": "{{count}} サイドカー"

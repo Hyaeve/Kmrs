@@ -13,7 +13,6 @@
     "actions": "Действия библиотеки",
     "actionFailed": "Действие не удалось.",
     "stats": {
-      "line": "{{series}} · {{books}} · {{size}} · {{sidecars}}",
       "series_one": "{{count}} серия",
       "series_few": "{{count}} серии",
       "series_many": "{{count}} серий",
