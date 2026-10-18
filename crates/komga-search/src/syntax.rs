@@ -1,17 +1,18 @@
-//! Lucene classic query syntax subset, in `MultiFieldQueryParser` semantics with
-//! `defaultOperator = AND`, as used by `LuceneHelper.searchEntitiesIds`.
+//! kmrs full-text query syntax: whitespace-separated terms ANDed together, with
+//! komga's `field:` scoping as the only operator. Everything else is literal
+//! text — `~`, `*`, `^`, quotes and parens are analyzed like any other
+//! characters, so a pasted title can never become a query error or an empty
+//! result.
 //!
-//! Supported: terms, `field:` prefixes, quoted phrases, trailing-`*` prefixes, inner wildcards,
-//! `AND/OR/NOT` (and `&&/||/!`), `+`/`-` clauses, parentheses, `^` boosts, `*:*` match-all,
-//! and `\` escapes. Leading wildcards are a parse error (Lucene's default). Fuzzy `~` and
-//! slop `~N` are unsupported and also fail the whole query, matching Lucene's ParseException
-//! behavior of yielding an empty result.
+//! - `field:term` scopes the term to one index field (`status:ongoing`);
+//! - `field:(a b)` ANDs several terms under the field, `field:(a OR b)` ORs
+//!   them, and `field:"a b"` is the spaced AND form — grouping exists only as
+//!   part of field syntax;
+//! - a term that analyzes to zero tokens (pure punctuation) is dropped from the
+//!   query instead of failing it.
 
 use komga_core::task::LuceneEntity;
-use tantivy::query::{
-    AllQuery, BooleanQuery, BoostQuery, EmptyQuery, Occur, PhraseQuery, Query, RegexQuery,
-    TermQuery,
-};
+use tantivy::query::{BooleanQuery, EmptyQuery, FuzzyTermQuery, Occur, Query, TermQuery};
 use tantivy::schema::{Field, IndexRecordOption, Schema};
 use tantivy::Term;
 
@@ -20,41 +21,43 @@ use crate::analyzer;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Node {
     Term { field: Option<String>, text: String },
-    Phrase { field: Option<String>, text: String },
-    Prefix { field: Option<String>, text: String },
-    Wildcard { field: Option<String>, text: String },
-    MatchAll,
     And(Vec<Node>),
     Or(Vec<Node>),
-    Not(Box<Node>),
-    Boost(Box<Node>, f32),
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ParseError(pub String);
+pub struct UnknownFieldError(pub String);
 
-impl std::fmt::Display for ParseError {
+impl std::fmt::Display for UnknownFieldError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
-impl std::error::Error for ParseError {}
+impl std::error::Error for UnknownFieldError {}
 
-pub fn parse(input: &str) -> Result<Node, ParseError> {
+/// Parses the input into an AND of clauses. The parser never fails: anything
+/// that is not a recognized `field:` form is literal text.
+pub fn parse(input: &str) -> Node {
     let mut parser = Parser {
         chars: input.chars().collect(),
         pos: 0,
     };
-    let node = parser.parse_or()?;
-    parser.skip_ws();
-    if parser.pos < parser.chars.len() {
-        return Err(ParseError(format!(
-            "unexpected trailing input at {}",
-            parser.pos
-        )));
+    let mut clauses = vec![];
+    loop {
+        parser.skip_ws();
+        if parser.peek().is_none() {
+            break;
+        }
+        let start = parser.pos;
+        clauses.push(parser.parse_clause());
+        // a `field:` prefix followed by whitespace consumes nothing after the
+        // colon (`title: foo`) — step over it so the loop cannot stall
+        if parser.pos == start {
+            parser.pos += 1;
+        }
     }
-    Ok(node)
+    Node::And(clauses)
 }
 
 struct Parser {
@@ -73,103 +76,38 @@ impl Parser {
         self.chars.get(self.pos).copied()
     }
 
-    fn eat(&mut self, c: char) -> bool {
-        if self.peek() == Some(c) {
-            self.pos += 1;
-            true
-        } else {
-            false
-        }
-    }
-
-    fn eat_word(&mut self, word: &str) -> bool {
-        let word_chars: Vec<char> = word.chars().collect();
-        if self.chars.len() >= self.pos + word_chars.len()
-            && self.chars[self.pos..self.pos + word_chars.len()] == word_chars[..]
-        {
-            // keyword boundary: the next character must not be a term character
-            let after = self.chars.get(self.pos + word_chars.len());
-            if after.is_none_or(|c| c.is_whitespace() || *c == '(' || *c == ')') {
-                self.pos += word_chars.len();
-                return true;
-            }
-        }
-        false
-    }
-
-    fn parse_or(&mut self) -> Result<Node, ParseError> {
-        let mut left = self.parse_and()?;
-        loop {
-            self.skip_ws();
-            if self.eat_word("OR") || (self.eat('|') && self.eat('|')) {
-                let right = self.parse_and()?;
-                left = match left {
-                    Node::Or(mut nodes) => {
-                        nodes.push(right);
-                        Node::Or(nodes)
-                    }
-                    _ => Node::Or(vec![left, right]),
-                };
-            } else {
-                return Ok(left);
-            }
-        }
-    }
-
-    fn parse_and(&mut self) -> Result<Node, ParseError> {
-        let mut left = self.parse_unary()?;
-        loop {
-            self.skip_ws();
-            if self.peek_word("OR") || self.peek_word("||") {
-                return Ok(left);
-            }
-            if self.eat_word("AND") || (self.eat('&') && self.eat('&')) || self.at_clause_start() {
-                let right = self.parse_unary()?;
-                left = and_of(left, right);
-            } else {
-                return Ok(left);
-            }
-        }
-    }
-
-    /// `true` when the input ahead is exactly `word` followed by a keyword boundary
-    fn peek_word(&self, word: &str) -> bool {
-        let word_chars: Vec<char> = word.chars().collect();
-        self.chars.len() >= self.pos + word_chars.len()
-            && self.chars[self.pos..self.pos + word_chars.len()] == word_chars[..]
-            && self
-                .chars
-                .get(self.pos + word_chars.len())
-                .is_none_or(|c| c.is_whitespace() || *c == '(' || *c == ')')
-    }
-
-    fn at_clause_start(&self) -> bool {
+    fn parse_clause(&mut self) -> Node {
+        let field = self.try_field_prefix();
+        // grouping exists only as part of field syntax; anywhere else parens
+        // and quotes are literal word characters
+        let Some(field) = field else {
+            return Node::Term {
+                field: None,
+                text: self.read_word(),
+            };
+        };
         match self.peek() {
-            Some('+' | '-' | '!' | '(' | '"') => true,
-            Some(c) => !c.is_whitespace() && c != ')',
-            None => false,
+            Some('(') => {
+                self.pos += 1;
+                self.parse_group(field)
+            }
+            Some('"') => {
+                self.pos += 1;
+                Node::Term {
+                    field: Some(field),
+                    text: self.read_quoted(),
+                }
+            }
+            _ => Node::Term {
+                field: Some(field),
+                text: self.read_word(),
+            },
         }
     }
 
-    fn parse_unary(&mut self) -> Result<Node, ParseError> {
-        self.skip_ws();
-        if self.eat('+') {
-            return self.parse_unary();
-        }
-        if self.eat('-') || self.eat('!') || self.eat_word("NOT") {
-            return Ok(Node::Not(Box::new(self.parse_unary()?)));
-        }
-        self.parse_clause()
-    }
-
-    fn parse_clause(&mut self) -> Result<Node, ParseError> {
-        self.skip_ws();
-        if self.peek().is_none() {
-            return Err(ParseError("unexpected end of query".into()));
-        }
-
-        // optional `field:` prefix (no whitespace between the name and the colon)
-        let mut field = None;
+    /// `name:` glued to the following element (no whitespace); the name is
+    /// alphanumeric, `_` or `.`
+    fn try_field_prefix(&mut self) -> Option<String> {
         let save = self.pos;
         let mut name = String::new();
         while let Some(c) = self.peek() {
@@ -180,162 +118,123 @@ impl Parser {
                 break;
             }
         }
-        if !name.is_empty() && self.eat(':') {
-            field = Some(name);
+        if !name.is_empty() && self.peek() == Some(':') {
+            self.pos += 1;
+            Some(name)
         } else {
             self.pos = save;
+            None
         }
+    }
 
-        if self.eat('(') {
-            let inner = self.parse_or()?;
+    /// Group body: whitespace-separated words; `OR` between words makes the
+    /// group a disjunction, `AND` is a plain separator. An unclosed group runs
+    /// to the end of input.
+    fn parse_group(&mut self, field: String) -> Node {
+        let mut ors: Vec<Node> = vec![];
+        let mut ands: Vec<Node> = vec![];
+        loop {
             self.skip_ws();
-            if !self.eat(')') {
-                return Err(ParseError("unclosed group".into()));
-            }
-            let inner = match field {
-                Some(f) => rescope(inner, &f),
-                None => inner,
-            };
-            return self.parse_boost_tail(inner);
-        }
-
-        if self.peek() == Some('"') {
-            self.pos += 1;
-            let mut text = String::new();
-            loop {
-                match self.peek() {
-                    None => return Err(ParseError("unclosed phrase".into())),
-                    Some('\\') => {
-                        self.pos += 1;
-                        if let Some(c) = self.peek() {
-                            text.push(c);
-                            self.pos += 1;
-                        }
-                    }
-                    Some('"') => {
-                        self.pos += 1;
-                        break;
-                    }
-                    Some(c) => {
-                        text.push(c);
-                        self.pos += 1;
-                    }
+            match self.peek() {
+                None => break,
+                Some(')') => {
+                    self.pos += 1;
+                    break;
                 }
+                _ => {}
             }
-            return self.parse_boost_tail(Node::Phrase { field, text });
+            if self.eat_keyword("OR") {
+                if !ands.is_empty() {
+                    ors.push(and_of(std::mem::take(&mut ands)));
+                }
+                continue;
+            }
+            if self.eat_keyword("AND") {
+                continue;
+            }
+            let start = self.pos;
+            let text = self.read_group_word();
+            if text.is_empty() {
+                if self.pos == start {
+                    self.pos += 1;
+                }
+                continue;
+            }
+            ands.push(Node::Term {
+                field: Some(field.clone()),
+                text,
+            });
         }
+        if !ands.is_empty() {
+            ors.push(and_of(ands));
+        }
+        or_of(ors)
+    }
 
-        // bare term
+    /// Keyword bounded by whitespace or `)` (Lucene's uppercase operators)
+    fn eat_keyword(&mut self, word: &str) -> bool {
+        let word_chars: Vec<char> = word.chars().collect();
+        if self.chars.len() >= self.pos + word_chars.len()
+            && self.chars[self.pos..self.pos + word_chars.len()] == word_chars[..]
+            && self
+                .chars
+                .get(self.pos + word_chars.len())
+                .is_none_or(|c| c.is_whitespace() || *c == ')')
+        {
+            self.pos += word_chars.len();
+            return true;
+        }
+        false
+    }
+
+    /// A double-quoted run; an unclosed quote takes the rest of the input
+    fn read_quoted(&mut self) -> String {
         let mut text = String::new();
         while let Some(c) = self.peek() {
-            match c {
-                '\\' => {
-                    self.pos += 1;
-                    if let Some(escaped) = self.peek() {
-                        text.push(escaped);
-                        self.pos += 1;
-                    }
-                }
-                c if c.is_whitespace() || c == '(' || c == ')' || c == '"' => break,
-                '^' | '~' => break,
-                _ => {
-                    text.push(c);
-                    self.pos += 1;
-                }
-            }
-        }
-        if text.is_empty() {
-            return Err(ParseError(format!("expected term at {}", self.pos)));
-        }
-
-        // fuzzy (`term~` / `term~0.8`) and phrase slop are unsupported
-        if self.peek() == Some('~') {
-            return Err(ParseError("fuzzy queries are not supported".into()));
-        }
-
-        let node = classify_term(field, text)?;
-        self.parse_boost_tail(node)
-    }
-
-    /// `^` boost suffix; accepted and applied, scores only affect ordering
-    fn parse_boost_tail(&mut self, node: Node) -> Result<Node, ParseError> {
-        if self.peek() != Some('^') {
-            return Ok(node);
-        }
-        self.pos += 1;
-        let mut num = String::new();
-        while let Some(c) = self.peek() {
-            if c.is_ascii_digit() || c == '.' {
-                num.push(c);
+            if c == '"' {
                 self.pos += 1;
-            } else {
                 break;
             }
+            text.push(c);
+            self.pos += 1;
         }
-        let boost: f32 = num
-            .parse()
-            .map_err(|_| ParseError(format!("invalid boost: {num}")))?;
-        Ok(Node::Boost(Box::new(node), boost))
+        text
     }
-}
 
-fn classify_term(field: Option<String>, text: String) -> Result<Node, ParseError> {
-    if text == "*:*" {
-        return Ok(Node::MatchAll);
+    /// Everything up to the next whitespace, fully literal
+    fn read_word(&mut self) -> String {
+        self.read_until(|c| c.is_whitespace())
     }
-    let stars = text.chars().filter(|&c| c == '*' || c == '?').count();
-    if stars == 0 {
-        return Ok(Node::Term { field, text });
-    }
-    if text == "*" {
-        return Ok(Node::Wildcard { field, text });
-    }
-    if text.starts_with('*') || text.starts_with('?') {
-        // Lucene's QueryParser rejects leading wildcards by default
-        return Err(ParseError("leading wildcard".into()));
-    }
-    if text.ends_with('*') && text[..text.len() - 1].chars().all(|c| c != '*' && c != '?') {
-        return Ok(Node::Prefix {
-            field,
-            text: text[..text.len() - 1].to_string(),
-        });
-    }
-    Ok(Node::Wildcard { field, text })
-}
 
-/// `field:(a b c)` scopes the group to the field
-fn rescope(node: Node, field: &str) -> Node {
-    match node {
-        Node::Term { text, .. } => Node::Term {
-            field: Some(field.to_string()),
-            text,
-        },
-        Node::Phrase { text, .. } => Node::Phrase {
-            field: Some(field.to_string()),
-            text,
-        },
-        Node::Prefix { text, .. } => Node::Prefix {
-            field: Some(field.to_string()),
-            text,
-        },
-        Node::Wildcard { text, .. } => Node::Wildcard {
-            field: Some(field.to_string()),
-            text,
-        },
-        Node::And(nodes) => Node::And(nodes.into_iter().map(|n| rescope(n, field)).collect()),
-        Node::Or(nodes) => Node::Or(nodes.into_iter().map(|n| rescope(n, field)).collect()),
-        Node::Not(inner) => Node::Not(Box::new(rescope(*inner, field))),
-        other => other,
+    /// Group words end at the group's closing paren as well
+    fn read_group_word(&mut self) -> String {
+        self.read_until(|c| c.is_whitespace() || c == ')')
     }
-}
 
-fn and_of(left: Node, right: Node) -> Node {
-    match left {
-        Node::And(mut nodes) => {
-            nodes.push(right);
-            Node::And(nodes)
+    fn read_until(&mut self, stop: impl Fn(char) -> bool) -> String {
+        let mut text = String::new();
+        while let Some(c) = self.peek() {
+            if stop(c) {
+                break;
+            }
+            text.push(c);
+            self.pos += 1;
         }
-        _ => Node::And(vec![left, right]),
+        text
+    }
+}
+
+fn and_of(mut nodes: Vec<Node>) -> Node {
+    match nodes.len() {
+        1 => nodes.pop().unwrap(),
+        _ => Node::And(nodes),
+    }
+}
+
+fn or_of(mut nodes: Vec<Node>) -> Node {
+    match nodes.len() {
+        1 => nodes.pop().unwrap(),
+        _ => Node::Or(nodes),
     }
 }
 
@@ -348,102 +247,114 @@ pub fn default_fields(entity: LuceneEntity) -> &'static [&'static str] {
     }
 }
 
+/// The original text of a query made only of unqualified terms — the shape a
+/// plain search-box string parses to. The recall fallbacks (prefix, fuzzy)
+/// apply only to this shape; field-scoped queries stay exact.
+pub(crate) fn unqualified_text(node: &Node) -> Option<String> {
+    let Node::And(nodes) = node else {
+        return None;
+    };
+    let mut text = String::new();
+    for node in nodes {
+        match node {
+            Node::Term {
+                field: None,
+                text: t,
+            } => {
+                if !text.is_empty() {
+                    text.push(' ');
+                }
+                text.push_str(t);
+            }
+            _ => return None,
+        }
+    }
+    if text.is_empty() {
+        return None;
+    }
+    Some(text)
+}
+
 /// Builds the tantivy query for a parsed AST, with `defaultFields` fan-out for
-/// field-less clauses, search-side analysis for terms, and `normalize` for
-/// prefix/wildcard terms (Lucene QueryParser semantics).
+/// field-less clauses and search-side analysis for terms. A clause that
+/// analyzes to zero tokens is dropped; `Ok(None)` means every clause was
+/// dropped and there is nothing to search.
 pub fn build_query(
     node: &Node,
     entity: LuceneEntity,
     schema: &Schema,
-) -> Result<Box<dyn Query>, ParseError> {
-    Ok(match node {
-        Node::MatchAll => Box::new(AllQuery),
+) -> Result<Option<Box<dyn Query>>, UnknownFieldError> {
+    match node {
         Node::Term { field, text } => {
             let tokens = analyzer::search_analyze(text);
-            build_term_query(field, entity, schema, &tokens)?
+            if tokens.is_empty() {
+                return Ok(None);
+            }
+            Ok(Some(build_term_query(field, entity, schema, &tokens)?))
         }
-        Node::Phrase { field, text } => {
-            let tokens = analyzer::search_analyze(text);
-            per_field(field, entity, schema, |f| {
-                let terms: Vec<Term> = tokens.iter().map(|t| Term::from_field_text(f, t)).collect();
-                match terms.len() {
-                    0 => Box::new(EmptyQuery) as Box<dyn Query>,
-                    // Lucene turns a single-token phrase into a term query
-                    1 => Box::new(TermQuery::new(
-                        terms.into_iter().next().unwrap(),
-                        IndexRecordOption::WithFreqsAndPositions,
-                    )),
-                    _ => Box::new(PhraseQuery::new(terms)),
-                }
-            })?
-        }
-        Node::Prefix { field, text } => {
-            let normalized = analyzer::normalize(text);
-            per_field(field, entity, schema, |f| {
-                Box::new(
-                    RegexQuery::from_pattern(&format!("{}.*", regex_escape(&normalized)), f)
-                        .expect("escaped prefix is a valid regex"),
-                ) as Box<dyn Query>
-            })?
-        }
-        Node::Wildcard { field, text } => {
-            let normalized = analyzer::normalize(text);
-            let pattern = wildcard_to_regex(&normalized);
-            per_field(field, entity, schema, |f| {
-                Box::new(
-                    RegexQuery::from_pattern(&pattern, f)
-                        .expect("wildcard translation always yields a valid regex"),
-                ) as Box<dyn Query>
-            })?
-        }
-        Node::Boost(inner, boost) => {
-            Box::new(BoostQuery::new(build_query(inner, entity, schema)?, *boost))
-        }
-        Node::And(nodes) => {
-            let clauses = nodes
-                .iter()
-                .map(|n| Ok((Occur::Must, build_query(n, entity, schema)?)))
-                .collect::<Result<Vec<_>, ParseError>>()?;
-            Box::new(BooleanQuery::new(clauses))
-        }
-        Node::Or(nodes) => {
-            let clauses = nodes
-                .iter()
-                .map(|n| Ok((Occur::Should, build_query(n, entity, schema)?)))
-                .collect::<Result<Vec<_>, ParseError>>()?;
-            Box::new(BooleanQuery::new(clauses))
-        }
-        Node::Not(inner) => {
-            // Lucene rewrites pure-negative queries by adding a MatchAllDocsQuery
-            Box::new(BooleanQuery::new(vec![
-                (Occur::Must, Box::new(AllQuery)),
-                (Occur::MustNot, build_query(inner, entity, schema)?),
-            ]))
-        }
-    })
-}
-
-/// The user clause of a `searchEntitiesIds`-style query (`"<term> *:*"`): a single
-/// unqualified term implicitly ANDed with the match-all-docs clause, as produced
-/// for a plain search-box string.
-pub(crate) fn bare_term(ast: &Node) -> Option<&str> {
-    match ast {
-        Node::And(nodes) => match &nodes[..] {
-            [Node::Term { field: None, text }, Node::MatchAll] => Some(text.as_str()),
-            _ => None,
-        },
-        _ => None,
+        Node::And(nodes) => build_boolean(nodes, Occur::Must, entity, schema),
+        Node::Or(nodes) => build_boolean(nodes, Occur::Should, entity, schema),
     }
 }
 
+fn build_boolean(
+    nodes: &[Node],
+    occur: Occur,
+    entity: LuceneEntity,
+    schema: &Schema,
+) -> Result<Option<Box<dyn Query>>, UnknownFieldError> {
+    let mut clauses = vec![];
+    for node in nodes {
+        if let Some(query) = build_query(node, entity, schema)? {
+            clauses.push((occur, query));
+        }
+    }
+    Ok(match clauses.len() {
+        0 => None,
+        1 => Some(clauses.pop().unwrap().1),
+        _ => Some(Box::new(BooleanQuery::new(clauses))),
+    })
+}
+
+/// The fuzzy fallback for a bare search-box query that matched nothing: every
+/// analyzed token becomes an ANDed clause, with fuzzy-eligible tokens relaxed
+/// to `FuzzyTermQuery`. `None` when no token is fuzzy-eligible, so all-CJK and
+/// all-short queries stay exact.
+pub(crate) fn build_fuzzy_query(
+    tokens: &[String],
+    entity: LuceneEntity,
+    schema: &Schema,
+) -> Option<Box<dyn Query>> {
+    if tokens.is_empty() || !tokens.iter().any(|t| analyzer::fuzzy_distance(t) > 0) {
+        return None;
+    }
+    let mut clauses = vec![];
+    for token in tokens {
+        let distance = analyzer::fuzzy_distance(token);
+        let query = per_field(&None, entity, schema, |f| {
+            let term = Term::from_field_text(f, token);
+            match distance {
+                0 => Box::new(TermQuery::new(
+                    term,
+                    IndexRecordOption::WithFreqsAndPositions,
+                )) as Box<dyn Query>,
+                d => Box::new(FuzzyTermQuery::new(term, d, true)) as Box<dyn Query>,
+            }
+        })
+        .expect("default fields always exist");
+        clauses.push((Occur::Must, query));
+    }
+    Some(Box::new(BooleanQuery::new(clauses)))
+}
+
 /// Analyzed-term query for pre-tokenized input (`build_query` analyzes the raw text
-/// itself; the progressive prefix fallback reuses this on token prefixes).
+/// itself; the recall fallbacks reuse this on token prefixes).
 pub(crate) fn build_term_query(
     field: &Option<String>,
     entity: LuceneEntity,
     schema: &Schema,
     tokens: &[String],
-) -> Result<Box<dyn Query>, ParseError> {
+) -> Result<Box<dyn Query>, UnknownFieldError> {
     per_field(field, entity, schema, |f| {
         let terms: Vec<Term> = tokens.iter().map(|t| Term::from_field_text(f, t)).collect();
         match terms.len() {
@@ -475,12 +386,12 @@ fn per_field(
     entity: LuceneEntity,
     schema: &Schema,
     make: impl Fn(Field) -> Box<dyn Query>,
-) -> Result<Box<dyn Query>, ParseError> {
+) -> Result<Box<dyn Query>, UnknownFieldError> {
     match field {
         Some(name) => {
             let f = schema
                 .get_field(name)
-                .map_err(|_| ParseError(format!("unknown field: {name}")))?;
+                .map_err(|_| UnknownFieldError(format!("unknown field: {name}")))?;
             Ok(make(f))
         }
         None => {
@@ -503,29 +414,6 @@ fn per_field(
     }
 }
 
-fn regex_escape(text: &str) -> String {
-    text.chars()
-        .flat_map(|c| {
-            if "\\^$.|?*+()[]{}".contains(c) {
-                vec!['\\', c]
-            } else {
-                vec![c]
-            }
-        })
-        .collect()
-}
-
-/// Lucene WildcardQuery to regex: `*` -> `.*`, `?` -> `.`, everything else escaped
-fn wildcard_to_regex(text: &str) -> String {
-    text.chars()
-        .flat_map(|c| match c {
-            '*' => vec!['.', '*'],
-            '?' => vec!['.'],
-            _ => regex_escape(&c.to_string()).chars().collect(),
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -538,103 +426,109 @@ mod tests {
     }
 
     #[test]
-    fn single_and_multi_terms() {
-        assert_eq!(parse("berserk").unwrap(), term(None, "berserk"));
+    fn whitespace_terms_are_anded() {
+        assert_eq!(parse("berserk"), Node::And(vec![term(None, "berserk")]));
         assert_eq!(
-            parse("berserk vol").unwrap(),
+            parse("berserk vol"),
             Node::And(vec![term(None, "berserk"), term(None, "vol")])
         );
     }
 
     #[test]
-    fn field_prefix_and_group() {
+    fn field_scoping() {
         assert_eq!(
-            parse("title:berserk").unwrap(),
-            term(Some("title"), "berserk")
+            parse("title:berserk"),
+            Node::And(vec![term(Some("title"), "berserk")])
         );
         assert_eq!(
-            parse("title:(a b)").unwrap(),
-            Node::And(vec![term(Some("title"), "a"), term(Some("title"), "b")])
-        );
-    }
-
-    #[test]
-    fn phrases() {
-        assert_eq!(
-            parse("\"berserk vol\"").unwrap(),
-            Node::Phrase {
-                field: None,
-                text: "berserk vol".into()
-            }
+            parse("author:(sean murphy)"),
+            Node::And(vec![Node::And(vec![
+                term(Some("author"), "sean"),
+                term(Some("author"), "murphy")
+            ])])
         );
         assert_eq!(
-            parse("title:\"a b\"").unwrap(),
-            Node::Phrase {
-                field: Some("title".into()),
-                text: "a b".into()
-            }
+            parse("status:(error OR unsupported)"),
+            Node::And(vec![Node::Or(vec![
+                term(Some("status"), "error"),
+                term(Some("status"), "unsupported")
+            ])])
+        );
+        assert_eq!(
+            parse("tag:\"double pages\""),
+            Node::And(vec![term(Some("tag"), "double pages")])
         );
     }
 
     #[test]
-    fn prefix_and_wildcard() {
-        assert_eq!(
-            parse("ber*").unwrap(),
-            Node::Prefix {
-                field: None,
-                text: "ber".into()
-            }
-        );
-        assert_eq!(
-            parse("b*rk").unwrap(),
-            Node::Wildcard {
-                field: None,
-                text: "b*rk".into()
-            }
-        );
-        assert!(parse("*foo").is_err());
-        assert!(parse("?foo").is_err());
-    }
-
-    #[test]
-    fn boolean_operators() {
-        assert!(matches!(parse("a AND b").unwrap(), Node::And(_)));
-        assert!(matches!(parse("a OR b").unwrap(), Node::Or(_)));
-        assert!(matches!(parse("a && b").unwrap(), Node::And(_)));
-        assert!(matches!(parse("a || b").unwrap(), Node::Or(_)));
-        assert!(matches!(parse("a NOT b").unwrap(), Node::And(_)));
-        assert!(matches!(parse("a -b").unwrap(), Node::And(_)));
-        assert!(matches!(parse("NOT a").unwrap(), Node::Not(_)));
-        assert!(matches!(parse("!a").unwrap(), Node::Not(_)));
-    }
-
-    #[test]
-    fn match_all_and_boost_and_errors() {
-        assert_eq!(parse("*:*").unwrap(), Node::MatchAll);
-        assert!(matches!(parse("berserk^2").unwrap(), Node::Boost(_, _)));
-        assert!(parse("foo~").is_err());
-        assert!(parse("foo~0.8").is_err());
-        assert!(parse("(a").is_err());
-        assert!(parse("a)").is_err());
-    }
-
-    #[test]
-    fn komga_wrapper() {
-        // `LuceneHelper` searches with `"$searchTerm *:*"`
-        let node = parse("berserk *:*").unwrap();
-        match node {
-            Node::And(nodes) => {
-                assert_eq!(nodes.len(), 2);
-                assert_eq!(nodes[1], Node::MatchAll);
-            }
-            other => panic!("unexpected: {other:?}"),
+    fn operators_are_literal_text() {
+        for (input, text) in [
+            ("berserk~", "berserk~"),
+            ("ber*", "ber*"),
+            ("berserk^2", "berserk^2"),
+            ("title(2)", "title(2)"),
+            ("a AND b", "a AND b"),
+        ] {
+            let expected: Vec<Node> = text.split(' ').map(|t| term(None, t)).collect();
+            assert_eq!(parse(input), Node::And(expected), "input {input}");
         }
     }
 
     #[test]
-    fn wildcard_regex_translation() {
-        assert_eq!(wildcard_to_regex("b*rk"), "b.*rk");
-        assert_eq!(wildcard_to_regex("a?c"), "a.c");
-        assert_eq!(wildcard_to_regex("a.c"), "a\\.c");
+    fn malformed_input_is_literal_text() {
+        // parens and quotes without a field prefix are plain word characters
+        assert_eq!(
+            parse("(a b"),
+            Node::And(vec![term(None, "(a"), term(None, "b")])
+        );
+        assert_eq!(
+            parse("\"a b"),
+            Node::And(vec![term(None, "\"a"), term(None, "b")])
+        );
+        // a field group left open runs to the end of input
+        assert_eq!(parse("title:(a"), Node::And(vec![term(Some("title"), "a")]));
+        // a stray closing paren is just a word
+        assert_eq!(parse("a)"), Node::And(vec![term(None, "a)")]));
+    }
+
+    #[test]
+    fn group_keywords_need_word_boundaries() {
+        // OR glued to a word is part of the word
+        assert_eq!(
+            parse("status:(a ORb)"),
+            Node::And(vec![Node::And(vec![
+                term(Some("status"), "a"),
+                term(Some("status"), "ORb")
+            ])])
+        );
+        // lowercase or is not a keyword
+        assert_eq!(
+            parse("status:(a or b)"),
+            Node::And(vec![Node::And(vec![
+                term(Some("status"), "a"),
+                term(Some("status"), "or"),
+                term(Some("status"), "b")
+            ])])
+        );
+    }
+
+    #[test]
+    fn unqualified_text_shape() {
+        assert_eq!(
+            unqualified_text(&parse("berserk vol")),
+            Some("berserk vol".to_string())
+        );
+        // literal quotes and parens stay part of the words
+        assert_eq!(
+            unqualified_text(&parse("\"quoted words\"")),
+            Some("\"quoted words\"".to_string())
+        );
+        assert_eq!(
+            unqualified_text(&parse("(berserk vol)")),
+            Some("(berserk vol)".to_string())
+        );
+        assert_eq!(unqualified_text(&parse("title:berserk")), None);
+        assert_eq!(unqualified_text(&parse("berserk title:vol")), None);
+        assert_eq!(unqualified_text(&parse("title:(a b)")), None);
     }
 }
