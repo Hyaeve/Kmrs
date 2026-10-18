@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { serverApi } from '@/lib/api/users'
+import { serverApi } from '@/lib/api/server'
 import { useDocumentTitle } from '@/lib/hooks/useDocumentTitle'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { StatsGrid } from '@/components/admin/server/StatsGrid'
@@ -17,8 +17,8 @@ export function AdminServerPage() {
 
   useDocumentTitle(t('server.title'))
 
-  const version = info?.build?.version
-  const commit = info?.git?.commit?.id
+  const version = info?.version
+  const commit = info?.gitCommitId
   const subtitle = version ? (commit ? t('server.subtitleWithCommit', { version, commit }) : t('server.subtitle', { version })) : undefined
 
   return (

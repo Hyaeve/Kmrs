@@ -337,11 +337,6 @@ export interface AuthenticationActivityDto {
   success: boolean
 }
 
-export interface ActuatorInfo {
-  git?: { branch?: string; commit?: { id?: string; time?: string } }
-  build?: { artifact?: string; name?: string; version?: string; group?: string }
-}
-
 // ---- Admin: user management ----
 
 export interface SharedLibrariesDto {
@@ -427,35 +422,22 @@ export interface DirectoryListingDto {
   files: PathDto[]
 }
 
-// ---- Admin: actuator ----
+// ---- Admin: server ----
 
-export interface ActuatorHealth {
-  status: string
-  components?: {
-    db?: { status: string; details?: Record<string, unknown> }
-    diskSpace?: {
-      status: string
-      details?: { total?: number; free?: number; threshold?: number; exists?: boolean }
-    }
-  }
+export interface ServerInfoDto {
+  version: string
+  gitBranch: string
+  gitCommitId: string
 }
 
-export interface ScheduledTaskDto {
-  runnable: { target: string }
-  initialDelay: number
-  interval: number
+export interface ServerScheduledTaskDto {
+  libraryId: string
+  libraryName: string
+  intervalSeconds: number
 }
 
-export interface ScheduledTasksDto {
-  cron: unknown[]
-  fixedDelay: unknown[]
-  fixedRate: ScheduledTaskDto[]
-  custom: unknown[]
-}
-
-export interface SessionDto {
+export interface ServerSessionDto {
   id: string
-  attributeNames: string[]
   creationTime: string
   lastAccessedTime: string
   maxInactiveInterval: number
@@ -1443,6 +1425,10 @@ export interface ServerStatsDto {
     /** percent of total CPU capacity: 100 means every core busy */
     cpuUsage: number
     memoryBytes: number
+  }
+  disk: {
+    free: number
+    total: number
   }
   totals: {
     libraries: number

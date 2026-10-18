@@ -1,7 +1,6 @@
 import { api, ApiError } from './client'
 import i18n from '@/lib/i18n'
 import type {
-  ActuatorInfo,
   ApiKeyDto,
   AuthenticationActivityDto,
   ClaimStatus,
@@ -57,8 +56,4 @@ export const usersApi = {
     api.patch<void>(`/api/v2/users/${userId}/password`, { password }),
   allAuthenticationActivity: (params?: { page?: number; size?: number }) =>
     api.get<Page<AuthenticationActivityDto>>('/api/v2/users/authentication-activity', params),
-}
-
-export const serverApi = {
-  info: () => api.get<ActuatorInfo>('/actuator/info'),
 }

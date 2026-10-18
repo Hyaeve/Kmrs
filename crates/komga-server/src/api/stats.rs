@@ -6,8 +6,8 @@
 use crate::auth::RequireAuth;
 use crate::dto::stats::{
     LibrariesStatsDto, LibraryStatsDto, LibraryStatsTotalDto, NamedValueDto, ReadingActivityDto,
-    ReadingSummaryDto, ReadingTimeSeriesPointDto, ReadingTopsDto, ServerProcessStatsDto,
-    ServerStatsDto, ServerTaskStatsDto, ServerTotalsDto, TaskTypeStatsDto,
+    ReadingSummaryDto, ReadingTimeSeriesPointDto, ReadingTopsDto, ServerDiskStatsDto,
+    ServerProcessStatsDto, ServerStatsDto, ServerTaskStatsDto, ServerTotalsDto, TaskTypeStatsDto,
 };
 use crate::error::ApiError;
 use crate::service::metrics::TaskTypeMetrics;
@@ -167,10 +167,16 @@ async fn server_stats(
         sidecars: content.sidecars,
     };
 
+    let (disk_total, disk_free) = crate::api::actuator::disk_space_bytes(&state.config.config_dir);
+
     Ok(Json(ServerStatsDto {
         tasks: ServerTaskStatsDto { queue_size, types },
         process,
         totals,
+        disk: ServerDiskStatsDto {
+            free: disk_free,
+            total: disk_total,
+        },
     }))
 }
 
@@ -409,7 +415,7 @@ fn with_other(counts: &[(String, i64)], limit: usize) -> Vec<NamedValueDto> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api::libraries::test_support::{insert_api_key, insert_user, TestApp};
+    use crate::api::libraries::test_support::{insert_api_key, insert_user, test_config, TestApp};
     use axum::http::StatusCode;
     use komga_core::model::read_progress::ReadProgress;
     use komga_core::model::user::{AgeRestriction, AllowExclude, ContentRestrictions};
@@ -1076,7 +1082,13 @@ mod tests {
 
     #[tokio::test]
     async fn server_stats_merges_queue_and_execution_by_type() {
-        let app = admin_app();
+        // a real config dir, so the disk figures come from an actual volume
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = test_config();
+        config.config_dir = dir.path().to_path_buf();
+        let app = TestApp::with_config(router(), config);
+        let admin = insert_user(&app.state.db, "admin@x.c", true, true, &[]);
+        insert_api_key(&app.state.db, &admin, "k");
         seed_series(&app.state.db, "s1", "l1", None);
         seed_book_sized(&app.state.db, "b1", "s1", "l1", 100);
         seed_sidecar(&app.state.db, "file:/data/s/b.json", "l1");
@@ -1134,6 +1146,11 @@ mod tests {
         assert_eq!(body["totals"]["collections"], 0);
         assert_eq!(body["totals"]["readlists"], 0);
         assert_eq!(body["totals"]["sidecars"], 1);
+
+        let total = body["disk"]["total"].as_i64().unwrap();
+        let free = body["disk"]["free"].as_i64().unwrap();
+        assert!(total > 0);
+        assert!(free <= total);
     }
 
     fn progress(user_id: &str, book_id: &str, page: i32) -> ReadProgress {

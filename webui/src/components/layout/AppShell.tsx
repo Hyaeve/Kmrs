@@ -50,7 +50,7 @@ import { cn } from '@/lib/utils/cn'
 import { librariesApi } from '@/lib/api/libraries'
 import { releasesApi } from '@/lib/api/releases'
 import { usersApi } from '@/lib/api/users'
-import { serverApi } from '@/lib/api/users'
+import { serverApi } from '@/lib/api/server'
 import { isAdmin, useAuthStore } from '@/lib/store/auth'
 import { useUiStore } from '@/lib/store/ui'
 import { usePinnedLibraries } from '@/lib/store/clientSettings'
@@ -389,10 +389,10 @@ function SidebarFooter() {
         <MenuItem onSelect={logout}>
           <SignOut className="size-4" /> {t('nav.signOut')}
         </MenuItem>
-        {(info?.build?.version || update) && (
+        {(info?.version || update) && (
           <>
             <MenuSeparator />
-            {info?.build?.version && <MenuLabel>kmrs {info.build.version}</MenuLabel>}
+            {info?.version && <MenuLabel>kmrs {info.version}</MenuLabel>}
             {update && (
               <MenuItem onSelect={() => navigate('/admin/updates')}>
                 <Rocket className="size-4" /> {t('nav.updateAvailable', { version: update.version })}

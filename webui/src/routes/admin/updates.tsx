@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { ArrowSquareOut, GitCommit, Rocket, Tag, WarningCircle } from '@phosphor-icons/react'
 import { releasesApi } from '@/lib/api/releases'
-import { serverApi } from '@/lib/api/users'
+import { serverApi } from '@/lib/api/server'
 import type { ReleaseDto } from '@/lib/api/types'
 import { cn } from '@/lib/utils/cn'
 import { formatDate } from '@/lib/utils/format'
@@ -74,8 +74,8 @@ export function AdminUpdatesPage() {
 
   useDocumentTitle(t('layout:nav.updates'))
 
-  const currentVersion = infoQuery.data?.build?.version
-  const commit = infoQuery.data?.git?.commit?.id
+  const currentVersion = infoQuery.data?.version
+  const commit = infoQuery.data?.gitCommitId
   const releases = q.data ?? []
   // server order is newest first: the first non-prerelease entry is the latest stable
   const latestStable = releases.find((r) => !r.preRelease)?.version

@@ -300,6 +300,7 @@ pub fn build_router(state: AppState) -> axum::Router {
         .merge(api::client_settings::router())
         .merge(api::history::router())
         .merge(api::stats::router())
+        .merge(api::server::router())
         .merge(api::announcements::router())
         .merge(api::releases::router())
         .merge(api::filesystem::router())

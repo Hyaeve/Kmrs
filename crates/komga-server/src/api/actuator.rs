@@ -1,8 +1,10 @@
 //! Spring Boot Actuator endpoint subset (`/actuator/**`): links, health, info, flyway, logfile,
-//! metrics, scheduledtasks, sessions, shutdown.
+//! metrics, scheduledtasks, sessions.
 //!
 //! This surface is frozen at Java parity: no kmrs-specific endpoints or response fields
-//! (those go under `/api/**`), and no behavior changes except parity fixes.
+//! (those go under `/api/**`), and no behavior changes except parity fixes. One deliberate
+//! exception: `shutdown` is dropped entirely — the Java version allows it anonymously, and
+//! the only shutdown surface here is the admin-only `POST /api/v1/server/shutdown`.
 //!
 //! komga's `application.yml` sets `management.endpoints.web.exposure.include: "*"`, so Java
 //! exposes everything Spring can auto-configure. Endpoints and meters that only dump
@@ -16,7 +18,6 @@
 //! - `/actuator/health`: permitAll — anonymous gets the bare status; ADMIN gets details
 //!   (`management.endpoint.health.show-details: when_authorized`).
 //! - `/actuator/info`: permitAll (`management.info.java/os.enabled: true`).
-//! - `/actuator/shutdown`: anonymous (`management.endpoint.shutdown.access: unrestricted`).
 //! - everything else (flyway, logfile, metrics, scheduledtasks, sessions): ADMIN only
 //!   (`requestMatchers(EndpointRequest.toAnyEndpoint()).hasRole(ADMIN)`).
 //!
@@ -45,7 +46,6 @@ pub fn router() -> Router<AppState> {
         .route("/actuator/logfile", routing::get(get_logfile))
         .route("/actuator/metrics", routing::get(get_metric_names))
         .route("/actuator/metrics/{name}", routing::get(get_metric))
-        .route("/actuator/shutdown", routing::post(post_shutdown))
         .route(
             "/actuator/scheduledtasks",
             routing::get(get_scheduled_tasks),
@@ -85,7 +85,6 @@ async fn get_links(headers: axum::http::HeaderMap) -> Response {
         "logfile",
         "metrics",
         "scheduledtasks",
-        "shutdown",
     ] {
         links.insert(
             endpoint.into(),
@@ -357,7 +356,7 @@ async fn get_health(State(state): State<AppState>, auth: MaybeAuth) -> Response 
 /// Total and available bytes of the volume holding the config dir (Spring's
 /// DiskSpaceHealthIndicator uses `File.getTotalSpace`/`getUsableSpace`). The volume is
 /// the disk with the longest mount-point prefix of the path.
-fn disk_space_bytes(path: &std::path::Path) -> (i64, i64) {
+pub(crate) fn disk_space_bytes(path: &std::path::Path) -> (i64, i64) {
     let path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     sysinfo::Disks::new_with_refreshed_list()
         .list()
@@ -945,28 +944,6 @@ async fn get_scheduled_tasks(auth: RequireAuth) -> Result<Response, ApiError> {
 
 // endregion
 
-// region shutdown
-
-#[derive(Serialize)]
-struct ShutdownBody {
-    message: &'static str,
-}
-
-/// `management.endpoint.shutdown.access: unrestricted`: anonymous shutdown. The response is
-/// sent first; the actual shutdown fires shortly after, so the connection can complete.
-async fn post_shutdown(State(state): State<AppState>) -> Response {
-    let tx = state.shutdown_tx.clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        let _ = tx.send(true);
-    });
-    actuator_response(&ShutdownBody {
-        message: "Shutting down, bye...",
-    })
-}
-
-// endregion
-
 // region logfile
 
 /// Spring Boot's logfile endpoint (`text/plain`): serves the current file from
@@ -997,7 +974,7 @@ async fn get_logfile(
 
 // Daily-rotated names (`kmrs.YYYY-MM-DD.log`) sort by date, so the lexicographic
 // max is the file currently being written.
-fn latest_log_file(logs_dir: &std::path::Path) -> Option<std::path::PathBuf> {
+pub(crate) fn latest_log_file(logs_dir: &std::path::Path) -> Option<std::path::PathBuf> {
     std::fs::read_dir(logs_dir)
         .ok()?
         .filter_map(Result::ok)
@@ -1222,7 +1199,6 @@ mod tests {
             "metrics-requiredMetricName",
             "scheduledtasks",
             "sessions",
-            "shutdown",
         ] {
             assert!(links.get(key).is_some(), "{key}");
         }
@@ -1864,21 +1840,23 @@ mod tests {
         library
     }
 
+    /// The only shutdown surface is the admin-only `POST /api/v1/server/shutdown`: POSTs
+    /// to the actuator path fall through to the webui fallback's backend-segment 404.
     #[tokio::test]
-    async fn shutdown_is_unrestricted_and_fires() {
-        let (state, mut rx) = test_state();
-        let app = test_router(state);
-        let (status, headers, bytes) = call(&app, "POST", "/actuator/shutdown", None).await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(headers.get(CONTENT_TYPE).unwrap(), ACTUATOR_JSON);
-        assert_eq!(
-            json(&bytes),
-            serde_json::json!({"message": "Shutting down, bye..."})
-        );
-        // the deferred shutdown fires shortly after
-        tokio::time::timeout(std::time::Duration::from_secs(5), rx.changed())
-            .await
-            .expect("shutdown not fired")
+    async fn shutdown_endpoint_is_removed() {
+        let (state, _rx) = test_state();
+        let app = crate::build_router(state);
+        let request = Request::builder()
+            .method("POST")
+            .uri("/actuator/shutdown")
+            .body(Body::empty())
             .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body = String::from_utf8_lossy(&bytes);
+        assert!(!body.contains("Shutting down, bye"));
     }
 }

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { FileArrowDown, Power, WarningCircle } from '@phosphor-icons/react'
-import { actuatorApi } from '@/lib/api/settings'
+import { serverApi } from '@/lib/api/server'
 import { Button } from '@/components/ui/Button'
 import { Dialog } from '@/components/ui/Dialog'
 
@@ -12,7 +12,7 @@ export function DangerZone() {
   const [shuttingDown, setShuttingDown] = useState(false)
 
   const shutdown = useMutation({
-    mutationFn: actuatorApi.shutdown,
+    mutationFn: serverApi.shutdown,
     onSuccess: () => {
       setConfirmOpen(false)
       setShuttingDown(true)
@@ -36,7 +36,7 @@ export function DangerZone() {
           <p className="mt-0.5 text-xs text-ink-3">{t('danger.logfileHelper')}</p>
         </div>
         <a
-          href={actuatorApi.logfileUrl()}
+          href={serverApi.logfileUrl()}
           download
           className="inline-flex h-8 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-line bg-raised px-3 text-[13px] whitespace-nowrap text-ink transition-all duration-150 hover:border-line-strong hover:bg-overlay active:scale-[0.98]"
         >

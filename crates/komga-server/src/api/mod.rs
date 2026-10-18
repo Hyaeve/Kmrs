@@ -37,6 +37,7 @@ pub mod referential;
 pub mod releases;
 pub mod restriction;
 pub mod series;
+pub mod server;
 #[allow(dead_code)]
 pub mod settings;
 pub mod smartlists;
