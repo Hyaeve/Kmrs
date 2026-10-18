@@ -68,6 +68,7 @@
     "size": "Size",
     "format": "Format",
     "profile": "Profile",
+    "comment": "Comment",
     "releaseDate": "Release date",
     "file": "File",
     "added": "Added"

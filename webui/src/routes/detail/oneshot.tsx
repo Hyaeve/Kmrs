@@ -30,7 +30,7 @@ import { useKomfIntegration } from '@/lib/hooks/useKomfIntegration'
 import { useBust } from '@/lib/store/thumbnails'
 import { urls } from '@/lib/utils/urls'
 import { readRoute } from '@/lib/utils/nav'
-import { mediaIssue } from '@/lib/utils/mediaStatus'
+import { convertErrorCodes, mediaIssue } from '@/lib/utils/mediaStatus'
 import { formatBytes, formatDate, relativeTime, fileNameFromUrl, filePathFromUrl } from '@/lib/utils/format'
 import { cn } from '@/lib/utils/cn'
 import { Button } from '@/components/ui/Button'
@@ -38,6 +38,7 @@ import { IconButton } from '@/components/ui/IconButton'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { BackButton } from '@/components/ui/BackButton'
 import { Menu, MenuItem, MenuSeparator } from '@/components/ui/Menu'
+import { ClampedText } from '@/components/ui/ClampedText'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { CoverImage } from '@/components/media/CoverImage'
 import { CollectionCard, ReadListCard } from '@/components/media/SeriesCard'
@@ -64,11 +65,11 @@ import { KomfResetDialog } from '@/components/metadata/KomfResetDialog'
 import { showToast } from '@/lib/store/toast'
 import { trackKomfJob } from '@/lib/store/komfJobs'
 
-function Field({ term, mono, children }: { term: string; mono?: boolean; children: ReactNode }) {
+function Field({ term, mono, danger, children }: { term: string; mono?: boolean; danger?: boolean; children: ReactNode }) {
   return (
     <div>
       <dt className="text-xs tracking-wide text-ink-3 uppercase">{term}</dt>
-      <dd className={cn('mt-1 text-sm text-ink', mono && 'font-mono')}>{children}</dd>
+      <dd className={cn('mt-1 text-sm', danger ? 'font-medium text-danger' : 'text-ink', mono && 'font-mono')}>{children}</dd>
     </div>
   )
 }
@@ -198,6 +199,8 @@ export function OneshotDetailPage() {
   const unavailable = book.deleted || (library?.unavailable ?? false)
   const route = readRoute({ id: book.id, media: book.media, deleted: unavailable })
   const issue = mediaIssue({ media: book.media, deleted: unavailable })
+  // the issue line already carries the comment for ERROR/UNSUPPORTED; the field covers the rest
+  const mediaComment = book.media.comment && !issue?.detail ? convertErrorCodes(book.media.comment) : ''
   const readlists = readlistsQuery.data ?? []
   const collections = collectionsQuery.data ?? []
   const cover = urls.seriesThumbnail(series.id, bust || undefined)
@@ -373,6 +376,11 @@ export function OneshotDetailPage() {
           </Field>
           <Field term={t('field.format')}>{book.media.mediaType}</Field>
           <Field term={t('field.profile')}>{book.media.mediaProfile}</Field>
+          {mediaComment && (
+            <Field term={t('field.comment')} danger>
+              <ClampedText text={mediaComment} lines={2} />
+            </Field>
+          )}
           {bookMd.releaseDate && <Field term={t('field.releaseDate')}>{formatDate(bookMd.releaseDate)}</Field>}
           {bookMd.isbn && (
             <Field term="ISBN" mono>
