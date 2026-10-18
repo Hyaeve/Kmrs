@@ -67,12 +67,12 @@ export function LibraryCard({ library, onEdit, onDelete }: LibraryCardProps) {
           {intervalKey && <Badge>{t(intervalKey)}</Badge>}
         </div>
       </div>
-      <Tooltip content={library.root}>
-        <p className="mt-1.5 flex items-center gap-1.5 font-mono text-xs text-ink-3">
-          <Folder className="size-3.5 shrink-0" />
+      <p className="mt-1.5 flex items-center gap-1.5 font-mono text-xs text-ink-3">
+        <Folder className="size-3.5 shrink-0" />
+        <Tooltip content={library.root}>
           <span className="min-w-0 truncate">{library.root}</span>
-        </p>
-      </Tooltip>
+        </Tooltip>
+      </p>
       {statsParts.length > 0 && (
         <p className="mt-1.5 text-xs text-ink-2">{statsParts.join(' · ')}</p>
       )}

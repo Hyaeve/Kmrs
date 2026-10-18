@@ -389,7 +389,7 @@ export function OneshotDetailPage() {
           )}
           <Field term={t('field.file')} mono>
             <Tooltip content={filePathFromUrl(book.url)}>
-              <span className="block truncate">{fileNameFromUrl(book.url)}</span>
+              <span className="inline-block max-w-full truncate">{fileNameFromUrl(book.url)}</span>
             </Tooltip>
           </Field>
           <Field term={t('field.added')}>{formatDate(book.created)}</Field>
