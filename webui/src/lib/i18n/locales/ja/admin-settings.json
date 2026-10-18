@@ -37,9 +37,7 @@
     "security": "セキュリティ",
     "thumbnails": "サムネイル",
     "tasks": "タスク",
-    "server": "サーバー",
-    "kobo": "Kobo",
-    "kepubify": "Kepubify"
+    "kobo": "Kobo"
   },
   "content": {
     "libraries": "ライブラリ",
@@ -138,13 +136,7 @@
     "thumbnailSizeHelper": "大きいサムネイルほど鮮明ですが、ディスク容量を多く使います。",
     "taskPoolSize": "タスクプールサイズ",
     "taskPoolSizeHelper": "同時に実行できるバックグラウンドタスクの数。",
-    "serverPort": "サーバーポート",
-    "contextPath": "コンテキストパス",
-    "contextPathHelper": "サーバーが提供されるベースパス（例: /kmrs）。",
     "koboProxy": "Kobo プロキシ",
-    "koboPort": "Kobo ポート",
-    "kepubifyPath": "Kepubify パス",
-    "kepubifyPathHelper": "kepubify バイナリへのパス。EPUB から KEPUB への変換に使用します。",
     "unsaved_other": "{{count}} 件の未保存の変更",
     "discard": "破棄",
     "fixInvalid": "上の無効なフィールドを修正してから保存してください。",
@@ -155,16 +147,6 @@
     "medium": "中",
     "large": "大",
     "xlarge": "XL"
-  },
-  "multiSource": {
-    "notSet": "未設定",
-    "overridden": "データベースで上書き",
-    "fromConfig": "設定ファイルから",
-    "default": "デフォルト",
-    "clearOverride": "上書きをクリア",
-    "clearOverrideTooltip": "データベースの上書きをクリア",
-    "effective": "有効値: {{value}}",
-    "none": "なし"
   },
   "rotateKey": {
     "button": "ログイン保持キーを再生成",
@@ -183,8 +165,7 @@
   },
   "validation": {
     "positiveDays": "正の整数の日数で指定してください。",
-    "positiveInt": "正の整数で指定してください。",
-    "contextPath": "/ で始まり、英字または数字で終わる必要があります（例: /kmrs）。"
+    "positiveInt": "正の整数で指定してください。"
   },
   "logfile": {
     "title": "ログファイル",

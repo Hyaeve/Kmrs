@@ -1525,7 +1525,7 @@ fn manifest_epub_internal(
     let media = require_media(state, book_id)?;
     let series_metadata = series_metadata(state, &book_dto.series_id)?;
     let extension = crate::webpub::decode_epub_extension_view(media.extension_value.as_deref());
-    let base = crate::http::base_url::base_url(parts, &state.settings);
+    let base = crate::http::base_url::base_url(parts, &state.config);
     let publication = crate::webpub::to_manifest_epub(
         &book_dto,
         &media,
@@ -1558,7 +1558,7 @@ fn manifest_pdf_internal(
     restriction::check_book_dto(state, &auth.0.user, &book_dto)?;
     let media = require_media(state, book_id)?;
     let series_metadata = series_metadata(state, &book_dto.series_id)?;
-    let base = crate::http::base_url::base_url(parts, &state.settings);
+    let base = crate::http::base_url::base_url(parts, &state.config);
     let publication = crate::webpub::to_manifest_pdf(
         &book_dto,
         &media,
@@ -1583,7 +1583,7 @@ fn manifest_divina_internal(
     restriction::check_book_dto(state, &auth.0.user, &book_dto)?;
     let media = require_media(state, book_id)?;
     let series_metadata = series_metadata(state, &book_dto.series_id)?;
-    let base = crate::http::base_url::base_url(parts, &state.settings);
+    let base = crate::http::base_url::base_url(parts, &state.config);
     let publication = crate::webpub::to_manifest_divina(
         &book_dto,
         &media,

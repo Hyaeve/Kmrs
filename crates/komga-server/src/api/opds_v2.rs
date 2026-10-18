@@ -290,7 +290,7 @@ fn generate_opds_auth_document(base: &str) -> AuthenticationDocumentDto {
 
 /// `OpdsAuthenticationEntryPoint`: 401 with the auth document body and the three headers.
 fn unauthorized_auth_document(parts: &axum::http::request::Parts, state: &AppState) -> Response {
-    let base = base_url(parts, &state.settings);
+    let base = base_url(parts, &state.config);
     let mut response = Json(generate_opds_auth_document(&base)).into_response();
     *response.status_mut() = StatusCode::UNAUTHORIZED;
     let headers = response.headers_mut();
@@ -692,7 +692,7 @@ pub fn router() -> Router<AppState> {
 
 async fn get_auth_document(State(state): State<AppState>, request: Request) -> Response {
     let (parts, _body) = request.into_parts();
-    let base = base_url(&parts, &state.settings);
+    let base = base_url(&parts, &state.config);
     let mut response = Json(generate_opds_auth_document(&base)).into_response();
     response.headers_mut().insert(
         header::CONTENT_TYPE,
@@ -730,7 +730,7 @@ async fn libraries_recommended(
         Err(r) => return Ok(*r),
     };
     let user = &auth.user;
-    let base = base_url(&parts, &state.settings);
+    let base = base_url(&parts, &state.config);
     let (library, authorized) = check_library_access(&state, user, library_id.as_deref())?;
     let ctx = SearchContext::of_user(user);
     let page_5 = PageRequest {
@@ -985,7 +985,7 @@ async fn list_feed(
         Err(r) => return Ok(*r),
     };
     let user = &auth.user;
-    let base = base_url(&parts, &state.settings);
+    let base = base_url(&parts, &state.config);
     let (library, authorized) = check_library_access(&state, user, library_id.as_deref())?;
     let ctx = SearchContext::of_user(user);
     let page_request = PageRequest {
@@ -1390,7 +1390,7 @@ async fn libraries_browse(
         Err(r) => return Ok(*r),
     };
     let user = &auth.user;
-    let base = base_url(&parts, &state.settings);
+    let base = base_url(&parts, &state.config);
     let (library, authorized) = check_library_access(&state, user, library_id.as_deref())?;
     let ctx = SearchContext::of_user(user);
     let page = PageRequest {
@@ -1548,7 +1548,7 @@ async fn libraries_collections(
         Err(r) => return Ok(*r),
     };
     let user = &auth.user;
-    let base = base_url(&parts, &state.settings);
+    let base = base_url(&parts, &state.config);
     let (library, authorized) = check_library_access(&state, user, library_id.as_deref())?;
     let page = PageRequest {
         page: qp.pageable.page,
@@ -1642,7 +1642,7 @@ async fn get_one_collection(
         Err(r) => return Ok(*r),
     };
     let user = &auth.user;
-    let base = base_url(&parts, &state.settings);
+    let base = base_url(&parts, &state.config);
     let authorized = user.get_authorized_library_ids(None);
     let Some(collection) = CollectionDtoDao::new(state.db.clone())
         .with_searcher(Some(crate::search_index::searcher(&state)))
@@ -1746,7 +1746,7 @@ async fn libraries_readlists(
         Err(r) => return Ok(*r),
     };
     let user = &auth.user;
-    let base = base_url(&parts, &state.settings);
+    let base = base_url(&parts, &state.config);
     let (library, authorized) = check_library_access(&state, user, library_id.as_deref())?;
     let page = PageRequest {
         page: qp.pageable.page,
@@ -1840,7 +1840,7 @@ async fn get_one_readlist(
         Err(r) => return Ok(*r),
     };
     let user = &auth.user;
-    let base = base_url(&parts, &state.settings);
+    let base = base_url(&parts, &state.config);
     let authorized = user.get_authorized_library_ids(None);
     let Some(readlist) = ReadListDtoDao::new(state.db.clone())
         .with_searcher(Some(crate::search_index::searcher(&state)))
@@ -1928,7 +1928,7 @@ async fn get_smart_lists_root(
         Err(r) => return Ok(*r),
     };
     let user = &auth.user;
-    let base = base_url(&parts, &state.settings);
+    let base = base_url(&parts, &state.config);
     let lists = crate::service::smart_list::find_visible_lists(&state, user)?;
 
     let size = qp.pageable.size.max(1) as usize;
@@ -2005,7 +2005,7 @@ async fn get_one_smart_list(
         Err(r) => return Ok(*r),
     };
     let user = &auth.user;
-    let base = base_url(&parts, &state.settings);
+    let base = base_url(&parts, &state.config);
     let Some(smart_list) = crate::service::smart_list::find_visible(&state, user, &id)? else {
         return Err(ApiError::not_found(""));
     };
@@ -2102,7 +2102,7 @@ async fn get_one_series(
         Err(r) => return Ok(*r),
     };
     let user = &auth.user;
-    let base = base_url(&parts, &state.settings);
+    let base = base_url(&parts, &state.config);
     let Some(series) = series_dao(&state).find_by_id(&id, &user.id)? else {
         return Err(ApiError::not_found(""));
     };
@@ -2228,7 +2228,7 @@ async fn get_search_results(
         Err(r) => return Ok(*r),
     };
     let user = &auth.user;
-    let base = base_url(&parts, &state.settings);
+    let base = base_url(&parts, &state.config);
     let ctx = SearchContext::of_user(user);
     let page = PageRequest {
         page: 0,
@@ -2545,7 +2545,7 @@ async fn manifest_divina(
     let series_metadata = SeriesMetadataDao::new(state.db.clone())
         .find_by_id(&book.series_id)?
         .ok_or_else(|| ApiError::Internal(format!("no metadata for series {}", book.series_id)))?;
-    let base = base_url(parts, &state.settings);
+    let base = base_url(parts, &state.config);
     let dto = to_manifest_divina(
         &book,
         &media,
@@ -2571,7 +2571,7 @@ async fn manifest_pdf(
     let series_metadata = SeriesMetadataDao::new(state.db.clone())
         .find_by_id(&book.series_id)?
         .ok_or_else(|| ApiError::Internal(format!("no metadata for series {}", book.series_id)))?;
-    let base = base_url(parts, &state.settings);
+    let base = base_url(parts, &state.config);
     let dto = to_manifest_pdf(
         &book,
         &media,
@@ -2597,7 +2597,7 @@ async fn manifest_epub(
     let series_metadata = SeriesMetadataDao::new(state.db.clone())
         .find_by_id(&book.series_id)?
         .ok_or_else(|| ApiError::Internal(format!("no metadata for series {}", book.series_id)))?;
-    let base = base_url(parts, &state.settings);
+    let base = base_url(parts, &state.config);
     let extension = decode_epub_extension_view(media.extension_value.as_deref());
     let dto = to_manifest_epub(
         &book,

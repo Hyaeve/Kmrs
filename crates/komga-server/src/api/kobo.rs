@@ -290,7 +290,7 @@ async fn initialization(
     } else {
         native_kobo_resources()
     };
-    let base = crate::http::base_url::base_url_for_kobo(&headers, &state.settings);
+    let base = crate::http::base_url::base_url_from_headers(&headers, &state.config);
     let obj = resources.as_object_mut().expect("resources is an object");
     obj.insert(
         "image_host".to_string(),
@@ -432,9 +432,7 @@ async fn sync_library(
 
     let limit = state.config.kobo_sync_item_limit;
     let download_base = download_url_base(&state, &headers, &auth_token);
-    let kepub_available = state
-        .kepub
-        .is_available(&state.settings.get(), &state.config);
+    let kepub_available = state.kepub.is_available(&state.config);
 
     let mut should_continue_sync: bool;
     let results: Vec<SyncResultDto>;
@@ -832,7 +830,7 @@ fn readlist_books_grouped(
 }
 
 fn download_url_base(state: &AppState, headers: &HeaderMap, auth_token: &str) -> String {
-    let base = crate::http::base_url::base_url_for_kobo(headers, &state.settings);
+    let base = crate::http::base_url::base_url_from_headers(headers, &state.config);
     format!("{base}/kobo/{auth_token}/v1/books")
 }
 
@@ -942,9 +940,7 @@ async fn get_book_metadata(
     let rows = KoboDtoDao::new(state.db.clone())
         .find_book_metadata_by_ids(std::slice::from_ref(&book_id))?;
     let download_base = download_url_base(&state, &headers, &auth_token);
-    let kepub_available = state
-        .kepub
-        .is_available(&state.settings.get(), &state.config);
+    let kepub_available = state.kepub.is_available(&state.config);
     let dtos: Vec<KoboBookMetadataDto> = rows
         .iter()
         .map(|row| {
@@ -1144,7 +1140,7 @@ async fn get_book_file(
     };
     let kepubify = state
         .kepub
-        .kepubify_path(&state.settings.get(), &state.config)
+        .kepubify_path(&state.config)
         .ok_or_else(conversion_failed)?;
     // `Book.computeCacheKey`: "$id-$fileLastModified"
     let cache_key = format!("{}-{}", book.id, book.file_last_modified);
@@ -2083,13 +2079,6 @@ mod tests {
         }
     }
 
-    fn save_setting(state: &AppState, key: &str, value: &str) {
-        komga_db::dao::settings::SettingsDao::new(state.db.clone())
-            .save_setting(key, value)
-            .unwrap();
-        state.settings.reload();
-    }
-
     fn save_setting_bool(state: &AppState, key: &str, value: bool) {
         komga_db::dao::settings::SettingsDao::new(state.db.clone())
             .save_setting_bool(key, value)
@@ -2099,7 +2088,7 @@ mod tests {
 
     #[tokio::test]
     async fn kepubify_available_advertises_kepub_and_downloads_converted() {
-        let state = test_state();
+        let mut state = test_state();
         seed_base(&state, "a@b.c");
         seed_book(&state.db, "s1", "lib1", "b1", "v01");
         let dir = tempfile::tempdir().unwrap();
@@ -2124,7 +2113,9 @@ mod tests {
                 counter.display()
             ),
         );
-        save_setting(&state, "KEPUBIFY_PATH", script.to_str().unwrap());
+        let mut config = (*state.config).clone();
+        config.kepubify_path = Some(script);
+        state.config = std::sync::Arc::new(config);
         let app = test_router(state.clone());
 
         // download URLs advertise KEPUB with convert_kepub=true, with the original file size
@@ -2506,41 +2497,4 @@ mod tests {
     }
 
     // endregion
-
-    #[tokio::test]
-    async fn kobo_port_overrides_download_url_port() {
-        let state = test_state();
-        seed_base(&state, "a@b.c");
-        seed_book(&state.db, "s1", "lib1", "b1", "v01");
-        save_setting(&state, "KOBO_PORT", "8443");
-        let app = test_router(state);
-
-        // without forwarded headers the koboPort setting rewrites the port
-        let (status, _, bytes) = call(&app, "GET", "/kobo/kobokey/v1/library/sync", None).await;
-        assert_eq!(status, StatusCode::OK);
-        let url = json(&bytes)[0]["NewEntitlement"]["BookMetadata"]["DownloadUrls"][0]["Url"]
-            .as_str()
-            .unwrap()
-            .to_string();
-        assert!(url.starts_with("http://localhost:8443/"), "{url}");
-
-        // forwarded headers take over: the setting is ignored
-        let (status, _, bytes) = call_with_headers(
-            &app,
-            "GET",
-            "/kobo/kobokey/v1/library/sync",
-            None,
-            &[
-                ("x-forwarded-host", "library.example"),
-                ("x-forwarded-proto", "https"),
-            ],
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
-        let url = json(&bytes)[0]["NewEntitlement"]["BookMetadata"]["DownloadUrls"][0]["Url"]
-            .as_str()
-            .unwrap()
-            .to_string();
-        assert!(url.starts_with("https://library.example/"), "{url}");
-    }
 }

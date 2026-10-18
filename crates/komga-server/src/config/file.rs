@@ -304,7 +304,7 @@ pub fn render(file: &FileConfig, config: &ServerConfig, source: Option<&Path>) -
         &mut out,
         fserver.and_then(|s| s.context_path.as_ref()).is_some(),
         format!(
-            "context-path = {} # env: SERVER_SERVLET_CONTEXT_PATH; URL prefix, empty = root",
+            "context-path = {} # env: SERVER_SERVLET_CONTEXT_PATH; prefix added to generated links (OPDS/Kobo); routes are not mounted under it, so the reverse proxy must strip the prefix",
             q(config.server_context_path.as_deref().unwrap_or("/"))
         ),
     );

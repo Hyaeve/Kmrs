@@ -1,8 +1,7 @@
-//! `KepubConverter.kt`: kepubify availability (DB setting first, config property as fallback)
-//! and the 5-minute cache of converted files (`KoboController.cachedKepub`).
+//! `KepubConverter.kt`: kepubify availability (the `komga.kobo.kepubify-path` config
+//! property, probed) and the 5-minute cache of converted files (`KoboController.cachedKepub`).
 
 use crate::config::ServerConfig;
-use crate::settings::KomgaSettings;
 use komga_media::kepubify;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -46,31 +45,17 @@ impl KepubConverter {
         })
     }
 
-    /// Effective kepubify path, probed: DB setting first; on blank or invalid value, falls
-    /// back to the `komga.kobo.kepubify-path` config property (`configureKepubify`).
-    pub fn kepubify_path(
-        &self,
-        settings: &KomgaSettings,
-        config: &ServerConfig,
-    ) -> Option<PathBuf> {
-        let db_value = settings
+    /// Effective kepubify path: the `komga.kobo.kepubify-path` config property, probed
+    /// (`configureKepubify`).
+    pub fn kepubify_path(&self, config: &ServerConfig) -> Option<PathBuf> {
+        config
             .kepubify_path
             .as_deref()
-            .filter(|s| !s.trim().is_empty());
-        let config_value = || {
-            config
-                .kepubify_path
-                .as_deref()
-                .and_then(|p| self.probe(&p.to_string_lossy()))
-        };
-        match db_value {
-            Some(value) => self.probe(value).or_else(config_value),
-            None => config_value(),
-        }
+            .and_then(|p| self.probe(&p.to_string_lossy()))
     }
 
-    pub fn is_available(&self, settings: &KomgaSettings, config: &ServerConfig) -> bool {
-        self.kepubify_path(settings, config).is_some()
+    pub fn is_available(&self, config: &ServerConfig) -> bool {
+        self.kepubify_path(config).is_some()
     }
 
     fn probe(&self, path: &str) -> Option<PathBuf> {
@@ -129,22 +114,6 @@ mod tests {
         ServerConfig::from_env()
     }
 
-    fn settings(kepubify_path: Option<&str>) -> KomgaSettings {
-        KomgaSettings {
-            delete_empty_collections: false,
-            delete_empty_readlists: false,
-            remember_me_key: String::new(),
-            remember_me_duration: Duration::from_secs(1),
-            thumbnail_size: crate::settings::ThumbnailSize::Default,
-            task_pool_size: 1,
-            server_port: None,
-            server_context_path: None,
-            kobo_proxy: false,
-            kobo_port: None,
-            kepubify_path: kepubify_path.map(str::to_string),
-        }
-    }
-
     fn executable_script(path: &Path, content: &str) {
         std::fs::write(path, content).unwrap();
         #[cfg(unix)]
@@ -157,34 +126,23 @@ mod tests {
     #[test]
     fn unavailable_without_any_path() {
         let converter = KepubConverter::new(tempfile::tempdir().unwrap().keep());
-        assert!(!converter.is_available(&settings(None), &config()));
+        assert!(!converter.is_available(&config()));
     }
 
     #[test]
-    fn db_setting_takes_precedence_and_is_probed_once() {
+    fn config_path_is_probed() {
         let dir = tempfile::tempdir().unwrap();
         let valid = dir.path().join("kepubify");
         executable_script(&valid, "#!/bin/sh\nexit 0\n");
-        let counter = dir.path().join("count");
-        let counted = dir.path().join("kepubify-counted");
-        executable_script(
-            &counted,
-            &format!(
-                "#!/bin/sh\nwc -l < /dev/null >> \"{}\"\nexit 0\n",
-                counter.display()
-            ),
-        );
 
         let converter = KepubConverter::new(tempfile::tempdir().unwrap().keep());
-        let s = settings(Some(counted.to_str().unwrap()));
-        assert!(converter.is_available(&s, &config()));
-        // DB value wins over the config property
         let mut config = config();
         config.kepubify_path = Some(valid.clone());
-        assert_eq!(converter.kepubify_path(&s, &config), Some(counted.clone()));
-        // invalid DB value falls back to the config property
-        let bad = settings(Some("/does/not/exist"));
-        assert_eq!(converter.kepubify_path(&bad, &config), Some(valid));
+        assert_eq!(converter.kepubify_path(&config), Some(valid));
+        assert!(converter.is_available(&config));
+
+        config.kepubify_path = Some(PathBuf::from("/does/not/exist"));
+        assert_eq!(converter.kepubify_path(&config), None);
     }
 
     #[test]

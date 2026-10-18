@@ -20,6 +20,7 @@ kmrs is a drop-in, data-level compatible reimplementation of [gotson/komga](http
 - When porting behavior, verify against the Java/Kotlin sources, never from memory.
 - Actuator endpoints and metrics that only expose JVM/Spring internals (beans, env, loggers, mappings, `system.*`, `jvm.*` beyond `jvm.memory.used`, ...) are intentional scope exclusions, not gaps.
 - `/actuator/**` is a pure compatibility surface, frozen at Java parity: never add endpoints or response fields there (kmrs-specific additions go under `/api/**`), and leave existing behavior alone unless fixing a parity bug. The one intentional exception is `/actuator/shutdown`, dropped for security (the Java version allows it anonymously); kmrs has no HTTP shutdown endpoint at all.
+- Server port, context path, and the kepubify path are configuration-only: the Java version also honors database overrides from the settings UI, kmrs never reads them (`PATCH /api/v1/settings` silently ignores the three fields; `server.context-path` only prefixes generated links, routes are not mounted under it). `koboPort` is dropped entirely — Kobo download URLs are built from the request's Host as-is (a reverse proxy is the supported deployment).
 
 ## Versioning
 

@@ -32,26 +32,25 @@ async fn get_server_settings(
         task_pool_size: Some(s.task_pool_size as i64),
         server_port: Some(SettingMultiSource {
             configuration_source: Some(config.port),
-            database_source: s.server_port,
-            effective_value: Some(s.server_port.unwrap_or(config.port)),
+            database_source: None,
+            effective_value: Some(config.port),
         }),
         server_context_path: Some(SettingMultiSource {
             configuration_source: config.server_context_path.clone(),
-            database_source: s.server_context_path.clone(),
-            effective_value: Some(s.server_context_path.clone().unwrap_or_default()),
+            database_source: None,
+            effective_value: Some(config.server_context_path.clone().unwrap_or_default()),
         }),
         kobo_proxy: Some(s.kobo_proxy),
-        kobo_port: s.kobo_port.map(|p| p as i64),
         kepubify_path: Some(SettingMultiSource {
             configuration_source: config
                 .kepubify_path
                 .as_ref()
                 .map(|p| p.display().to_string()),
-            database_source: s.kepubify_path.clone(),
-            // Java reports the resolved path (DB first, configuration fallback, probed)
+            database_source: None,
+            // Java reports the resolved path (configuration value, probed)
             effective_value: state
                 .kepub
-                .kepubify_path(&s, config)
+                .kepubify_path(config)
                 .map(|p| p.display().to_string()),
         }),
         max_upload_file_size_bytes: Some(DEFAULT_MAX_FILE_SIZE_BYTES),
@@ -80,24 +79,6 @@ async fn update_server_settings(
             "must be greater than 0",
         ));
     }
-    for (field, value) in [
-        ("serverPort", &body.server_port),
-        ("koboPort", &body.kobo_port),
-    ] {
-        if let Some(Some(v)) = value {
-            if *v == 0 {
-                violations.push(violation(field, "must be greater than 0"));
-            }
-        }
-    }
-    if let Some(Some(path)) = &body.server_context_path {
-        if !valid_context_path(path) {
-            violations.push(violation(
-                "serverContextPath",
-                "must match \"^/[\\w-/]*[a-zA-Z0-9]$\"",
-            ));
-        }
-    }
     if !violations.is_empty() {
         return Err(ApiError::Violations(violations));
     }
@@ -120,37 +101,12 @@ async fn update_server_settings(
     if let Some(v) = body.task_pool_size {
         dao.save_setting_i64("TASK_POOL_SIZE", v)?;
     }
-    if let Some(v) = body.server_port {
-        save_opt_i64(&dao, "SERVER_PORT", v)?;
-    }
-    if let Some(v) = &body.server_context_path {
-        match v {
-            Some(path) => dao.save_setting("SERVER_CONTEXT_PATH", path)?,
-            None => dao.delete_setting("SERVER_CONTEXT_PATH")?,
-        }
-    }
     if let Some(v) = body.kobo_proxy {
         dao.save_setting_bool("KOBO_PROXY", v)?;
-    }
-    if let Some(v) = body.kobo_port {
-        save_opt_i64(&dao, "KOBO_PORT", v)?;
-    }
-    if let Some(v) = &body.kepubify_path {
-        match v {
-            Some(path) => dao.save_setting("KEPUBIFY_PATH", path)?,
-            None => dao.delete_setting("KEPUBIFY_PATH")?,
-        }
     }
 
     state.settings.reload();
     Ok(StatusCode::NO_CONTENT)
-}
-
-fn save_opt_i64(dao: &SettingsDao, key: &str, value: Option<u16>) -> komga_db::Result<()> {
-    match value {
-        Some(v) => dao.save_setting_i64(key, v as i64),
-        None => dao.delete_setting(key),
-    }
 }
 
 fn violation(field: &str, message: &str) -> crate::error::Violation {
@@ -158,17 +114,6 @@ fn violation(field: &str, message: &str) -> crate::error::Violation {
         field_name: field.into(),
         message: message.into(),
     }
-}
-
-fn valid_context_path(path: &str) -> bool {
-    if !path.starts_with('/') || path.len() < 2 {
-        return false;
-    }
-    let last = path.chars().last().unwrap();
-    last.is_ascii_alphanumeric()
-        && path[1..]
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '/')
 }
 
 #[cfg(test)]
@@ -207,6 +152,10 @@ mod tests {
         assert_eq!(json["taskPoolSize"], 2);
         assert_eq!(json["serverPort"]["effectiveValue"], 25600);
         assert_eq!(json["serverPort"]["configurationSource"], 25600);
+        assert_eq!(
+            json["serverPort"]["databaseSource"],
+            serde_json::Value::Null
+        );
         assert_eq!(json["koboProxy"], false);
         assert_eq!(json["maxUploadFileSizeBytes"], 1_048_576);
 
@@ -235,46 +184,40 @@ mod tests {
     // chmod-based script setup is POSIX-only; skipped on Windows
     #[cfg(unix)]
     #[tokio::test]
-    async fn kepubify_effective_value_resolves_db_then_configuration() {
+    async fn kepubify_effective_value_comes_from_configuration() {
         let dir = tempfile::tempdir().unwrap();
-        let make_script = |name: &str| {
-            let script = dir.path().join(name);
-            std::fs::write(&script, "#!/bin/sh\n").unwrap();
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-            script
-        };
-        let config_script = make_script("kepubify-config");
-        let db_script = make_script("kepubify-db");
-        let config_str = config_script.to_str().unwrap().to_string();
+        let script = dir.path().join("kepubify");
+        std::fs::write(&script, "#!/bin/sh\n").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let config_str = script.to_str().unwrap().to_string();
 
         let mut state = test_state();
         let mut config = (*state.config).clone();
-        config.kepubify_path = Some(config_script);
+        config.kepubify_path = Some(script);
         state.config = std::sync::Arc::new(config);
         let key = seed_admin(&state);
 
-        // no DB value: the configuration value becomes effective (the docker image case)
         let kepubify = get_kepubify(&state, &key).await;
         assert_eq!(kepubify["configurationSource"], config_str);
         assert_eq!(kepubify["databaseSource"], serde_json::Value::Null);
         assert_eq!(kepubify["effectiveValue"], config_str);
 
-        // a valid DB value wins
+        // a stale DB row from the Java era is not honored
         let dao = SettingsDao::new(state.db.clone());
-        dao.save_setting("KEPUBIFY_PATH", db_script.to_str().unwrap())
-            .unwrap();
-        state.settings.reload();
-        let kepubify = get_kepubify(&state, &key).await;
-        assert_eq!(kepubify["databaseSource"], db_script.to_str().unwrap());
-        assert_eq!(kepubify["effectiveValue"], db_script.to_str().unwrap());
-
-        // an invalid DB value falls back to configuration
         dao.save_setting("KEPUBIFY_PATH", "/nonexistent/kepubify")
             .unwrap();
         state.settings.reload();
         let kepubify = get_kepubify(&state, &key).await;
+        assert_eq!(kepubify["databaseSource"], serde_json::Value::Null);
         assert_eq!(kepubify["effectiveValue"], config_str);
+
+        // an unprobed configuration value reports no effective path
+        let mut config = (*state.config).clone();
+        config.kepubify_path = Some(std::path::PathBuf::from("/nonexistent/kepubify"));
+        state.config = std::sync::Arc::new(config);
+        let kepubify = get_kepubify(&state, &key).await;
+        assert_eq!(kepubify["effectiveValue"], serde_json::Value::Null);
     }
 
     #[tokio::test]
@@ -285,8 +228,6 @@ mod tests {
             "deleteEmptyCollections": true,
             "taskPoolSize": 4,
             "thumbnailSize": "LARGE",
-            "serverPort": 8080,
-            "serverContextPath": "/komga",
             "koboProxy": true
         });
         let (status, _, _) = call(
@@ -304,12 +245,19 @@ mod tests {
         assert!(s.delete_empty_collections);
         assert_eq!(s.task_pool_size, 4);
         assert_eq!(s.thumbnail_size.as_str(), "LARGE");
-        assert_eq!(s.server_port, Some(8080));
-        assert_eq!(s.server_context_path.as_deref(), Some("/komga"));
         assert!(s.kobo_proxy);
+    }
 
-        // isSet semantics: explicit null clears the DB value
-        let body = serde_json::json!({"serverPort": null, "serverContextPath": null});
+    #[tokio::test]
+    async fn patch_ignores_dropped_fields() {
+        let state = test_state();
+        seed_admin(&state);
+        let body = serde_json::json!({
+            "serverPort": 8080,
+            "serverContextPath": "/komga",
+            "kepubifyPath": "/tmp/kepubify",
+            "koboPort": 17878
+        });
         let (status, _, _) = call(
             &state,
             router(),
@@ -321,9 +269,15 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::NO_CONTENT);
-        let s = state.settings.get();
-        assert_eq!(s.server_port, None);
-        assert_eq!(s.server_context_path, None);
+        let dao = SettingsDao::new(state.db.clone());
+        assert_eq!(dao.get_setting("SERVER_PORT").unwrap(), None);
+        assert_eq!(dao.get_setting("SERVER_CONTEXT_PATH").unwrap(), None);
+        assert_eq!(dao.get_setting("KEPUBIFY_PATH").unwrap(), None);
+        assert_eq!(dao.get_setting("KOBO_PORT").unwrap(), None);
+        let (_, _, body) = call(&state, router(), get("/api/v1/settings", "k")).await;
+        let json = serde_json::from_slice::<serde_json::Value>(&body).unwrap();
+        assert_eq!(json["serverPort"]["effectiveValue"], 25600);
+        assert!(json.get("koboPort").is_none());
     }
 
     #[tokio::test]
@@ -333,8 +287,6 @@ mod tests {
         // the legacy WebUI serializes v-text-field number inputs as JSON strings
         let body = serde_json::json!({
             "taskPoolSize": "4",
-            "serverPort": "8080",
-            "koboPort": "17878",
             "rememberMeDurationDays": "30",
             "deleteEmptyCollections": "true",
             "deleteEmptyReadLists": "0",
@@ -353,8 +305,6 @@ mod tests {
         assert_eq!(status, StatusCode::NO_CONTENT);
         let s = state.settings.get();
         assert_eq!(s.task_pool_size, 4);
-        assert_eq!(s.server_port, Some(8080));
-        assert_eq!(s.kobo_port, Some(17878));
         assert_eq!(s.remember_me_duration.as_secs() / 86_400, 30);
         assert!(s.delete_empty_collections);
         assert!(!s.delete_empty_readlists);
@@ -396,7 +346,8 @@ mod tests {
         };
         assert_eq!(status, StatusCode::BAD_REQUEST);
         let violations = json["violations"].as_array().unwrap();
-        assert_eq!(violations.len(), 2);
+        // serverContextPath is configuration-only: silently ignored, not a violation
+        assert_eq!(violations.len(), 1);
         assert_eq!(violations[0]["fieldName"], "taskPoolSize");
 
         // renewRememberMeKey generates a new key

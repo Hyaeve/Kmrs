@@ -37,9 +37,7 @@
     "security": "보안",
     "thumbnails": "썸네일",
     "tasks": "작업",
-    "server": "서버",
-    "kobo": "Kobo",
-    "kepubify": "Kepubify"
+    "kobo": "Kobo"
   },
   "content": {
     "libraries": "라이브러리",
@@ -138,13 +136,7 @@
     "thumbnailSizeHelper": "썸네일이 클수록 선명하지만 디스크 공간을 더 차지합니다.",
     "taskPoolSize": "작업 풀 크기",
     "taskPoolSizeHelper": "동시에 실행할 수 있는 백그라운드 작업 수입니다.",
-    "serverPort": "서버 포트",
-    "contextPath": "컨텍스트 경로",
-    "contextPathHelper": "서버가 제공되는 기본 경로입니다. 예: /kmrs.",
     "koboProxy": "Kobo 프록시",
-    "koboPort": "Kobo 포트",
-    "kepubifyPath": "Kepubify 경로",
-    "kepubifyPathHelper": "EPUB에서 KEPUB 변환에 사용하는 kepubify 바이너리 경로입니다.",
     "unsaved_other": "저장되지 않은 변경 사항 {{count}}개",
     "discard": "버리기",
     "fixInvalid": "저장하려면 위의 잘못된 필드를 수정하세요.",
@@ -155,16 +147,6 @@
     "medium": "중간",
     "large": "크게",
     "xlarge": "특대"
-  },
-  "multiSource": {
-    "notSet": "설정되지 않음",
-    "overridden": "데이터베이스에서 재정의됨",
-    "fromConfig": "구성에서 지정됨",
-    "default": "기본값",
-    "clearOverride": "재정의 지우기",
-    "clearOverrideTooltip": "데이터베이스 재정의 지우기",
-    "effective": "적용 값: {{value}}",
-    "none": "없음"
   },
   "rotateKey": {
     "button": "로그인 유지 키 교체",
@@ -183,8 +165,7 @@
   },
   "validation": {
     "positiveDays": "0보다 큰 정수(일)여야 합니다.",
-    "positiveInt": "양의 정수여야 합니다.",
-    "contextPath": "/로 시작하고 문자나 숫자로 끝나야 합니다. 예: /kmrs."
+    "positiveInt": "양의 정수여야 합니다."
   },
   "logfile": {
     "title": "로그 파일",
