@@ -24,7 +24,7 @@ kmrs is a drop-in, data-level compatible reimplementation of [gotson/komga](http
 ## Versioning
 
 - The version lives in the workspace root `Cargo.toml` (`workspace.package.version`); crates inherit it via `version.workspace = true`.
-- Bump the version only when the user explicitly asks; the bump then rides along with the feature PR as a separate `chore: bump version` commit — never its own PR. Bumps are patch-level by default, features included; a minor bump is only for an explicitly called-out milestone.
+- Bump the version only when the user explicitly asks, and always as its own dedicated PR (`chore: bump version`) once the feature work it covers is merged — never folded into a feature PR. Bumps are patch-level by default, features included; a minor bump is only for an explicitly called-out milestone.
 
 ## Configuration keys
 
