@@ -239,7 +239,7 @@ impl Analyzer {
             }
             Err(e) => {
                 tracing::error!("Error while analyzing book {}: {e}", book_path.display());
-                return media(MediaStatus::Error, None, Some("ERR_1008".into()));
+                return media(MediaStatus::Error, None, Some(format!("ERR_1008: {e}")));
             }
         };
 
@@ -606,19 +606,20 @@ fn media(status: MediaStatus, media_type: Option<String>, comment: Option<String
 }
 
 fn error_media(e: &MediaError) -> Media {
-    let code = match e {
-        MediaError::NoSuchFile(_) => "ERR_1018",
+    let comment = match e {
+        MediaError::NoSuchFile(_) => "ERR_1018".to_string(),
         MediaError::Other(err)
             if err
                 .downcast_ref::<std::io::Error>()
                 .map(|io| io.kind() == std::io::ErrorKind::PermissionDenied)
                 .unwrap_or(false) =>
         {
-            "ERR_1000"
+            "ERR_1000".to_string()
         }
-        _ => "ERR_1005",
+        // the bare code tells the user nothing; keep the underlying cause with it
+        _ => format!("ERR_1005: {e}"),
     };
-    media(MediaStatus::Error, None, Some(code.to_string()))
+    media(MediaStatus::Error, None, Some(comment))
 }
 
 fn is_epub_extension(book_path: &Path) -> bool {
@@ -757,9 +758,24 @@ pub(crate) fn zip_entries_from<R: std::io::Read + std::io::Seek>(
 ) -> Result<Vec<ContainerEntry>> {
     let mut entries = Vec::new();
     for i in 0..archive.len() {
-        let mut entry = archive
-            .by_index(i)
-            .map_err(|e| MediaError::Other(anyhow::anyhow!("could not read zip entry: {e}")))?;
+        // the central-directory name survives a broken local header, `entry.name_raw()` does not
+        let cd_name = archive.name_for_index(i).unwrap_or("?").to_string();
+        let mut entry = match archive.by_index(i) {
+            Ok(entry) => entry,
+            Err(e) => {
+                // commons-compress lists entries from the central directory alone, so an
+                // unreadable local header only fails that entry: it is kept with a null
+                // mediaType (feeding ERR_1007) instead of aborting the whole listing
+                tracing::warn!("Could not analyze entry: {cd_name}: {e}");
+                entries.push(ContainerEntry {
+                    name: cd_name,
+                    media_type: None,
+                    dimension: None,
+                    file_size: None,
+                });
+                continue;
+            }
+        };
         if entry.is_dir() {
             continue;
         }
@@ -2568,6 +2584,44 @@ mod tests {
         assert_eq!(media.status, MediaStatus::Ready);
         assert_eq!(media.pages[0].width, Some(48));
         assert_eq!(media.pages[0].height, Some(32));
+    }
+
+    #[test]
+    fn analyze_zip_tolerates_broken_local_header_offset() {
+        let dir = tmpdir("broken-local-header");
+        let book = dir.join("book.cbz");
+        write_zip(
+            &book,
+            &[("a.png", &make_png(48, 48)), ("b.png", &make_png(48, 48))],
+        );
+
+        // real-world packers sometimes write a wrong local header offset into the central
+        // directory; the affected entry must degrade to ERR_1007, not fail the book
+        let mut bytes = std::fs::read(&book).unwrap();
+        let eocd = bytes.windows(4).rposition(|w| w == b"PK\x05\x06").unwrap();
+        let mut p = u32::from_le_bytes(bytes[eocd + 16..eocd + 20].try_into().unwrap()) as usize;
+        loop {
+            assert_eq!(&bytes[p..p + 4], b"PK\x01\x02");
+            let nlen = u16::from_le_bytes(bytes[p + 28..p + 30].try_into().unwrap()) as usize;
+            let elen = u16::from_le_bytes(bytes[p + 30..p + 32].try_into().unwrap()) as usize;
+            let clen = u16::from_le_bytes(bytes[p + 32..p + 34].try_into().unwrap()) as usize;
+            if &bytes[p + 46..p + 46 + nlen] == b"b.png" {
+                bytes[p + 42..p + 46].copy_from_slice(&8u32.to_le_bytes());
+                break;
+            }
+            p += 46 + nlen + elen + clen;
+        }
+        std::fs::write(&book, &bytes).unwrap();
+
+        let media = analyzer().analyze(&book, false).media;
+        assert_eq!(media.status, MediaStatus::Ready);
+        assert_eq!(media.comment.as_deref(), Some("ERR_1007 [b.png]"));
+        assert_eq!(media.page_count, 1);
+        assert_eq!(media.pages[0].file_name, "a.png");
+        assert_eq!(media.files.len(), 1);
+        assert_eq!(media.files[0].file_name, "b.png");
+        assert_eq!(media.files[0].media_type, None);
+        assert_eq!(media.files[0].file_size, None);
     }
 
     /// Guards the head-first dimension reads: analyzing a big entry must not pull the whole
