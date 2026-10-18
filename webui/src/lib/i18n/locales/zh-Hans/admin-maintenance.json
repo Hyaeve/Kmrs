@@ -19,7 +19,7 @@
     "namePlaceholder": "例如：漫画",
     "rootFolder": "根目录",
     "rootHelper": "运行 kmrs 的机器上的绝对路径。",
-    "oneshotsDirectory": "单篇目录",
+    "oneshotsDirectory": "单篇关键词",
     "oneshotsHelper": "路径中包含此值的文件夹，其中的书籍会成为单篇。留空则停用。",
     "oneshotsPlaceholder": "例如 @oneshot",
     "autoScanNote": "创建后会立即自动扫描该库。",

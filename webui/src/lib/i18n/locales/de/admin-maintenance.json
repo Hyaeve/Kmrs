@@ -23,7 +23,7 @@
     "namePlaceholder": "z. B. Comics",
     "rootFolder": "Stammordner",
     "rootHelper": "Absoluter Pfad auf der Maschine, auf der kmrs läuft.",
-    "oneshotsDirectory": "Oneshot-Verzeichnis",
+    "oneshotsDirectory": "Oneshot-Stichwort",
     "oneshotsHelper": "Bücher in Ordnern, deren Pfad diesen Wert enthält, werden zu Oneshots. Leer lassen, um zu deaktivieren.",
     "oneshotsPlaceholder": "z. B. @oneshot",
     "autoScanNote": "Die Bibliothek wird direkt nach dem Erstellen automatisch gescannt.",

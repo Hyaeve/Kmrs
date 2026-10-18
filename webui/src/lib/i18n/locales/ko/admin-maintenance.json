@@ -19,7 +19,7 @@
     "namePlaceholder": "예: 만화",
     "rootFolder": "루트 폴더",
     "rootHelper": "kmrs가 실행 중인 머신의 절대 경로입니다.",
-    "oneshotsDirectory": "단편 디렉터리",
+    "oneshotsDirectory": "단편 키워드",
     "oneshotsHelper": "경로에 이 값이 포함된 폴더의 책은 단편이 됩니다. 비워 두면 사용하지 않습니다.",
     "oneshotsPlaceholder": "예: @oneshot",
     "autoScanNote": "라이브러리는 생성 직후 자동으로 스캔됩니다.",

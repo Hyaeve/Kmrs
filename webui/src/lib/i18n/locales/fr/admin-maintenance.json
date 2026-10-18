@@ -27,7 +27,7 @@
     "namePlaceholder": "p. ex. Comics",
     "rootFolder": "Dossier racine",
     "rootHelper": "Chemin absolu sur la machine qui exécute kmrs.",
-    "oneshotsDirectory": "Répertoire des one-shots",
+    "oneshotsDirectory": "Mot-clé one-shots",
     "oneshotsHelper": "Les livres dans les dossiers dont le chemin contient cette valeur deviennent des one-shots. Laisser vide pour désactiver.",
     "oneshotsPlaceholder": "p. ex. @oneshot",
     "autoScanNote": "La bibliothèque est scannée automatiquement juste après sa création.",

@@ -27,7 +27,7 @@
     "namePlaceholder": "p. ej. Cómics",
     "rootFolder": "Carpeta raíz",
     "rootHelper": "Ruta absoluta en la máquina que ejecuta kmrs.",
-    "oneshotsDirectory": "Directorio de oneshots",
+    "oneshotsDirectory": "Palabra clave de oneshots",
     "oneshotsHelper": "Los libros en carpetas cuya ruta contenga este valor se convierten en oneshots. Déjalo vacío para desactivarlo.",
     "oneshotsPlaceholder": "p. ej. @oneshot",
     "autoScanNote": "La biblioteca se escanea automáticamente justo después de crearla.",

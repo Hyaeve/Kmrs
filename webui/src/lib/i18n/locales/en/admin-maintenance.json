@@ -23,7 +23,7 @@
     "namePlaceholder": "e.g. Comics",
     "rootFolder": "Root folder",
     "rootHelper": "Absolute path on the machine running kmrs.",
-    "oneshotsDirectory": "Oneshots directory",
+    "oneshotsDirectory": "Oneshots keyword",
     "oneshotsHelper": "Books in folders whose path contains this value become oneshots. Leave empty to disable.",
     "oneshotsPlaceholder": "e.g. @oneshot",
     "autoScanNote": "The library is scanned automatically right after creation.",

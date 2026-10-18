@@ -19,7 +19,7 @@
     "namePlaceholder": "例: コミック",
     "rootFolder": "ルートフォルダー",
     "rootHelper": "kmrs を実行しているマシン上の絶対パス。",
-    "oneshotsDirectory": "読み切りディレクトリ",
+    "oneshotsDirectory": "読み切りキーワード",
     "oneshotsHelper": "パスにこの値を含むフォルダー内の本は読み切りになります。空欄で無効。",
     "oneshotsPlaceholder": "例: @oneshot",
     "autoScanNote": "ライブラリは作成直後に自動でスキャンされます。",

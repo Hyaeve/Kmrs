@@ -19,7 +19,7 @@
     "namePlaceholder": "例如：漫畫",
     "rootFolder": "根目錄",
     "rootHelper": "執行 kmrs 的機器上的絕對路徑。",
-    "oneshotsDirectory": "單篇目錄",
+    "oneshotsDirectory": "單篇關鍵字",
     "oneshotsHelper": "路徑包含此值的資料夾中的書籍會視為單篇。留空則停用。",
     "oneshotsPlaceholder": "例如：@oneshot",
     "autoScanNote": "書庫建立後會立即自動掃描。",
