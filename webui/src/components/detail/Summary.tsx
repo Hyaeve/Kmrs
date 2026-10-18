@@ -18,7 +18,7 @@ export function Summary({ text, className }: { text: string; className?: string 
 
   return (
     <FadeKey id={text} className={className}>
-      <p ref={ref} className={cn('max-w-3xl leading-relaxed text-ink-2', !expanded && 'line-clamp-4')}>
+      <p ref={ref} className={cn('max-w-3xl whitespace-pre-line leading-relaxed text-ink-2', !expanded && 'line-clamp-4')}>
         {text}
       </p>
       {(overflows || expanded) && (
