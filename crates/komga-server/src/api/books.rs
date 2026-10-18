@@ -124,6 +124,11 @@ pub fn router() -> Router<AppState> {
             "/api/v1/books/{bookId}/resource/{*resource}",
             routing::get(get_book_epub_resource),
         )
+        // the Java controller maps both paths to the same handler
+        .route(
+            "/opds/v2/books/{bookId}/resource/{*resource}",
+            routing::get(get_book_epub_resource),
+        )
         .route(
             "/api/v1/books/{bookId}/file",
             routing::get(download_book_file),
@@ -4470,6 +4475,87 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    // endregion
+
+    // region epub resource
+
+    fn write_epub(dir: &std::path::Path, entries: &[(&str, &[u8])]) -> PathBuf {
+        let path = dir.join("book.epub");
+        let file = std::fs::File::create(&path).unwrap();
+        let mut writer = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        for (name, bytes) in entries {
+            writer.start_file(name, options).unwrap();
+            std::io::Write::write_all(&mut writer, bytes).unwrap();
+        }
+        writer.finish().unwrap();
+        path
+    }
+
+    fn epub_resource_book(db: &Database, url: &str, files: Vec<MediaFile>) {
+        seed_book(db, "b1", "s1", "l1", url);
+        let media = Media {
+            book_id: "b1".into(),
+            status: MediaStatus::Ready,
+            media_type: Some(detect::APPLICATION_EPUB.to_string()),
+            comment: None,
+            page_count: 0,
+            pages: vec![],
+            files,
+            extension_class: None,
+            extension_value: None,
+            epub_divina_compatible: false,
+            epub_is_kepub: false,
+            created_date: time_codec::now_utc(),
+            last_modified_date: time_codec::now_utc(),
+        };
+        MediaDao::new(db.clone()).update(&media).unwrap();
+    }
+
+    #[tokio::test]
+    async fn epub_resource_served_on_api_and_opds_v2_paths() {
+        let state = test_state_with_settings();
+        let db = state.db.clone();
+        seed_library(&db, "l1");
+        seed_series(&db, "s1", "l1");
+        let dir = tempfile::tempdir().unwrap();
+        let epub = write_epub(dir.path(), &[("images/cover.png", PNG_1X1)]);
+        epub_resource_book(
+            &db,
+            &format!("file:{}", epub.display()),
+            vec![MediaFile {
+                file_name: "images/cover.png".into(),
+                media_type: Some(detect::IMAGE_PNG.to_string()),
+                sub_type: Some(MediaFileSubType::EpubAsset),
+                file_size: None,
+            }],
+        );
+        seed_user(&db, "admin@example.org", "pw", true);
+        let app = test_router(state.clone());
+
+        for uri in [
+            "/api/v1/books/b1/resource/images/cover.png",
+            "/opds/v2/books/b1/resource/images/cover.png",
+        ] {
+            let (status, headers, body) = call(
+                &app,
+                "GET",
+                uri,
+                Some(&basic("admin@example.org", "pw")),
+                None,
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{uri}");
+            assert_eq!(body, PNG_1X1, "{uri}");
+            assert_eq!(
+                headers[axum::http::header::CONTENT_TYPE],
+                "image/png",
+                "{uri}"
+            );
+        }
     }
 
     // endregion
