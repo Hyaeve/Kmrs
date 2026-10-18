@@ -2220,7 +2220,7 @@ fn join_path(dir: &str, base: &str) -> String {
 }
 
 /// Java `Path.normalize` over forward-slash zip paths
-fn normalize_zip_path(path: &str) -> String {
+pub fn normalize_zip_path(path: &str) -> String {
     let path = path.replace('\\', "/");
     let mut segments: Vec<&str> = vec![];
     for seg in path.split('/') {
