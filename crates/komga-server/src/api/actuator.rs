@@ -3,8 +3,8 @@
 //!
 //! This surface is frozen at Java parity: no kmrs-specific endpoints or response fields
 //! (those go under `/api/**`), and no behavior changes except parity fixes. One deliberate
-//! exception: `shutdown` is dropped entirely — the Java version allows it anonymously, and
-//! the only shutdown surface here is the admin-only `POST /api/v1/server/shutdown`.
+//! exception: `shutdown` is dropped entirely — the Java version allows it anonymously,
+//! and kmrs has no HTTP shutdown endpoint at all.
 //!
 //! komga's `application.yml` sets `management.endpoints.web.exposure.include: "*"`, so Java
 //! exposes everything Spring can auto-configure. Endpoints and meters that only dump
@@ -1838,25 +1838,5 @@ mod tests {
         let mut library = service_series_test_library();
         library.scan_interval = komga_core::model::library::ScanInterval::Disabled;
         library
-    }
-
-    /// The only shutdown surface is the admin-only `POST /api/v1/server/shutdown`: POSTs
-    /// to the actuator path fall through to the webui fallback's backend-segment 404.
-    #[tokio::test]
-    async fn shutdown_endpoint_is_removed() {
-        let (state, _rx) = test_state();
-        let app = crate::build_router(state);
-        let request = Request::builder()
-            .method("POST")
-            .uri("/actuator/shutdown")
-            .body(Body::empty())
-            .unwrap();
-        let response = app.oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let body = String::from_utf8_lossy(&bytes);
-        assert!(!body.contains("Shutting down, bye"));
     }
 }

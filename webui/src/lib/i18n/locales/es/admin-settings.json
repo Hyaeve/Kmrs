@@ -145,18 +145,6 @@
     "showAll_many": "Mostrar las {{count}} sesiones",
     "showAll_other": "Mostrar las {{count}} sesiones"
   },
-  "danger": {
-    "title": "Zona de peligro",
-    "logfile": "Descargar archivo de registro",
-    "logfileHelper": "Obtiene el registro actual del servidor como archivo.",
-    "shutdown": "Apagar el servidor",
-    "shutdownHelper": "Detiene el proceso del servidor. Permanece apagado hasta que alguien lo vuelva a iniciar.",
-    "shutdownButton": "Apagar",
-    "shutdownBody": "El proceso del servidor se cerrará. Todos los usuarios conectados perderán acceso hasta que se inicie de nuevo.",
-    "shutdownFailed": "No se pudo apagar el servidor.",
-    "shuttingDown": "El servidor se está apagando",
-    "shuttingDownBody": "La solicitud de apagado fue aceptada. Esta página dejará de responder cuando el proceso termine. Vuelve a iniciar el servidor para regresar."
-  },
   "form": {
     "deleteEmptyCollections": "Eliminar colecciones vacías",
     "deleteEmptyReadLists": "Eliminar listas de lectura vacías",
@@ -219,5 +207,9 @@
     "positiveDays": "Debe ser un número entero positivo de días.",
     "positiveInt": "Debe ser un número entero positivo.",
     "contextPath": "Debe empezar por / y terminar en letra o dígito, p. ej. /kmrs."
+  },
+  "logfile": {
+    "title": "Registro",
+    "helper": "Obtiene el registro actual del servidor como archivo."
   }
 }

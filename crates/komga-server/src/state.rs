@@ -27,7 +27,7 @@ pub struct AppState {
     pub search_index: Arc<komga_search::SearchIndex>,
     pub kepub: Arc<crate::service::kepub::KepubConverter>,
     pub kobo_proxy: Arc<crate::service::kobo_proxy::KoboProxy>,
-    /// Broadcasts the shutdown request (`POST /api/v1/server/shutdown`)
+    /// Broadcasts the shutdown request (the Windows tray's exit action)
     pub shutdown_tx: tokio::sync::watch::Sender<bool>,
     pub api_key_activity_throttle: Arc<crate::auth::ApiKeyActivityThrottle>,
     pub latest_update: crate::service::update_check::LatestUpdate,

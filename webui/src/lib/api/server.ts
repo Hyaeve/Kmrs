@@ -7,5 +7,4 @@ export const serverApi = {
   sessions: () => api.get<{ sessions: ServerSessionDto[] }>('/api/v1/server/sessions'),
   deleteSession: (sessionId: string) => api.delete<void>(`/api/v1/server/sessions/${sessionId}`),
   logfileUrl: () => '/api/v1/server/logfile',
-  shutdown: () => api.post<void>('/api/v1/server/shutdown'),
 }

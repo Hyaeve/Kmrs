@@ -125,18 +125,6 @@
     "kickFailed": "無法強制登出工作階段。",
     "showAll_other": "顯示全部 {{count}} 個工作階段"
   },
-  "danger": {
-    "title": "危險區域",
-    "logfile": "下載記錄檔",
-    "logfileHelper": "將目前的伺服器記錄下載為檔案。",
-    "shutdown": "關閉伺服器",
-    "shutdownHelper": "停止伺服器程序。在有人重新啟動前，伺服器會一直處於停止狀態。",
-    "shutdownButton": "關閉",
-    "shutdownBody": "伺服器程序將會結束。在重新啟動前，所有連線的使用者都會失去存取。",
-    "shutdownFailed": "無法關閉伺服器。",
-    "shuttingDown": "伺服器正在關閉",
-    "shuttingDownBody": "關閉請求已被接受。程序結束後此頁面將停止回應。重新啟動伺服器即可回來。"
-  },
   "form": {
     "deleteEmptyCollections": "刪除空的收藏",
     "deleteEmptyReadLists": "刪除空的閱讀清單",
@@ -197,5 +185,9 @@
     "positiveDays": "必須是正整數天數。",
     "positiveInt": "必須是正整數。",
     "contextPath": "必須以 / 開頭，並以字母或數字結尾，例如 /kmrs。"
+  },
+  "logfile": {
+    "title": "記錄檔",
+    "helper": "將目前的伺服器記錄下載為檔案。"
   }
 }

@@ -9,7 +9,7 @@ import { TaskQueuePanel } from '@/components/admin/server/TaskQueuePanel'
 import { TaskExecutionPanel } from '@/components/admin/server/TaskExecutionPanel'
 import { ScheduledTasksPanel } from '@/components/admin/server/ScheduledTasksPanel'
 import { SessionsPanel } from '@/components/admin/server/SessionsPanel'
-import { DangerZone } from '@/components/admin/server/DangerZone'
+import { LogfilePanel } from '@/components/admin/server/LogfilePanel'
 
 export function AdminServerPage() {
   const { t } = useTranslation('admin-settings')
@@ -35,7 +35,7 @@ export function AdminServerPage() {
           <ScheduledTasksPanel />
           <SessionsPanel />
         </div>
-        <DangerZone />
+        <LogfilePanel />
       </div>
     </div>
   )

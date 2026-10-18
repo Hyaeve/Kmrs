@@ -125,18 +125,6 @@
     "kickFailed": "无法将该会话强制下线。",
     "showAll_other": "显示全部 {{count}} 个会话"
   },
-  "danger": {
-    "title": "危险操作",
-    "logfile": "下载日志文件",
-    "logfileHelper": "将当前服务器日志下载为文件。",
-    "shutdown": "关闭服务器",
-    "shutdownHelper": "停止服务器进程，需手动重新启动才会恢复。",
-    "shutdownButton": "关闭",
-    "shutdownBody": "服务器进程将退出，所有已连接的用户在服务器重新启动前都无法访问。",
-    "shutdownFailed": "无法关闭服务器。",
-    "shuttingDown": "服务器正在关闭",
-    "shuttingDownBody": "关闭请求已接受。进程退出后此页面将停止响应，重新启动服务器后即可恢复。"
-  },
   "form": {
     "deleteEmptyCollections": "删除空合集",
     "deleteEmptyReadLists": "删除空阅读列表",
@@ -197,5 +185,9 @@
     "positiveDays": "天数必须是正整数。",
     "positiveInt": "必须是正整数。",
     "contextPath": "必须以 / 开头、以字母或数字结尾，例如 /kmrs。"
+  },
+  "logfile": {
+    "title": "日志文件",
+    "helper": "将当前服务器日志下载为文件。"
   }
 }

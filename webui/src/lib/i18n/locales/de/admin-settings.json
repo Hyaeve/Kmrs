@@ -135,18 +135,6 @@
     "showAll_one": "{{count}} Sitzung anzeigen",
     "showAll_other": "Alle {{count}} Sitzungen anzeigen"
   },
-  "danger": {
-    "title": "Gefahrenzone",
-    "logfile": "Logdatei herunterladen",
-    "logfileHelper": "Das aktuelle Server-Log als Datei abrufen.",
-    "shutdown": "Server herunterfahren",
-    "shutdownHelper": "Den Serverprozess stoppen. Er bleibt aus, bis ihn jemand wieder startet.",
-    "shutdownButton": "Herunterfahren",
-    "shutdownBody": "Der Serverprozess wird beendet. Jeder verbundene Benutzer verliert den Zugriff, bis er wieder gestartet wird.",
-    "shutdownFailed": "Der Server konnte nicht heruntergefahren werden.",
-    "shuttingDown": "Server fährt herunter",
-    "shuttingDownBody": "Die Anfrage zum Herunterfahren wurde angenommen. Diese Seite reagiert nicht mehr, sobald der Prozess endet. Starte den Server erneut, um zurückzukommen."
-  },
   "form": {
     "deleteEmptyCollections": "Leere Sammlungen löschen",
     "deleteEmptyReadLists": "Leere Leselisten löschen",
@@ -208,5 +196,9 @@
     "positiveDays": "Muss eine positive ganze Anzahl von Tagen sein.",
     "positiveInt": "Muss eine positive ganze Zahl sein.",
     "contextPath": "Muss mit / beginnen und mit einem Buchstaben oder einer Ziffer enden, z. B. /kmrs."
+  },
+  "logfile": {
+    "title": "Logdatei",
+    "helper": "Das aktuelle Server-Log als Datei abrufen."
   }
 }

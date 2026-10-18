@@ -1,7 +1,7 @@
 //! kmrs-native server endpoints (`/api/v1/server/**`): what the webui needs from the
-//! server itself — version info, scheduled scans, sessions, the log file and shutdown.
+//! server itself — version info, scheduled scans, sessions and the log file.
 //! kmrs-private like `api::stats` (kept out of the OpenAPI spec). Unlike the actuator
-//! parity surface, everything but `/info` is ADMIN-gated, shutdown included.
+//! parity surface, everything but `/info` is ADMIN-gated.
 
 use crate::auth::RequireAuth;
 use crate::error::ApiError;
@@ -28,7 +28,6 @@ pub fn router() -> Router<AppState> {
             routing::delete(delete_session),
         )
         .route("/api/v1/server/logfile", routing::get(get_logfile))
-        .route("/api/v1/server/shutdown", routing::post(post_shutdown))
 }
 
 // region info
@@ -166,28 +165,6 @@ async fn get_logfile(
             .insert(CONTENT_LENGTH, len.parse().unwrap());
     }
     Ok(response)
-}
-
-// endregion
-
-// region shutdown
-
-async fn post_shutdown(
-    State(state): State<AppState>,
-    auth: RequireAuth,
-) -> Result<StatusCode, ApiError> {
-    auth.0.require_admin()?;
-    schedule_shutdown(state.shutdown_tx.clone());
-    Ok(StatusCode::NO_CONTENT)
-}
-
-/// The response goes out first; the shutdown fires after a delay so the connection
-/// can complete.
-fn schedule_shutdown(tx: tokio::sync::watch::Sender<bool>) {
-    tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        let _ = tx.send(true);
-    });
 }
 
 // endregion
@@ -387,27 +364,5 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(headers.get(CONTENT_TYPE).unwrap(), "text/plain");
         assert!(body.is_empty());
-    }
-
-    /// Only the gate is asserted: the 204 path would send on `shutdown_tx` for real.
-    #[tokio::test]
-    async fn shutdown_requires_admin() {
-        let state = test_state();
-        let user_key = seed_user(&state);
-
-        let (status, _, _) = call(
-            &state,
-            router(),
-            request("POST", "/api/v1/server/shutdown", Some(&user_key)),
-        )
-        .await;
-        assert_eq!(status, StatusCode::FORBIDDEN);
-        let (status, _, _) = call(
-            &state,
-            router(),
-            request("POST", "/api/v1/server/shutdown", None),
-        )
-        .await;
-        assert_eq!(status, StatusCode::UNAUTHORIZED);
     }
 }
