@@ -9,6 +9,7 @@ use std::collections::BTreeSet;
 pub struct LibrarySettings {
     pub scan_strm: bool,
     pub real_time_scan: bool,
+    pub write_metadata: bool,
 }
 
 pub struct LibrarySettingDao {
@@ -23,35 +24,39 @@ impl LibrarySettingDao {
     pub fn get(&self, library_id: &str) -> Result<LibrarySettings> {
         let conn = self.db.ro()?;
         let mut stmt = conn.prepare(
-            "SELECT SCAN_STRM, REAL_TIME_SCAN FROM LIBRARY_SETTING WHERE LIBRARY_ID = ?",
+            "SELECT SCAN_STRM, REAL_TIME_SCAN, WRITE_METADATA \
+             FROM LIBRARY_SETTING WHERE LIBRARY_ID = ?",
         )?;
         let mut rows = stmt.query([library_id])?;
         match rows.next()? {
             Some(row) => Ok(LibrarySettings {
                 scan_strm: row.get(0)?,
                 real_time_scan: row.get(1)?,
+                write_metadata: row.get(2)?,
             }),
             None => Ok(LibrarySettings::default()),
         }
     }
 
     pub fn set(&self, library_id: &str, settings: LibrarySettings) -> Result<()> {
-        if !settings.scan_strm && !settings.real_time_scan {
+        if !settings.scan_strm && !settings.real_time_scan && !settings.write_metadata {
             return self.delete(library_id);
         }
         let now = time_codec::format_datetime(time_codec::now_utc());
         self.db.rw()?.execute(
             "INSERT INTO LIBRARY_SETTING \
-             (LIBRARY_ID, SCAN_STRM, REAL_TIME_SCAN, CREATED_DATE, LAST_MODIFIED_DATE) \
-             VALUES (?, ?, ?, ?, ?) \
+             (LIBRARY_ID, SCAN_STRM, REAL_TIME_SCAN, WRITE_METADATA, CREATED_DATE, LAST_MODIFIED_DATE) \
+             VALUES (?, ?, ?, ?, ?, ?) \
              ON CONFLICT (LIBRARY_ID) DO UPDATE SET \
                  SCAN_STRM = excluded.SCAN_STRM, \
                  REAL_TIME_SCAN = excluded.REAL_TIME_SCAN, \
+                 WRITE_METADATA = excluded.WRITE_METADATA, \
                  LAST_MODIFIED_DATE = excluded.LAST_MODIFIED_DATE",
             rusqlite::params![
                 library_id,
                 settings.scan_strm,
                 settings.real_time_scan,
+                settings.write_metadata,
                 now,
                 now
             ],
@@ -82,6 +87,14 @@ impl LibrarySettingDao {
         let rows = stmt.query_map([], |row| row.get(0))?;
         Ok(rows.collect::<std::result::Result<BTreeSet<_>, _>>()?)
     }
+
+    pub fn write_metadata_library_ids(&self) -> Result<BTreeSet<String>> {
+        let conn = self.db.ro()?;
+        let mut stmt =
+            conn.prepare("SELECT LIBRARY_ID FROM LIBRARY_SETTING WHERE WRITE_METADATA = 1")?;
+        let rows = stmt.query_map([], |row| row.get(0))?;
+        Ok(rows.collect::<std::result::Result<BTreeSet<_>, _>>()?)
+    }
 }
 
 #[cfg(test)]
@@ -108,6 +121,7 @@ mod tests {
             LibrarySettings {
                 scan_strm: true,
                 real_time_scan: false,
+                write_metadata: false,
             },
         )
         .unwrap();
@@ -116,6 +130,7 @@ mod tests {
             LibrarySettings {
                 scan_strm: true,
                 real_time_scan: false,
+                write_metadata: false,
             }
         );
         assert_eq!(
@@ -132,6 +147,7 @@ mod tests {
             LibrarySettings {
                 scan_strm: true,
                 real_time_scan: false,
+                write_metadata: false,
             },
         )
         .unwrap();
@@ -140,6 +156,7 @@ mod tests {
             LibrarySettings {
                 scan_strm: false,
                 real_time_scan: false,
+                write_metadata: false,
             },
         )
         .unwrap();
@@ -155,6 +172,7 @@ mod tests {
             LibrarySettings {
                 scan_strm: true,
                 real_time_scan: true,
+                write_metadata: false,
             },
         )
         .unwrap();
@@ -163,10 +181,37 @@ mod tests {
             LibrarySettings {
                 scan_strm: true,
                 real_time_scan: true,
+                write_metadata: false,
             }
         );
         assert_eq!(
             dao.real_time_scan_library_ids().unwrap(),
+            ["l1".to_string()].into_iter().collect()
+        );
+    }
+
+    #[test]
+    fn round_trips_write_metadata() {
+        let dao = test_dao();
+        dao.set(
+            "l1",
+            LibrarySettings {
+                scan_strm: true,
+                real_time_scan: false,
+                write_metadata: true,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            dao.get("l1").unwrap(),
+            LibrarySettings {
+                scan_strm: true,
+                real_time_scan: false,
+                write_metadata: true,
+            }
+        );
+        assert_eq!(
+            dao.write_metadata_library_ids().unwrap(),
             ["l1".to_string()].into_iter().collect()
         );
     }

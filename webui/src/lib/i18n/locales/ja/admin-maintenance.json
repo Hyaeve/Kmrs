@@ -83,7 +83,8 @@
       "analyzeDimensions": "寸法を分析",
       "repairExtensions": "拡張子を修復",
       "convertToCbz": "CBZ に変換",
-      "emptyTrashAfterScan": "スキャン後にゴミ箱を空にする"
+      "emptyTrashAfterScan": "スキャン後にゴミ箱を空にする",
+      "writeMetadata": "メタデータ"
     }
   },
   "filesystem": {
@@ -193,6 +194,7 @@
   "updates": {
     "subtitle": "サーバーバージョンと上流リリース",
     "current": "現在",
+    "latest": "最新",
     "preRelease": "プレリリース",
     "runningVersion": "実行中のバージョン",
     "notInFeed": "リリースフィードにありません",

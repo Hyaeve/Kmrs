@@ -1,15 +1,15 @@
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { actuatorApi } from '@/lib/api/settings'
+import { serverApi } from '@/lib/api/server'
 import { Button } from '@/components/ui/Button'
 import { Chip } from '@/components/ui/Chip'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { Section } from '@/components/account/Section'
-import { formatInterval, targetLabel } from './format'
+import { formatInterval } from './format'
 
 export function ScheduledTasksPanel() {
   const { t } = useTranslation('admin-settings')
-  const query = useQuery({ queryKey: ['admin', 'scheduled-tasks'], queryFn: actuatorApi.scheduledTasks })
+  const query = useQuery({ queryKey: ['admin', 'scheduled-tasks'], queryFn: serverApi.scheduledTasks })
 
   return (
     <Section title={t('scheduled.title')}>
@@ -31,16 +31,16 @@ export function ScheduledTasksPanel() {
       )}
       {query.data && (
         <>
-          {query.data.fixedRate.length === 0 ? (
+          {query.data.tasks.length === 0 ? (
             <p className="text-sm text-ink-3">{t('scheduled.empty')}</p>
           ) : (
             <ul className="flex flex-col divide-y divide-line">
-              {query.data.fixedRate.map((task) => (
-                <li key={task.runnable.target} className="flex items-center justify-between gap-4 py-2.5">
-                  <span className="truncate font-mono text-[13px] text-ink-2" title={task.runnable.target}>
-                    {targetLabel(task.runnable.target)}
+              {query.data.tasks.map((task) => (
+                <li key={task.libraryId} className="flex items-center justify-between gap-4 py-2.5">
+                  <span className="truncate text-[13px] text-ink-2" title={task.libraryName}>
+                    {task.libraryName}
                   </span>
-                  <Chip className="shrink-0">{formatInterval(task.interval)}</Chip>
+                  <Chip className="shrink-0">{formatInterval(task.intervalSeconds)}</Chip>
                 </li>
               ))}
             </ul>

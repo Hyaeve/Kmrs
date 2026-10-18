@@ -29,11 +29,12 @@ const BOOL_KEYS: BoolKey[] = [
   'scanOnStartup',
   'scanCbx',
   'scanPdf',
-  'scanStrm',
   'scanEpub',
+  'scanStrm',
   'repairExtensions',
   'convertToCbz',
   'emptyTrashAfterScan',
+  'writeMetadata',
   'hashFiles',
   'hashPages',
   'hashKoreader',
@@ -50,8 +51,9 @@ export const DEFAULTS: LibraryFormState = {
   scanForceModifiedTime: false,
   scanCbx: true,
   scanPdf: true,
-  scanStrm: false,
   scanEpub: true,
+  scanStrm: false,
+  writeMetadata: false,
   scanDirectoryExclusions: [],
   importComicInfoBook: true,
   importComicInfoSeries: true,
@@ -174,8 +176,8 @@ export const SCAN_SWITCH_FIELDS: { key: BoolKey; labelKey: string }[] = [
   { key: 'scanForceModifiedTime', labelKey: 'admin-maintenance:libraries.scan.forceModifiedTime' },
   { key: 'scanCbx', labelKey: 'admin-maintenance:libraries.scan.cbx' },
   { key: 'scanPdf', labelKey: 'admin-maintenance:libraries.scan.pdf' },
-  { key: 'scanStrm', labelKey: 'admin-maintenance:libraries.scan.strm' },
   { key: 'scanEpub', labelKey: 'admin-maintenance:libraries.scan.epub' },
+  { key: 'scanStrm', labelKey: 'admin-maintenance:libraries.scan.strm' },
 ]
 
 export const IMPORT_FIELDS: { key: BoolKey; labelKey: string }[] = [
@@ -199,6 +201,7 @@ export const ANALYSIS_FIELDS: { key: BoolKey; labelKey: string }[] = [
   { key: 'repairExtensions', labelKey: 'admin-maintenance:libraries.analysis.repairExtensions' },
   { key: 'convertToCbz', labelKey: 'admin-maintenance:libraries.analysis.convertToCbz' },
   { key: 'emptyTrashAfterScan', labelKey: 'admin-maintenance:libraries.analysis.emptyTrashAfterScan' },
+  { key: 'writeMetadata', labelKey: 'admin-maintenance:libraries.analysis.writeMetadata' },
 ]
 
 export interface Violation {

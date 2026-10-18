@@ -83,7 +83,8 @@
       "analyzeDimensions": "分析尺寸",
       "repairExtensions": "修复扩展名",
       "convertToCbz": "转换为 CBZ",
-      "emptyTrashAfterScan": "扫描后清空回收站"
+      "emptyTrashAfterScan": "扫描后清空回收站",
+      "writeMetadata": "元数据"
     }
   },
   "filesystem": {
@@ -193,6 +194,7 @@
   "updates": {
     "subtitle": "服务器版本与上游发布",
     "current": "当前",
+    "latest": "最新",
     "preRelease": "预发布",
     "runningVersion": "运行版本",
     "notInFeed": "不在发布源中",

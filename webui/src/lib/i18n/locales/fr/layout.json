@@ -19,6 +19,7 @@
     "settings": "Réglages",
     "integrations": "Intégrations",
     "updates": "Mises à jour",
+    "updateAvailable": "Mise à jour disponible : {{version}}",
     "uiSettings": "Réglages de l'interface",
     "maintenance": "Maintenance",
     "duplicates": "Doublons",

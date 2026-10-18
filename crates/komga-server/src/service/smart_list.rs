@@ -13,7 +13,7 @@ use komga_db::dao::smart_list_thumbnail::SmartListThumbnailDao;
 use komga_db::dao::user::UserDao;
 use komga_db::dto_dao::book::BookDtoDao;
 use komga_db::dto_dao::series::SeriesDtoDao;
-use komga_db::dto_dao::PageRequest;
+use komga_db::dto_dao::{PageRequest, SortOrder};
 
 pub const DUPLICATE_NAME_MESSAGE: &str = "Smart list name already exists";
 
@@ -326,13 +326,17 @@ pub fn delete_thumbnail(
 
 /// The selected cover wins over the generated mosaic; the mosaic is cached in the kmrs
 /// database together with a content fingerprint, and only rebuilt when the fingerprint
-/// changes. The fingerprint is best-effort: it hashes at most the first 24 matched ids
-/// in the query's (unsorted) order, so content changes deeper in the match list do not
-/// invalidate the cache. Evaluation uses the owner's view (a deleted owner falls back
-/// to an unrestricted context, same as list evaluation): the items endpoints evaluate
-/// per requesting user, but the shared mosaic is built once from the owner's context —
-/// a sharee with stricter library or age restrictions may therefore see covers in a
-/// mosaic that their own filter would hide, an accepted trade-off of sharing one cache.
+/// changes. The fingerprint is best-effort: it hashes at most the first 24 matched ids,
+/// so content changes deeper in the match list do not invalidate the cache. Cover
+/// candidates are the freshest matches — books by creation date, series by last
+/// modified date (book renumbering rewrites every book's modified date; a series' only
+/// moves on disk changes) — so the mosaic refreshes when new content enters the list
+/// and stays stable otherwise. Evaluation uses the owner's view (a deleted owner falls
+/// back to an unrestricted context, same as list evaluation): the items endpoints
+/// evaluate per requesting user, but the shared mosaic is built once from the owner's
+/// context — a sharee with stricter library or age restrictions may therefore see
+/// covers in a mosaic that their own filter would hide, an accepted trade-off of
+/// sharing one cache.
 pub fn get_thumbnail_bytes(state: &AppState, smart_list: &SmartList) -> komga_db::Result<Vec<u8>> {
     if let Some(selected) = SmartListThumbnailDao::new(state.kmrs_db.clone())
         .find_selected_by_smart_list_id(&smart_list.id)?
@@ -364,7 +368,10 @@ pub fn get_thumbnail_bytes(state: &AppState, smart_list: &SmartList) -> komga_db
                         page: 0,
                         size: 24,
                         unpaged: false,
-                        sort: Vec::new(),
+                        sort: vec![SortOrder {
+                            property: "createdDate".into(),
+                            descending: true,
+                        }],
                     },
                 )?;
             ("book:", page.items.into_iter().map(|b| b.id).collect())
@@ -384,7 +391,10 @@ pub fn get_thumbnail_bytes(state: &AppState, smart_list: &SmartList) -> komga_db
                         page: 0,
                         size: 24,
                         unpaged: false,
-                        sort: Vec::new(),
+                        sort: vec![SortOrder {
+                            property: "lastModifiedDate".into(),
+                            descending: true,
+                        }],
                     },
                 )?;
             ("series:", page.items.into_iter().map(|s| s.id).collect())

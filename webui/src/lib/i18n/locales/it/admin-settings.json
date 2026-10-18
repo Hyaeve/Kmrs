@@ -145,18 +145,6 @@
     "showAll_many": "Mostra tutte le {{count}} sessioni",
     "showAll_other": "Mostra tutte le {{count}} sessioni"
   },
-  "danger": {
-    "title": "Zona pericolosa",
-    "logfile": "Scarica file di log",
-    "logfileHelper": "Scarica il log attuale del server come file.",
-    "shutdown": "Arresta server",
-    "shutdownHelper": "Ferma il processo del server. Resta spento finché qualcuno non lo riavvia.",
-    "shutdownButton": "Arresta",
-    "shutdownBody": "Il processo del server verrà terminato. Ogni utente connesso perde l'accesso finché non viene riavviato.",
-    "shutdownFailed": "Impossibile arrestare il server.",
-    "shuttingDown": "Il server si sta arrestando",
-    "shuttingDownBody": "La richiesta di arresto è stata accettata. Questa pagina smetterà di rispondere quando il processo termina. Riavvia il server per tornare."
-  },
   "form": {
     "deleteEmptyCollections": "Elimina raccolte vuote",
     "deleteEmptyReadLists": "Elimina liste di lettura vuote",
@@ -219,5 +207,9 @@
     "positiveDays": "Deve essere un numero intero positivo di giorni.",
     "positiveInt": "Deve essere un numero intero positivo.",
     "contextPath": "Deve iniziare con / e finire con una lettera o una cifra, es. /kmrs."
+  },
+  "logfile": {
+    "title": "File di log",
+    "helper": "Scarica il log attuale del server come file."
   }
 }

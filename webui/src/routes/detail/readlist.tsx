@@ -266,7 +266,7 @@ export function ReadListDetailPage() {
         }
       />
 
-      {readlist.summary && <p className="-mt-3 mb-6 max-w-3xl text-sm text-ink-2">{readlist.summary}</p>}
+      {readlist.summary && <p className="-mt-3 mb-6 max-w-3xl whitespace-pre-line text-sm text-ink-2">{readlist.summary}</p>}
 
       {editing ? (
         <EditReadListBooks readlist={readlist} onExit={() => setEditing(false)} />

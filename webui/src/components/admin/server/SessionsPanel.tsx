@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { actuatorApi } from '@/lib/api/settings'
+import { serverApi } from '@/lib/api/server'
 import { relativeTime } from '@/lib/utils/format'
 import { Button } from '@/components/ui/Button'
 import { Chip } from '@/components/ui/Chip'
@@ -13,10 +13,10 @@ const SESSION_LIMIT = 10
 export function SessionsPanel() {
   const { t } = useTranslation('admin-settings')
   const queryClient = useQueryClient()
-  const query = useQuery({ queryKey: ['admin', 'sessions'], queryFn: () => actuatorApi.sessions() })
+  const query = useQuery({ queryKey: ['admin', 'sessions'], queryFn: () => serverApi.sessions() })
 
   const kick = useMutation({
-    mutationFn: (id: string) => actuatorApi.deleteSession(id),
+    mutationFn: (id: string) => serverApi.deleteSession(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'sessions'] }),
   })
 

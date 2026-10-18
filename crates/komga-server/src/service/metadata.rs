@@ -26,7 +26,9 @@ use komga_db::dao::series_metadata_contribution::{
 use komga_db::Result;
 use komga_media::metadata::artwork;
 use komga_media::metadata::barcode::IsbnBarcodeProvider;
-use komga_media::metadata::comicinfo::{ComicInfoProvider, ComicInfoRead};
+use komga_media::metadata::comicinfo::{
+    book_patch_from_comic_info, ComicInfoProvider, ComicInfoRead,
+};
 use komga_media::metadata::epub::{EpubMetadataProvider, EpubPackageRead};
 use komga_media::metadata::mylar::{compute_one_shot_patch, MylarSeriesProvider};
 use komga_media::metadata::patch::{
@@ -82,6 +84,21 @@ pub fn refresh_book_metadata_with_sources(
     let library = library_of(state, &book.library_id)?;
     let mut changed = false;
 
+    if book.is_strm() && library.import_comicinfo_book {
+        match crate::service::strm_metadata::read_external_comicinfo(book) {
+            Ok(Some(bytes)) => {
+                if let Some(comic_info) = ComicInfoProvider::get_comic_info_from_bytes(&bytes) {
+                    if let Some(patch) = book_patch_from_comic_info(&comic_info) {
+                        handle_patch_for_book_metadata(state, Some(&patch), book)?;
+                        changed = true;
+                    }
+                }
+            }
+            Ok(None) => {}
+            Err(error) => tracing::warn!("failed to read STRM ComicInfo sidecar: {error}"),
+        }
+    }
+
     let providers: Vec<(&str, Box<dyn BookMetadataProvider>)> = vec![
         ("IsbnBarcodeProvider", Box::new(IsbnBarcodeProvider::new())),
         ("ComicInfoProvider", Box::new(ComicInfoProvider)),
@@ -134,6 +151,9 @@ pub fn refresh_book_metadata_with_sources(
 
     if changed {
         let _ = state.events.send(DomainEvent::BookUpdated(book.clone()));
+    }
+    if let Err(error) = crate::service::strm_metadata::write_book_metadata(state, &book.id) {
+        tracing::warn!("failed to write STRM book metadata sidecars: {error}");
     }
     Ok(())
 }
@@ -275,6 +295,9 @@ pub fn refresh_series_metadata(state: &AppState, series: &Series) -> Result<()> 
         let _ = state
             .events
             .send(DomainEvent::SeriesUpdated(series.clone()));
+    }
+    if let Err(error) = crate::service::strm_metadata::write_series_metadata(state, &series.id) {
+        tracing::warn!("failed to write STRM series metadata sidecars: {error}");
     }
     Ok(())
 }

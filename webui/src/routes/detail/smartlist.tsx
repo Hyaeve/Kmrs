@@ -169,7 +169,7 @@ function SmartListContent({ list, isBook }: { list: SmartListDto; isBook: boolea
         }
       />
 
-      {list.summary && <p className="-mt-3 mb-6 max-w-3xl text-sm text-ink-2">{list.summary}</p>}
+      {list.summary && <p className="-mt-3 mb-6 max-w-3xl whitespace-pre-line text-sm text-ink-2">{list.summary}</p>}
 
       <FilterBar
         count={total}

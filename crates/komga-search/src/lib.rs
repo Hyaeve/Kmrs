@@ -1,4 +1,4 @@
-//! Search: tantivy index and Lucene syntax compatibility layer.
+//! Search: tantivy index and the full-text query layer.
 //!
 //! Ports komga's `LuceneHelper`/`LuceneEntity`/`LuceneConfiguration` to tantivy 0.26:
 //! one index for all four entity kinds, a `type` keyword field distinguishing them,
@@ -291,22 +291,21 @@ impl SearchIndex {
         self.commit()
     }
 
-    /// `searchEntitiesIds`: parse `"<term> *:*"` in Lucene syntax, require the entity type,
-    /// return up to 1000 ids in score order. Blank terms mean "no filtering" (None);
-    /// parse failures yield an empty list, like Lucene's ParseException path.
+    /// `searchEntitiesIds`: parse the term in kmrs query syntax, require the entity type,
+    /// return up to 1000 ids in score order. Blank terms mean "no filtering" (None).
+    /// A query whose terms all analyze away, or that scopes to an unknown field,
+    /// matches nothing.
     pub fn search_entity_ids(
         &self,
         term: Option<&str>,
         entity: LuceneEntity,
     ) -> Option<Vec<String>> {
         let term = term.filter(|t| !t.trim().is_empty())?;
-        let Ok(ast) = syntax::parse(&format!("{term} *:*")) else {
-            return Some(vec![]);
-        };
+        let ast = syntax::parse(term);
         let schema = self.index.schema();
         let fields_query = match syntax::build_query(&ast, entity, &schema) {
-            Ok(query) => query,
-            Err(_) => return Some(vec![]),
+            Ok(Some(query)) => query,
+            Ok(None) | Err(_) => return Some(vec![]),
         };
         let searcher = self.reader.searcher();
         let ids = match self.search_ids(&searcher, fields_query, entity) {
@@ -319,29 +318,40 @@ impl SearchIndex {
         if !ids.is_empty() {
             return Some(ids);
         }
+        // The recall fallbacks apply only to plain search-box strings; field-scoped
+        // queries stay exact.
+        let Some(text) = syntax::unqualified_text(&ast) else {
+            return Some(vec![]);
+        };
+        let tokens = analyzer::search_analyze(&text);
         // Progressive prefix fallback, a kmrs extension over Lucene: CJK bigrams are
         // sub-word units, so a bare-term query that overhangs the title ("葬送的芙莉莲系列"
         // vs "葬送的芙莉莲") is retried with trailing analyzed tokens dropped one by one.
         // Only a suffix of bigram-chain tokens may be dropped, so whole-word (latin/digit)
         // clauses are never relaxed; the retained prefix keeps at least two tokens, so a
-        // Lucene miss stays a miss when no bigram prefix matches. Phrases and compound
-        // queries are untouched.
-        if let Some(text) = syntax::bare_term(&ast) {
-            let tokens = analyzer::search_analyze(text);
-            let floor = analyzer::cjk_droppable_floor(&tokens);
-            for n in (floor..tokens.len()).rev() {
-                let Ok(query) = syntax::build_term_query(&None, entity, &schema, &tokens[..n])
-                else {
+        // Lucene miss stays a miss when no bigram prefix matches.
+        let floor = analyzer::cjk_droppable_floor(&tokens);
+        for n in (floor..tokens.len()).rev() {
+            let Ok(query) = syntax::build_term_query(&None, entity, &schema, &tokens[..n]) else {
+                break;
+            };
+            match self.search_ids(&searcher, query, entity) {
+                Ok(ids) if !ids.is_empty() => return Some(ids),
+                Ok(_) => {}
+                Err(e) => {
+                    tracing::error!("error fetching entities from index: {e}");
                     break;
-                };
-                match self.search_ids(&searcher, query, entity) {
-                    Ok(ids) if !ids.is_empty() => return Some(ids),
-                    Ok(_) => {}
-                    Err(e) => {
-                        tracing::error!("error fetching entities from index: {e}");
-                        break;
-                    }
                 }
+            }
+        }
+        // Fuzzy fallback, a kmrs extension over Lucene: eligible tokens (latin words,
+        // digits) are retried with a bounded edit distance, so typos and slightly-off
+        // volume numbers still resolve. CJK tokens stay exact anchors.
+        if let Some(query) = syntax::build_fuzzy_query(&tokens, entity, &schema) {
+            match self.search_ids(&searcher, query, entity) {
+                Ok(ids) if !ids.is_empty() => return Some(ids),
+                Ok(_) => {}
+                Err(e) => tracing::error!("error fetching entities from index: {e}"),
             }
         }
         Some(vec![])
@@ -524,28 +534,29 @@ mod tests {
     }
 
     #[test]
-    fn search_prefix_phrase_wildcard() {
+    fn search_operators_are_literal_text() {
         let (_dir, index) = index();
         seed(&index);
+        // `*` is literal and analyzes away: "ber" matches as an n-gram
         let ids = index
             .search_entity_ids(Some("ber*"), LuceneEntity::Book)
             .unwrap();
         assert_eq!(ids, vec!["b1"]);
-        // phrase positions advance per emitted n-gram (Lucene NGramTokenFilter semantics),
-        // so a multi-word phrase on a title does not match — same as komga
-        assert!(index
+        // quotes are literal too: the words are ANDed, so a multi-word title matches
+        let ids = index
             .search_entity_ids(Some("\"berserk volume\""), LuceneEntity::Book)
-            .unwrap()
-            .is_empty());
-        // a CJK phrase aligned with the document's bigram positions matches
+            .unwrap();
+        assert_eq!(ids, vec!["b1"]);
         let ids = index
             .search_entity_ids(Some("\"クライシス\""), LuceneEntity::Book)
             .unwrap();
         assert_eq!(ids, vec!["b3"]);
-        let ids = index
+        // an inner wildcard does not glue the fragments back together: the
+        // one-character fragment is not in the index
+        assert!(index
             .search_entity_ids(Some("b*rk"), LuceneEntity::Book)
-            .unwrap();
-        assert_eq!(ids, vec!["b1"]);
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -630,7 +641,7 @@ mod tests {
             .search_entity_ids(Some("海賊王"), LuceneEntity::Book)
             .unwrap();
         assert_eq!(ids, vec!["b3"]);
-        // prefix/wildcard terms go through normalize, which converts too
+        // a trailing `*` analyzes away; the term converts like any other
         let ids = index
             .search_entity_ids(Some("海賊*"), LuceneEntity::Book)
             .unwrap();
@@ -688,11 +699,22 @@ mod tests {
             .search_entity_ids(Some("Frieren系列完全版"), LuceneEntity::Book)
             .unwrap()
             .is_empty());
-        // quoted phrases and compound queries do not fall back
-        assert!(index
-            .search_entity_ids(Some("\"葬送的芙莉莲系列\""), LuceneEntity::Book)
-            .unwrap()
-            .is_empty());
+        // quoted text is just a term: it falls back like any bare query
+        assert_eq!(
+            index
+                .search_entity_ids(Some("\"葬送的芙莉莲系列\""), LuceneEntity::Book)
+                .unwrap(),
+            vec!["b3"]
+        );
+        // parens without a field prefix are literal: the query falls back like
+        // any bare string
+        assert_eq!(
+            index
+                .search_entity_ids(Some("(葬送的芙莉莲 系列)"), LuceneEntity::Book)
+                .unwrap(),
+            vec!["b3"]
+        );
+        // field-qualified queries do not fall back
         assert!(index
             .search_entity_ids(Some("葬送的芙莉莲系列 author:someone"), LuceneEntity::Book)
             .unwrap()
@@ -710,19 +732,150 @@ mod tests {
     }
 
     #[test]
-    fn blank_term_and_parse_error() {
+    fn search_symbols_are_literal_text() {
+        let (_dir, index) = index();
+        index
+            .add_documents(vec![book(
+                "b1",
+                &[(
+                    "title",
+                    "[被解雇的暗黑士兵（30多岁）开始了慢生活的第二人生][冈泽六十四×李克特×sage ▪ 乔]",
+                )],
+            )])
+            .unwrap();
+        index.commit().unwrap();
+        // `▪` analyzes to zero tokens; it must not drag the AND query down
+        for term in [
+            "[被解雇的暗黑士兵（30多岁）开始了慢生活的第二人生][冈泽六十四×李克特×sage ▪ 乔]",
+            "[被解雇的暗黑士兵（30多岁）开始了慢生活的第二人生][冈泽六十四×李克特×sage ▪乔]",
+            "暗黑士兵 ▪ ◆ ★",
+        ] {
+            let ids = index
+                .search_entity_ids(Some(term), LuceneEntity::Book)
+                .unwrap();
+            assert_eq!(ids, vec!["b1"], "term {term}");
+        }
+        // a query whose every term analyzes away matches nothing (and does not crash)
+        assert!(index
+            .search_entity_ids(Some("▪ ◆"), LuceneEntity::Book)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn search_tilde_is_literal_text() {
+        let (_dir, index) = index();
+        index
+            .add_documents(vec![book(
+                "b1",
+                &[(
+                    "title",
+                    "欢迎来到流放者食堂！~被最强公会流放的厨师（Lv.99） 在乡下开了一家期望已久的冒险者食堂~",
+                )],
+            )])
+            .unwrap();
+        index.commit().unwrap();
+        let ids = index
+            .search_entity_ids(
+                Some("欢迎来到流放者食堂！~被最强公会流放的厨师（Lv.99） 在乡下开了一家期望已久的冒险者食堂~"),
+                LuceneEntity::Book,
+            )
+            .unwrap();
+        assert_eq!(ids, vec!["b1"]);
+    }
+
+    #[test]
+    fn search_fuzzy_fallback() {
+        let (_dir, index) = index();
+        seed(&index);
+        // a latin typo one edit away from the title term
+        let ids = index
+            .search_entity_ids(Some("bersrk"), LuceneEntity::Book)
+            .unwrap();
+        assert_eq!(ids, vec!["b1"]);
+        // volume range with a different upper bound (digits tolerate edits)
+        index
+            .add_documents(vec![book(
+                "b9",
+                &[(
+                    "title",
+                    "[Comic Title xxx1][Author][Vol.01-Vol.20][Edition]",
+                )],
+            )])
+            .unwrap();
+        index.commit().unwrap();
+        let ids = index
+            .search_entity_ids(
+                Some("[Comic Title xxx1][Author][Vol.01-Vol.19][Edition]"),
+                LuceneEntity::Book,
+            )
+            .unwrap();
+        assert_eq!(ids, vec!["b9"]);
+        // and vice-versa: covered by search_fuzzy_fallback_volume_range_vice_versa
+    }
+
+    #[test]
+    fn search_fuzzy_fallback_volume_range_vice_versa() {
+        // a query past the title's upper bound still hits (its own index: with
+        // both near-identical titles present, fuzzy would legitimately return both)
+        let (_dir, index) = index();
+        index
+            .add_documents(vec![book(
+                "b10",
+                &[(
+                    "title",
+                    "[Comic Title xxx2][Author][Vol.01-Vol.19][Edition]",
+                )],
+            )])
+            .unwrap();
+        index.commit().unwrap();
+        let ids = index
+            .search_entity_ids(
+                Some("[Comic Title xxx2][Author][Vol.01-Vol.20][Edition]"),
+                LuceneEntity::Book,
+            )
+            .unwrap();
+        assert_eq!(ids, vec!["b10"]);
+        // nothing in the index is anywhere near this term: still a miss
+        assert!(index
+            .search_entity_ids(Some("xylophone"), LuceneEntity::Book)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn search_fuzzy_fallback_respects_gate() {
+        let (_dir, index) = index();
+        seed(&index);
+        index
+            .add_documents(vec![book("b4", &[("title", "黑岩目高不管用")])])
+            .unwrap();
+        index.commit().unwrap();
+        // field-qualified queries do not fall back to fuzzy
+        assert!(index
+            .search_entity_ids(Some("title:bersrk"), LuceneEntity::Book)
+            .unwrap()
+            .is_empty());
+        // CJK bigram chains are exact-only: a leading character swap stays a miss
+        assert!(index
+            .search_entity_ids(Some("白岩目高"), LuceneEntity::Book)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn blank_term_and_unknown_field() {
         let (_dir, index) = index();
         seed(&index);
         assert!(index.search_entity_ids(None, LuceneEntity::Book).is_none());
         assert!(index
             .search_entity_ids(Some("  "), LuceneEntity::Book)
             .is_none());
-        assert_eq!(
-            index
-                .search_entity_ids(Some("*foo"), LuceneEntity::Book)
-                .unwrap(),
-            Vec::<String>::new()
-        );
+        // an unknown field scopes the clause to nothing, like Lucene
+        assert!(index
+            .search_entity_ids(Some("nosuchfield:foo"), LuceneEntity::Book)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

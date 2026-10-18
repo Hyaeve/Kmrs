@@ -345,7 +345,7 @@ impl BookMetadataProvider for ComicInfoProvider {
     }
 }
 
-fn book_patch_from_comic_info(comic_info: &ComicInfo) -> Option<BookMetadataPatch> {
+pub fn book_patch_from_comic_info(comic_info: &ComicInfo) -> Option<BookMetadataPatch> {
     // an invalid date aborts the whole patch, like LocalDate.of throwing out of the provider
     let release_date = match comic_info.year {
         Some(year) => {

@@ -91,7 +91,8 @@
       "analyzeDimensions": "Analizar dimensiones",
       "repairExtensions": "Reparar extensiones",
       "convertToCbz": "Convertir a CBZ",
-      "emptyTrashAfterScan": "Vaciar la papelera tras el escaneo"
+      "emptyTrashAfterScan": "Vaciar la papelera tras el escaneo",
+      "writeMetadata": "Metadatos"
     }
   },
   "filesystem": {
@@ -229,6 +230,7 @@
   "updates": {
     "subtitle": "Versión del servidor y versiones publicadas",
     "current": "Actual",
+    "latest": "Última",
     "preRelease": "Versión preliminar",
     "runningVersion": "Versión en ejecución",
     "notInFeed": "ausente del canal de versiones",

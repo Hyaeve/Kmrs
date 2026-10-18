@@ -95,7 +95,8 @@
       "analyzeDimensions": "Анализировать размеры",
       "repairExtensions": "Исправлять расширения",
       "convertToCbz": "Конвертировать в CBZ",
-      "emptyTrashAfterScan": "Очищать корзину после сканирования"
+      "emptyTrashAfterScan": "Очищать корзину после сканирования",
+      "writeMetadata": "Метаданные"
     }
   },
   "filesystem": {
@@ -247,6 +248,7 @@
   "updates": {
     "subtitle": "Версия сервера и релизы апстрима",
     "current": "Текущая",
+    "latest": "Последняя",
     "preRelease": "Предрелиз",
     "runningVersion": "Запущенная версия",
     "notInFeed": "нет в ленте релизов",

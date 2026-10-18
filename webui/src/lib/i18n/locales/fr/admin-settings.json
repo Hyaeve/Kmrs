@@ -145,18 +145,6 @@
     "showAll_many": "Afficher toutes les sessions ({{count}})",
     "showAll_other": "Afficher toutes les sessions ({{count}})"
   },
-  "danger": {
-    "title": "Zone dangereuse",
-    "logfile": "Télécharger le fichier de log",
-    "logfileHelper": "Récupère le log actuel du serveur sous forme de fichier.",
-    "shutdown": "Arrêter le serveur",
-    "shutdownHelper": "Arrête le processus du serveur. Il reste arrêté jusqu'à ce que quelqu'un le redémarre.",
-    "shutdownButton": "Arrêter",
-    "shutdownBody": "Le processus du serveur va s'arrêter. Tous les utilisateurs connectés perdent l'accès jusqu'à son redémarrage.",
-    "shutdownFailed": "Impossible d'arrêter le serveur.",
-    "shuttingDown": "Le serveur s'arrête",
-    "shuttingDownBody": "La demande d'arrêt a été acceptée. Cette page cessera de répondre une fois le processus arrêté. Redémarrez le serveur pour revenir."
-  },
   "form": {
     "deleteEmptyCollections": "Supprimer les collections vides",
     "deleteEmptyReadLists": "Supprimer les listes de lecture vides",
@@ -219,5 +207,9 @@
     "positiveDays": "Doit être un nombre entier positif de jours.",
     "positiveInt": "Doit être un nombre entier positif.",
     "contextPath": "Doit commencer par / et finir par une lettre ou un chiffre, p. ex. /kmrs."
+  },
+  "logfile": {
+    "title": "Journal",
+    "helper": "Récupère le log actuel du serveur sous forme de fichier."
   }
 }

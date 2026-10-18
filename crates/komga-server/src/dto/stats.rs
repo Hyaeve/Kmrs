@@ -95,6 +95,15 @@ pub struct ServerStatsDto {
     pub tasks: ServerTaskStatsDto,
     pub process: ServerProcessStatsDto,
     pub totals: ServerTotalsDto,
+    pub disk: ServerDiskStatsDto,
+}
+
+/// Free/total bytes of the volume holding the config dir.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerDiskStatsDto {
+    pub free: i64,
+    pub total: i64,
 }
 
 #[derive(Debug, Serialize)]

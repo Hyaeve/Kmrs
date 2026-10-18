@@ -739,6 +739,9 @@ async fn add_user_uploaded_book_thumbnail(
             MarkSelectedPreference::No
         },
     )?;
+    if selected {
+        crate::service::strm_metadata::schedule_book_write(&state, &book_id);
+    }
     Ok(Json(ThumbnailBookDto::from(&added)))
 }
 
@@ -767,6 +770,7 @@ async fn mark_book_thumbnail_selected(
                 ..poster
             },
         ));
+    crate::service::strm_metadata::schedule_book_write(&state, &book_id);
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -824,6 +828,7 @@ async fn update_book_metadata(
             .events
             .send(crate::events::DomainEvent::BookUpdated(book));
     }
+    crate::service::strm_metadata::schedule_book_write(&state, &book_id);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -866,6 +871,7 @@ async fn update_book_metadata_by_batch(
         let _ = state
             .events
             .send(crate::events::DomainEvent::BookUpdated(book.clone()));
+        crate::service::strm_metadata::schedule_book_write(&state, &book.id);
     }
     let series_ids: BTreeSet<String> = updated_books.iter().map(|b| b.series_id.clone()).collect();
     for series_id in series_ids {
@@ -2309,6 +2315,7 @@ mod tests {
             kobo_proxy: crate::service::kobo_proxy::KoboProxy::new(),
             shutdown_tx: tokio::sync::watch::channel(false).0,
             api_key_activity_throttle: Arc::new(crate::auth::ApiKeyActivityThrottle::new()),
+            latest_update: Default::default(),
         }
     }
 

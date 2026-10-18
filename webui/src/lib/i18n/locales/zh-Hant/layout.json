@@ -19,6 +19,7 @@
     "settings": "設定",
     "integrations": "整合",
     "updates": "更新",
+    "updateAvailable": "發現新版本：{{version}}",
     "uiSettings": "介面設定",
     "maintenance": "維護",
     "duplicates": "重複書籍",

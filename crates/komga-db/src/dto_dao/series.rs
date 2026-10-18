@@ -1041,6 +1041,33 @@ mod tests {
     }
 
     #[test]
+    fn find_all_last_modified_desc_order() {
+        let db = fixtures();
+        // modified order differs from insertion order, so a missing or wrong ORDER BY fails
+        db.rw()
+            .unwrap()
+            .execute(
+                "UPDATE SERIES SET LAST_MODIFIED_DATE = CASE ID \
+                 WHEN 's1' THEN '2024-03-01 00:00:00' \
+                 WHEN 's2' THEN '2024-01-01 00:00:00' \
+                 ELSE '2024-02-01 00:00:00' END",
+                [],
+            )
+            .unwrap();
+        let dao = SeriesDtoDao::new(db);
+        let result = dao
+            .find_all(
+                &search(None),
+                None,
+                &ctx("u1"),
+                &page(&[("lastModifiedDate", true)]),
+            )
+            .unwrap();
+        let ids: Vec<&str> = result.items.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, ["s1", "s3", "s2"]);
+    }
+
+    #[test]
     fn dto_fields_are_mapped() {
         let db = fixtures();
         let dao = SeriesDtoDao::new(db);

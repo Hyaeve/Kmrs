@@ -87,7 +87,8 @@
       "analyzeDimensions": "Analyze dimensions",
       "repairExtensions": "Repair extensions",
       "convertToCbz": "Convert to CBZ",
-      "emptyTrashAfterScan": "Empty trash after scan"
+      "emptyTrashAfterScan": "Empty trash after scan",
+      "writeMetadata": "Metadata"
     }
   },
   "filesystem": {
@@ -211,6 +212,7 @@
   "updates": {
     "subtitle": "Server version and upstream releases",
     "current": "Current",
+    "latest": "Latest",
     "preRelease": "Pre-release",
     "runningVersion": "Running version",
     "notInFeed": "not in release feed",

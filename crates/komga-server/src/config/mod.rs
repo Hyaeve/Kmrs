@@ -77,6 +77,8 @@ pub struct ServerConfig {
     /// days to keep HISTORICAL_EVENT rows (pruned daily, 0 = keep forever);
     /// the Java version never cleans the table
     pub history_retention_days: u32,
+    /// daily GitHub check for a newer release, exposed at /api/v1/releases/latest (kmrs enhancement)
+    pub update_check_enabled: bool,
     /// where book/series thumbnail bytes live (kmrs enhancement; Java always uses DB blobs)
     pub thumbnail_storage: ThumbnailStorage,
     /// answer If-None-Match from the thumbnail row instead of hashing the body
@@ -427,6 +429,12 @@ impl ServerConfig {
                         .and_then(|h| h.retention_days)
                 })
                 .unwrap_or(180),
+            update_check_enabled: env_bool(env, "KOMGA_UPDATECHECK_ENABLED")
+                .or_else(|| {
+                    file.and_then(|f| f.update_check.as_ref())
+                        .and_then(|u| u.enabled)
+                })
+                .unwrap_or(true),
             thumbnail_storage: env_string(env, "KOMGA_THUMBNAILS_STORAGE")
                 .or_else(|| {
                     file.and_then(|f| f.thumbnails.as_ref())
@@ -1227,6 +1235,29 @@ issuer-uri = "https://github.com"
         let file: FileConfig = toml::from_str("[thumbnails]\nstorage = \"s3\"\n").unwrap();
         let err = ServerConfig::resolve(Some(&file), &Cli::default(), &[]).unwrap_err();
         assert!(err.to_string().contains("invalid thumbnails.storage"));
+    }
+
+    #[test]
+    fn update_check_default_file_and_env() {
+        let config = resolve("", Cli::default(), &[]);
+        assert!(config.update_check_enabled);
+
+        let config = resolve("[update-check]\nenabled = false\n", Cli::default(), &[]);
+        assert!(!config.update_check_enabled);
+
+        // env var wins over the file
+        let config = resolve(
+            "[update-check]\nenabled = false\n",
+            Cli::default(),
+            &env(&[("KOMGA_UPDATECHECK_ENABLED", "true")]),
+        );
+        assert!(config.update_check_enabled);
+        let config = resolve(
+            "",
+            Cli::default(),
+            &env(&[("KOMGA_UPDATECHECK_ENABLED", "false")]),
+        );
+        assert!(!config.update_check_enabled);
     }
 
     #[test]

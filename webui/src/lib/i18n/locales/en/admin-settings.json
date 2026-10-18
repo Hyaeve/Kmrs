@@ -135,18 +135,6 @@
     "showAll_one": "Show all {{count}} session",
     "showAll_other": "Show all {{count}} sessions"
   },
-  "danger": {
-    "title": "Danger zone",
-    "logfile": "Download logfile",
-    "logfileHelper": "Fetch the current server log as a file.",
-    "shutdown": "Shutdown server",
-    "shutdownHelper": "Stop the server process. It stays down until someone starts it again.",
-    "shutdownButton": "Shutdown",
-    "shutdownBody": "The server process will exit. Every connected user loses access until it is started again.",
-    "shutdownFailed": "Could not shut down the server.",
-    "shuttingDown": "Server is shutting down",
-    "shuttingDownBody": "The shutdown request was accepted. This page will stop responding once the process exits. Start the server again to come back."
-  },
   "form": {
     "deleteEmptyCollections": "Delete empty collections",
     "deleteEmptyReadLists": "Delete empty read lists",
@@ -208,5 +196,9 @@
     "positiveDays": "Must be a positive whole number of days.",
     "positiveInt": "Must be a positive whole number.",
     "contextPath": "Must start with / and end with a letter or digit, e.g. /kmrs."
+  },
+  "logfile": {
+    "title": "Logfile",
+    "helper": "Fetch the current server log as a file."
   }
 }

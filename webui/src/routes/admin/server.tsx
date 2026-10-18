@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { serverApi } from '@/lib/api/users'
+import { serverApi } from '@/lib/api/server'
 import { useDocumentTitle } from '@/lib/hooks/useDocumentTitle'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { StatsGrid } from '@/components/admin/server/StatsGrid'
@@ -9,7 +9,7 @@ import { TaskQueuePanel } from '@/components/admin/server/TaskQueuePanel'
 import { TaskExecutionPanel } from '@/components/admin/server/TaskExecutionPanel'
 import { ScheduledTasksPanel } from '@/components/admin/server/ScheduledTasksPanel'
 import { SessionsPanel } from '@/components/admin/server/SessionsPanel'
-import { DangerZone } from '@/components/admin/server/DangerZone'
+import { LogfilePanel } from '@/components/admin/server/LogfilePanel'
 
 export function AdminServerPage() {
   const { t } = useTranslation('admin-settings')
@@ -17,8 +17,8 @@ export function AdminServerPage() {
 
   useDocumentTitle(t('server.title'))
 
-  const version = info?.build?.version
-  const commit = info?.git?.commit?.id
+  const version = info?.version
+  const commit = info?.gitCommitId
   const subtitle = version ? (commit ? t('server.subtitleWithCommit', { version, commit }) : t('server.subtitle', { version })) : undefined
 
   return (
@@ -35,7 +35,7 @@ export function AdminServerPage() {
           <ScheduledTasksPanel />
           <SessionsPanel />
         </div>
-        <DangerZone />
+        <LogfilePanel />
       </div>
     </div>
   )

@@ -32,6 +32,7 @@ pub struct LibraryDto {
     pub scan_pdf: bool,
     pub scan_strm: bool,
     pub scan_epub: bool,
+    pub write_metadata: bool,
     pub scan_directory_exclusions: BTreeSet<String>,
     pub repair_extensions: bool,
     pub convert_to_cbz: bool,
@@ -52,7 +53,7 @@ impl LibraryDto {
     }
 
     pub fn of_with_scan_strm(library: &Library, include_root: bool, scan_strm: bool) -> Self {
-        Self::of_with_settings(library, include_root, scan_strm, false)
+        Self::of_with_settings(library, include_root, scan_strm, false, false)
     }
 
     pub fn of_with_settings(
@@ -60,6 +61,7 @@ impl LibraryDto {
         include_root: bool,
         scan_strm: bool,
         real_time_scan: bool,
+        write_metadata: bool,
     ) -> Self {
         Self {
             id: library.id.clone(),
@@ -90,6 +92,7 @@ impl LibraryDto {
             scan_pdf: library.scan_pdf,
             scan_strm,
             scan_epub: library.scan_epub,
+            write_metadata,
             scan_directory_exclusions: library.scan_directory_exclusions.iter().cloned().collect(),
             repair_extensions: library.repair_extensions,
             convert_to_cbz: library.convert_to_cbz,
@@ -255,6 +258,7 @@ mod tests {
         assert_eq!(json["importComicInfoBook"], true);
         assert_eq!(json["scanInterval"], "DAILY");
         assert_eq!(json["scanStrm"], false);
+        assert_eq!(json["writeMetadata"], false);
         assert_eq!(json["seriesCover"], "FIRST");
         assert_eq!(json["oneshotsDirectory"], serde_json::Value::Null);
         assert_eq!(json["unavailable"], false);

@@ -375,6 +375,7 @@ mod tests {
                 komga_db::dao::library_setting::LibrarySettings {
                     scan_strm: true,
                     real_time_scan: true,
+                    write_metadata: false,
                 },
             )
             .unwrap();

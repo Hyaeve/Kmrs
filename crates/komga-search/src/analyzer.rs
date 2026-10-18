@@ -4,8 +4,6 @@
 //!   CJK bigram -> ASCII fold
 //! - index side (`MultiLingualNGramAnalyzer`): the same, with every CJK character also emitted
 //!   as a unigram (kmrs extension), plus NGram(3, 10, preserveOriginal = true) before folding
-//! - `MultiLingualAnalyzer.normalize` (used for prefix/wildcard query terms): t2s -> CJK width ->
-//!   lowercase -> ASCII fold, without bigramming
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -336,6 +334,31 @@ pub(crate) fn cjk_droppable_floor(tokens: &[String]) -> usize {
     }
 }
 
+/// Edit distance the fuzzy fallback grants a token. CJK stays exact: bigrams are
+/// two characters, so even one edit floods recall. Standalone number tokens get
+/// two edits so a volume bound (`Vol 19` vs `Vol 20`) still resolves — glued
+/// forms like `vol.19` are long enough for the generic two-edit rule. Latin
+/// words scale with length; very short tokens stay exact, or every id-like
+/// query (`b1`) would collide with its neighbors.
+pub(crate) fn fuzzy_distance(token: &str) -> u8 {
+    let len = token.chars().count();
+    if token.chars().all(is_cjk_char) {
+        0
+    } else if token.chars().all(|c| c.is_ascii_digit()) {
+        if len >= 2 {
+            2
+        } else {
+            0
+        }
+    } else if len >= 5 {
+        2
+    } else if len >= 3 {
+        1
+    } else {
+        0
+    }
+}
+
 /// Search-side bigram chain: sliding bigrams over the CJK character stream; a trailing
 /// lone CJK character is emitted as a unigram, and the first character of a CJK run
 /// following a non-CJK token is emitted as a unigram too (kmrs's boundary extension).
@@ -544,11 +567,6 @@ pub fn index_analyze(text: &str) -> Vec<(String, usize)> {
         drift += grams.len() - 1;
     }
     out
-}
-
-/// `MultiLingualAnalyzer.normalize`, used for prefix/wildcard query terms
-pub fn normalize(text: &str) -> String {
-    ascii_fold_str(&cjk_width_str(&t2s_str(text)).to_lowercase())
 }
 
 /// Eager token stream over a precomputed token list.
@@ -762,7 +780,6 @@ mod tests {
     fn chains_unify_simplified_and_traditional() {
         assert_eq!(search_analyze("名偵探柯南"), search_analyze("名侦探柯南"));
         assert_eq!(index_analyze("名偵探柯南"), index_analyze("名侦探柯南"));
-        assert_eq!(normalize("名偵探"), "名侦探");
     }
 
     #[test]
@@ -818,13 +835,6 @@ mod tests {
             search_analyze("東京タワー"),
             vec!["东京", "京タ", "タワ", "ワー", "ー"]
         );
-    }
-
-    #[test]
-    fn normalize_chain() {
-        assert_eq!(normalize("Ｈｅｌｌｏ"), "hello");
-        // no bigramming for prefix/wildcard terms
-        assert_eq!(normalize("東京"), "东京");
     }
 
     #[test]

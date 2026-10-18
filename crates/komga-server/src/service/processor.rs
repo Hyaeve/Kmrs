@@ -920,6 +920,7 @@ mod tests {
                 LibrarySettings {
                     scan_strm: true,
                     real_time_scan: false,
+                    write_metadata: false,
                 },
             )
             .unwrap();
@@ -1004,6 +1005,7 @@ mod tests {
                 LibrarySettings {
                     scan_strm: true,
                     real_time_scan: true,
+                    write_metadata: false,
                 },
             )
             .unwrap();

@@ -643,6 +643,9 @@ async fn add_user_uploaded_series_thumbnail(
             MarkSelectedPreference::No
         },
     )?;
+    if selected {
+        crate::service::strm_metadata::schedule_series_write(&state, &series_id);
+    }
     Ok(Json(ThumbnailSeriesDto::from(&added)))
 }
 
@@ -671,6 +674,7 @@ async fn mark_series_thumbnail_selected(
                 ..poster
             },
         ));
+    crate::service::strm_metadata::schedule_series_write(&state, &series_id);
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -725,6 +729,7 @@ async fn update_series_metadata(
             .events
             .send(crate::events::DomainEvent::SeriesUpdated(series));
     }
+    crate::service::strm_metadata::schedule_series_write(&state, &series_id);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -1123,6 +1128,7 @@ mod tests {
             komf_base_url: None,
             komf_auth_key: None,
             history_retention_days: 180,
+            update_check_enabled: true,
             sort_locale: None,
             thumbnail_storage: Default::default(),
             thumbnail_deep_etag: true,
@@ -1148,6 +1154,7 @@ mod tests {
 
             shutdown_tx: tokio::sync::watch::channel(false).0,
             api_key_activity_throttle: Arc::new(crate::auth::ApiKeyActivityThrottle::new()),
+            latest_update: Default::default(),
         }
     }
 

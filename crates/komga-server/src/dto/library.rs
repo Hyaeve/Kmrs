@@ -66,6 +66,8 @@ pub struct LibraryCreationDto {
     #[serde(default = "default_true")]
     pub scan_epub: bool,
     #[serde(default)]
+    pub write_metadata: bool,
+    #[serde(default)]
     pub scan_directory_exclusions: BTreeSet<String>,
     #[serde(default)]
     pub repair_extensions: bool,
@@ -117,6 +119,7 @@ pub struct LibraryUpdateDto {
     pub scan_pdf: Option<bool>,
     pub scan_strm: Option<bool>,
     pub scan_epub: Option<bool>,
+    pub write_metadata: Option<bool>,
     #[serde(default, deserialize_with = "deserialize_some")]
     pub scan_directory_exclusions: Option<Option<BTreeSet<String>>>,
     pub repair_extensions: Option<bool>,
@@ -143,6 +146,7 @@ mod tests {
         assert!(dto.import_epub_book);
         assert!(dto.scan_cbx && dto.scan_pdf && dto.scan_epub);
         assert!(!dto.scan_strm);
+        assert!(!dto.write_metadata);
         assert_eq!(dto.scan_interval, ScanIntervalDto::Every6H);
         assert_eq!(dto.series_cover, SeriesCoverDto::First);
         assert!(dto.hash_files);

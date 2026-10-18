@@ -19,6 +19,7 @@
     "settings": "設定",
     "integrations": "連携",
     "updates": "アップデート",
+    "updateAvailable": "アップデートがあります: {{version}}",
     "uiSettings": "UI 設定",
     "maintenance": "メンテナンス",
     "duplicates": "重複",

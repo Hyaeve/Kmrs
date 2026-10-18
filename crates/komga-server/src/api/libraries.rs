@@ -67,6 +67,7 @@ async fn get_libraries(
     let settings_dao = LibrarySettingDao::new(state.kmrs_db.clone());
     let scan_strm_libraries = settings_dao.scan_strm_library_ids()?;
     let real_time_libraries = settings_dao.real_time_scan_library_ids()?;
+    let write_metadata_libraries = settings_dao.write_metadata_library_ids()?;
     Ok(Json(
         libraries
             .iter()
@@ -76,6 +77,7 @@ async fn get_libraries(
                     user.is_admin(),
                     scan_strm_libraries.contains(&l.id),
                     real_time_libraries.contains(&l.id),
+                    write_metadata_libraries.contains(&l.id),
                 )
             })
             .collect(),
@@ -100,6 +102,7 @@ async fn get_library_by_id(
         user.is_admin(),
         settings.scan_strm,
         settings.real_time_scan,
+        settings.write_metadata,
     )))
 }
 
@@ -138,6 +141,7 @@ async fn add_library(
     }
     let scan_strm = body.scan_strm;
     let real_time_scan = body.scan_interval == ScanIntervalDto::RealTime;
+    let write_metadata = body.write_metadata;
     if real_time_scan && !scan_strm {
         violations.push(blank_violation(
             "scanInterval",
@@ -189,6 +193,7 @@ async fn add_library(
         LibrarySettings {
             scan_strm,
             real_time_scan,
+            write_metadata,
         },
     )
     .map_err(map_library_error)?;
@@ -197,6 +202,7 @@ async fn add_library(
         true,
         scan_strm,
         real_time_scan,
+        write_metadata,
     )))
 }
 
@@ -229,6 +235,9 @@ async fn update_library_by_id(
     };
     let current_settings = LibrarySettingDao::new(state.kmrs_db.clone()).get(&library_id)?;
     let scan_strm = body.scan_strm.unwrap_or(current_settings.scan_strm);
+    let write_metadata = body
+        .write_metadata
+        .unwrap_or(current_settings.write_metadata);
     let requested_interval = body.scan_interval;
     let requested_real_time = requested_interval == Some(ScanIntervalDto::RealTime);
     if requested_real_time && !scan_strm {
@@ -327,6 +336,7 @@ async fn update_library_by_id(
         LibrarySettings {
             scan_strm,
             real_time_scan,
+            write_metadata,
         },
     )
     .map_err(map_library_error)?;
@@ -504,6 +514,7 @@ pub(crate) mod test_support {
 
                 shutdown_tx: tokio::sync::watch::channel(false).0,
                 api_key_activity_throttle: Arc::new(crate::auth::ApiKeyActivityThrottle::new()),
+                latest_update: Default::default(),
             };
             let app = routes
                 .layer(axum::middleware::from_fn_with_state(
@@ -629,6 +640,7 @@ pub(crate) mod test_support {
             komf_base_url: None,
             komf_auth_key: None,
             history_retention_days: 180,
+            update_check_enabled: true,
             sort_locale: None,
             thumbnail_storage: Default::default(),
             thumbnail_deep_etag: true,
@@ -1132,6 +1144,68 @@ mod tests {
                 .unwrap()
                 .real_time_scan
         );
+    }
+
+    #[tokio::test]
+    async fn metadata_write_is_independent_from_strm_scan() {
+        use komga_db::dao::library_setting::LibrarySettingDao;
+
+        let (app, key) = admin_app();
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("manga");
+        std::fs::create_dir(&root).unwrap();
+        let (status, body) = app
+            .request_json(
+                "POST",
+                "/api/v1/libraries",
+                &key,
+                Some(serde_json::json!({
+                    "name":"Manga",
+                    "root":root.to_str().unwrap(),
+                    "scanStrm":false,
+                    "writeMetadata":true
+                })),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["writeMetadata"], true);
+        let id = body["id"].as_str().unwrap().to_string();
+        let settings = LibrarySettingDao::new(app.state.kmrs_db.clone())
+            .get(&id)
+            .unwrap();
+        assert!(!settings.scan_strm);
+        assert!(settings.write_metadata);
+
+        let (status, _) = app
+            .request_json(
+                "PATCH",
+                &format!("/api/v1/libraries/{id}"),
+                &key,
+                Some(serde_json::json!({"scanStrm":true})),
+            )
+            .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let (_, body) = app.get_json(&format!("/api/v1/libraries/{id}"), &key).await;
+        assert_eq!(body["scanStrm"], true);
+        assert_eq!(body["writeMetadata"], true);
+
+        let (status, _) = app
+            .request_json(
+                "PATCH",
+                &format!("/api/v1/libraries/{id}"),
+                &key,
+                Some(serde_json::json!({"scanStrm":false})),
+            )
+            .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let (_, body) = app.get_json(&format!("/api/v1/libraries/{id}"), &key).await;
+        assert_eq!(body["scanStrm"], false);
+        assert_eq!(body["writeMetadata"], true);
+        let settings = LibrarySettingDao::new(app.state.kmrs_db.clone())
+            .get(&id)
+            .unwrap();
+        assert!(!settings.scan_strm);
+        assert!(settings.write_metadata);
     }
 
     #[tokio::test]

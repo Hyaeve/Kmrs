@@ -183,7 +183,12 @@ export function LibraryDialog({ open, onOpenChange, library }: LibraryDialogProp
                 <FormSection title={t('libraries.analysisMaintenance')}>
                   <div className="grid gap-x-8 sm:grid-cols-2">
                     {ANALYSIS_FIELDS.map(({ key, labelKey }) => (
-                      <SwitchRow key={key} label={t(labelKey)} checked={form[key]} onChange={(v) => set(key, v)} />
+                      <SwitchRow
+                        key={key}
+                        label={t(labelKey)}
+                        checked={form[key]}
+                        onChange={(v) => set(key, v)}
+                      />
                     ))}
                   </div>
                 </FormSection>
@@ -300,11 +305,21 @@ function PathField({
   )
 }
 
-function SwitchRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+function SwitchRow({
+  label,
+  checked,
+  disabled = false,
+  onChange,
+}: {
+  label: string
+  checked: boolean
+  disabled?: boolean
+  onChange: (v: boolean) => void
+}) {
   return (
     <div className="flex items-center justify-between gap-4 py-1.5">
       <span className="text-sm text-ink-2">{label}</span>
-      <Switch checked={checked} onCheckedChange={onChange} label={label} />
+      <Switch checked={checked} onCheckedChange={onChange} label={label} disabled={disabled} />
     </div>
   )
 }
