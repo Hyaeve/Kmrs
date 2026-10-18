@@ -2,7 +2,7 @@
 //! - `GET /api/v1/login/set-cookie`: materializes the X-Auth-Token session into a cookie (204).
 //! - `GET|POST /api/logout`: clears the session cookie and invalidates the session (204).
 
-use crate::auth::{MaybeAuth, SESSION_COOKIE_NAME, SESSION_HEADER_NAME};
+use crate::auth::{MaybeAuth, RequireAuth, SESSION_COOKIE_NAME, SESSION_HEADER_NAME};
 use crate::state::AppState;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
@@ -15,7 +15,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/logout", routing::get(logout).post(logout))
 }
 
-async fn set_cookie(headers: HeaderMap) -> Response {
+async fn set_cookie(_auth: RequireAuth, headers: HeaderMap) -> Response {
     match headers
         .get(SESSION_HEADER_NAME)
         .and_then(|v| v.to_str().ok())
@@ -69,4 +69,45 @@ async fn logout(State(state): State<AppState>, auth: MaybeAuth, headers: HeaderM
         )],
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::collections::tests::{call, insert_user, test_state};
+    use axum::body::Body;
+    use axum::http::Request;
+
+    #[tokio::test]
+    async fn set_cookie_requires_auth_and_echoes_session() {
+        let state = test_state();
+        insert_user(&state.db, "u@b.c", &[], &[], Default::default(), "k");
+
+        let (status, _, _) = call(
+            &state,
+            router(),
+            Request::get("/api/v1/login/set-cookie")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        let (status, headers, _) = call(
+            &state,
+            router(),
+            Request::get("/api/v1/login/set-cookie")
+                .header("X-API-Key", "k")
+                .header(SESSION_HEADER_NAME, "session-1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let cookie = headers[axum::http::header::SET_COOKIE].to_str().unwrap();
+        assert!(
+            cookie.contains(&format!("{SESSION_COOKIE_NAME}=session-1")),
+            "{cookie}"
+        );
+    }
 }

@@ -2,7 +2,7 @@
 //! `/api/v1/books/**` list/detail/thumbnails/pages/file/progression/read-progress endpoints.
 
 use crate::api::restriction;
-use crate::auth::{MaybeAuth, RequireAuth};
+use crate::auth::RequireAuth;
 use crate::dto::book::BookMetadataUpdateDto;
 use crate::dto::common::{Page, Pageable, SortOrder};
 use crate::error::{ApiError, Violation};
@@ -54,9 +54,6 @@ use std::path::PathBuf;
 
 const MEDIATYPE_PROGRESSION_JSON: &str = "application/vnd.readium.progression+json";
 const MEDIATYPE_POSITION_LIST_JSON: &str = "application/vnd.readium.position-list+json";
-
-/// `CommonBookController.FONT_EXTENSIONS`
-const FONT_EXTENSIONS: [&str; 6] = ["otf", "woff", "woff2", "eot", "ttf", "svg"];
 
 const CSP_HEADER: &str = "script-src 'none'; object-src 'none';";
 
@@ -1325,25 +1322,11 @@ fn undeclared_resource_media_type(name: &str) -> Option<&'static str> {
 
 async fn get_book_epub_resource(
     State(state): State<AppState>,
-    auth: MaybeAuth,
+    auth: RequireAuth,
     headers: HeaderMap,
     Path((book_id, resource)): Path<(String, String)>,
 ) -> Result<Response, ApiError> {
     let resource_name = resource.strip_prefix('/').unwrap_or(&resource).to_string();
-    let extension = resource_name
-        .rsplit_once('.')
-        .map(|(_, e)| e.to_lowercase())
-        .unwrap_or_default();
-    let is_font = FONT_EXTENSIONS.contains(&extension.as_str());
-
-    if !is_font && auth.0.is_none() {
-        // ResponseStatusException(UNAUTHORIZED) with no reason: Spring error JSON, not the
-        // filter-level 401 (this path is whitelisted in the security configuration)
-        return Err(ApiError::Status {
-            status: StatusCode::UNAUTHORIZED,
-            message: String::new(),
-        });
-    }
 
     let Some(book) = book_dao(&state).find_by_id(&book_id)? else {
         return Err(ApiError::not_found(""));
@@ -1366,9 +1349,7 @@ async fn get_book_epub_resource(
         )));
     }
 
-    if !is_font {
-        restriction::check_book(&state, &auth.0.as_ref().unwrap().user, &book)?;
-    }
+    restriction::check_book(&state, &auth.0.user, &book)?;
 
     // repacked EPUBs often skip OPF declarations for files that are in the container;
     // serve those anyway (intentional deviation from Java, which 404s here)
@@ -1376,14 +1357,6 @@ async fn get_book_epub_resource(
         match media.files.iter().find(|f| f.file_name == resource_name) {
             Some(res) => (resource_name, res.media_type.clone()),
             None => {
-                // undeclared entries keep the privilege of a declared non-font resource:
-                // the anonymous font exemption covers OPF-declared fonts only
-                if auth.0.is_none() {
-                    return Err(ApiError::not_found(""));
-                }
-                if is_font {
-                    restriction::check_book(&state, &auth.0.as_ref().unwrap().user, &book)?;
-                }
                 let name = komga_media::analyzer::normalize_zip_path(&resource_name);
                 if name.split('/').next() == Some("..") {
                     return Err(ApiError::not_found(""));
@@ -4745,22 +4718,15 @@ mod tests {
         assert_eq!(body, b"ttf");
         assert_eq!(headers[axum::http::header::CONTENT_TYPE], "font/ttf");
 
-        // the anonymous font exemption covers OPF-declared fonts only
-        let (status, _, _) = call(
-            &app,
-            "GET",
-            "/api/v1/books/b1/resource/fonts/declared.ttf",
-            None,
-            None,
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
+        // anonymous requests are rejected, fonts included
         for uri in [
+            "/api/v1/books/b1/resource/images/cover.png",
+            "/api/v1/books/b1/resource/fonts/declared.ttf",
             "/api/v1/books/b1/resource/fonts/undeclared.ttf",
             "/api/v1/books/b1/resource/images/vector.svg",
         ] {
             let (status, _, _) = call(&app, "GET", uri, None, None).await;
-            assert_eq!(status, StatusCode::NOT_FOUND, "{uri}");
+            assert_eq!(status, StatusCode::UNAUTHORIZED, "{uri}");
         }
     }
 

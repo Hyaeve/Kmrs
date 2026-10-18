@@ -1,6 +1,6 @@
 //! `FontsController.kt`: font families and downloads (embedded OpenDyslexic + fonts dir).
 
-use crate::auth::MaybeAuth;
+use crate::auth::RequireAuth;
 use crate::error::ApiError;
 use crate::http::headers::content_disposition;
 use crate::state::AppState;
@@ -123,7 +123,7 @@ impl FontRegistry {
     }
 }
 
-async fn get_fonts(State(state): State<AppState>, _auth: MaybeAuth) -> Json<Vec<String>> {
+async fn get_fonts(State(state): State<AppState>, _auth: RequireAuth) -> Json<Vec<String>> {
     Json(
         FontRegistry::load(&state.config.fonts_dir)
             .get()
@@ -135,7 +135,7 @@ async fn get_fonts(State(state): State<AppState>, _auth: MaybeAuth) -> Json<Vec<
 
 async fn get_font_file(
     State(state): State<AppState>,
-    _auth: MaybeAuth,
+    _auth: RequireAuth,
     Path((font_family, font_file)): Path<(String, String)>,
 ) -> Result<Response, ApiError> {
     let registry = FontRegistry::load(&state.config.fonts_dir);
@@ -170,7 +170,7 @@ async fn get_font_file(
 
 async fn get_font_family_as_css(
     State(state): State<AppState>,
-    _auth: MaybeAuth,
+    _auth: RequireAuth,
     Path(font_family): Path<String>,
 ) -> Result<Response, ApiError> {
     let registry = FontRegistry::load(&state.config.fonts_dir);
@@ -236,7 +236,28 @@ fn extension_of(path: &FsPath) -> Option<String> {
 mod tests {
     use super::*;
     use crate::api::collections::tests::{call, get, insert_user, test_state};
-    use axum::http::StatusCode;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+
+    #[tokio::test]
+    async fn anonymous_requests_are_unauthorized() {
+        let state = test_state();
+        insert_user(&state.db, "u@b.c", &[], &[], Default::default(), "k");
+
+        for uri in [
+            "/api/v1/fonts/families",
+            "/api/v1/fonts/resource/OpenDyslexic/css",
+            "/api/v1/fonts/resource/OpenDyslexic/OpenDyslexic-Regular.woff2",
+        ] {
+            let (status, _, _) = call(
+                &state,
+                router(),
+                Request::get(uri).body(Body::empty()).unwrap(),
+            )
+            .await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED, "{uri}");
+        }
+    }
 
     #[tokio::test]
     async fn families_and_download() {
