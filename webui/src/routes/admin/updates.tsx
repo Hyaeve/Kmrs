@@ -14,12 +14,12 @@ import { MarkdownContent } from '@/components/ui/Markdown'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Skeleton } from '@/components/ui/Skeleton'
 
-function Badge({ children, tone }: { children: string; tone: 'current' | 'pre' }) {
+function Badge({ children, tone }: { children: string; tone: 'current' | 'latest' | 'pre' }) {
   return (
     <span
       className={cn(
         'inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium',
-        tone === 'current' ? 'border-accent/40 bg-accent-soft text-accent-strong' : 'border-line bg-raised text-ink-2',
+        tone === 'pre' ? 'border-line bg-raised text-ink-2' : 'border-accent/40 bg-accent-soft text-accent-strong',
       )}
     >
       {children}
@@ -37,7 +37,7 @@ function stripLinks(markdown: string): string {
     .replace(/https?:\/\/\S+/g, '')
 }
 
-function ReleaseCard({ release, isCurrent }: { release: ReleaseDto; isCurrent: boolean }) {
+function ReleaseCard({ release, isCurrent, isLatest }: { release: ReleaseDto; isCurrent: boolean; isLatest: boolean }) {
   const { t, i18n } = useTranslation('admin-maintenance')
   return (
     <article className={cn('rounded-xl border bg-surface p-5', isCurrent ? 'border-accent/40' : 'border-line')}>
@@ -46,6 +46,7 @@ function ReleaseCard({ release, isCurrent }: { release: ReleaseDto; isCurrent: b
           <Tag className="size-4 text-ink-3" />
           {release.version}
         </h2>
+        {isLatest && <Badge tone="latest">{t('updates.latest')}</Badge>}
         {isCurrent && <Badge tone="current">{t('updates.current')}</Badge>}
         {release.preRelease && <Badge tone="pre">{t('updates.preRelease')}</Badge>}
         <time className="text-xs text-ink-3" dateTime={release.releaseDate} title={new Date(release.releaseDate).toLocaleString(i18n.language)}>
@@ -76,8 +77,8 @@ export function AdminUpdatesPage() {
   const currentVersion = infoQuery.data?.build?.version
   const commit = infoQuery.data?.git?.commit?.id
   const releases = q.data ?? []
-  // the current release floats to the top, the rest keeps server order (newest first)
-  const sorted = [...releases].sort((a, b) => Number(b.version === currentVersion) - Number(a.version === currentVersion))
+  // server order is newest first: the first non-prerelease entry is the latest stable
+  const latestStable = releases.find((r) => !r.preRelease)?.version
 
   return (
     <div className="max-w-3xl">
@@ -116,12 +117,12 @@ export function AdminUpdatesPage() {
           body={q.error instanceof Error ? q.error.message : t('errorFallback')}
           action={<Button onClick={() => q.refetch()}>{t('common:action.retry')}</Button>}
         />
-      ) : sorted.length === 0 ? (
+      ) : releases.length === 0 ? (
         <EmptyState icon={<Rocket />} title={t('updates.emptyTitle')} body={t('updates.emptyBody')} />
       ) : (
         <div className="flex flex-col gap-4">
-          {sorted.map((r) => (
-            <ReleaseCard key={r.version} release={r} isCurrent={r.version === currentVersion} />
+          {releases.map((r) => (
+            <ReleaseCard key={r.version} release={r} isCurrent={r.version === currentVersion} isLatest={r.version === latestStable} />
           ))}
         </div>
       )}

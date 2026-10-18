@@ -191,6 +191,7 @@
   "updates": {
     "subtitle": "伺服器版本與上游發布",
     "current": "目前",
+    "latest": "最新",
     "preRelease": "預覽版",
     "runningVersion": "執行中的版本",
     "notInFeed": "不在發布資訊中",

@@ -209,6 +209,7 @@
   "updates": {
     "subtitle": "Server version and upstream releases",
     "current": "Current",
+    "latest": "Latest",
     "preRelease": "Pre-release",
     "runningVersion": "Running version",
     "notInFeed": "not in release feed",

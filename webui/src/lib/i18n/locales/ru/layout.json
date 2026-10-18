@@ -19,6 +19,7 @@
     "settings": "Настройки",
     "integrations": "Интеграции",
     "updates": "Обновления",
+    "updateAvailable": "Доступно обновление: {{version}}",
     "uiSettings": "Настройки интерфейса",
     "maintenance": "Обслуживание",
     "duplicates": "Дубликаты",

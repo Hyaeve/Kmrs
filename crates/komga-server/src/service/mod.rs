@@ -24,5 +24,6 @@ pub mod sync_point;
 pub mod tasks;
 pub mod tracker_sync;
 pub mod transient_book;
+pub mod update_check;
 pub mod user;
 pub use tasks::{TaskEmitter, TaskNotify};

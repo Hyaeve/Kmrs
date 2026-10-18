@@ -2,6 +2,7 @@
 
 use crate::auth::RequireAuth;
 use crate::error::ApiError;
+use crate::service::update_check::{fetch_releases, github_client, GithubReleaseDto, UpdateInfo};
 use crate::state::AppState;
 use axum::extract::State;
 use axum::{routing, Json, Router};
@@ -14,6 +15,7 @@ pub fn router() -> Router<AppState> {
 pub(crate) fn router_with_base(base_url: &'static str) -> Router<AppState> {
     Router::new()
         .route("/api/v1/releases", routing::get(get_releases))
+        .route("/api/v1/releases/latest", routing::get(get_latest))
         .layer(axum::Extension(ReleasesClient::new(base_url)))
 }
 
@@ -29,11 +31,7 @@ impl ReleasesClient {
     fn new(base_url: &'static str) -> Self {
         Self {
             base_url,
-            // GitHub 403s requests without a User-Agent
-            http: reqwest::Client::builder()
-                .user_agent(concat!("kmrs/", env!("CARGO_PKG_VERSION")))
-                .build()
-                .expect("reqwest client"),
+            http: github_client(),
             cache: moka::sync::Cache::builder()
                 .time_to_idle(std::time::Duration::from_secs(3600))
                 .build(),
@@ -56,14 +54,7 @@ impl ReleasesClient {
     }
 
     async fn fetch(&self) -> Result<Vec<GithubReleaseDto>, reqwest::Error> {
-        self.http
-            .get(self.base_url)
-            .query(&[("per_page", "20")])
-            .send()
-            .await?
-            .error_for_status()?
-            .json::<Vec<GithubReleaseDto>>()
-            .await
+        fetch_releases(&self.http, self.base_url).await
     }
 }
 
@@ -98,6 +89,18 @@ async fn get_releases(
     Ok(Json(dtos))
 }
 
+/// kmrs enhancement: the newest update found by the periodic check, 404 while none is known.
+async fn get_latest(
+    State(state): State<AppState>,
+    auth: RequireAuth,
+) -> Result<Json<UpdateInfo>, ApiError> {
+    auth.0.require_admin()?;
+    let Some(info) = state.latest_update.get() else {
+        return Err(ApiError::not_found(""));
+    };
+    Ok(Json(info))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReleaseDto {
@@ -111,18 +114,8 @@ pub struct ReleaseDto {
     pub description: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-struct GithubReleaseDto {
-    html_url: String,
-    tag_name: String,
-    #[serde(with = "time::serde::iso8601")]
-    published_at: time::OffsetDateTime,
-    body: String,
-    prerelease: bool,
-}
-
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::api::collections::tests::{call, get, insert_user, test_state};
     use axum::http::StatusCode;
@@ -134,7 +127,7 @@ mod tests {
          "published_at": "2023-12-01T00:00:00Z", "body": "beta", "prerelease": true}
     ]"#;
 
-    async fn serve(body: &'static str) -> String {
+    pub(crate) async fn serve(body: &'static str) -> String {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         tokio::spawn(async move {
@@ -212,6 +205,67 @@ mod tests {
         assert_eq!(items[1]["latest"], false);
         assert_eq!(items[1]["preRelease"], true);
         assert_eq!(items[0]["releaseDate"], "2023-12-15T00:00:00Z");
+    }
+
+    #[tokio::test]
+    async fn latest_returns_update_when_set() {
+        let state = test_state();
+        let key = seed_admin(&state);
+        state.latest_update.set(Some(UpdateInfo {
+            version: "0.7.0".into(),
+            url: "https://github.com/kmworks/kmrs/releases/tag/v0.7.0".into(),
+            release_date: time::macros::datetime!(2026-10-15 12:34:56 UTC),
+            checked_at: time::macros::datetime!(2026-10-18 01:23:45 UTC),
+        }));
+        let (status, _, body) = call(
+            &state,
+            router_with_base("http://127.0.0.1:1/releases"),
+            get("/api/v1/releases/latest", &key),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "version": "0.7.0",
+                "url": "https://github.com/kmworks/kmrs/releases/tag/v0.7.0",
+                "releaseDate": "2026-10-15T12:34:56Z",
+                "checkedAt": "2026-10-18T01:23:45Z",
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn latest_is_404_without_update() {
+        let state = test_state();
+        let key = seed_admin(&state);
+        let (status, _, _) = call(
+            &state,
+            router_with_base("http://127.0.0.1:1/releases"),
+            get("/api/v1/releases/latest", &key),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn latest_requires_admin() {
+        let state = test_state();
+        insert_user(&state.db, "u@b.c", &[], &[], Default::default(), "k");
+        state.latest_update.set(Some(UpdateInfo {
+            version: "0.7.0".into(),
+            url: "https://example.com".into(),
+            release_date: time::OffsetDateTime::UNIX_EPOCH,
+            checked_at: time::OffsetDateTime::UNIX_EPOCH,
+        }));
+        let (status, _, _) = call(
+            &state,
+            router_with_base("http://127.0.0.1:1/releases"),
+            get("/api/v1/releases/latest", "k"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]

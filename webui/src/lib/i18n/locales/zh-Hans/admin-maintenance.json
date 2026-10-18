@@ -191,6 +191,7 @@
   "updates": {
     "subtitle": "服务器版本与上游发布",
     "current": "当前",
+    "latest": "最新",
     "preRelease": "预发布",
     "runningVersion": "运行版本",
     "notInFeed": "不在发布源中",

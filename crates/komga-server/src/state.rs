@@ -30,6 +30,7 @@ pub struct AppState {
     /// Broadcasts the shutdown request (actuator `/actuator/shutdown`)
     pub shutdown_tx: tokio::sync::watch::Sender<bool>,
     pub api_key_activity_throttle: Arc<crate::auth::ApiKeyActivityThrottle>,
+    pub latest_update: crate::service::update_check::LatestUpdate,
 }
 
 /// A throwaway tantivy index for tests (one fresh directory per call).

@@ -19,6 +19,7 @@
     "settings": "설정",
     "integrations": "연동",
     "updates": "업데이트",
+    "updateAvailable": "업데이트 사용 가능: {{version}}",
     "uiSettings": "UI 설정",
     "maintenance": "유지 관리",
     "duplicates": "중복",

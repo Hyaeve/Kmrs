@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useLocation, useMatch, useNavigate, useNavigatio
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import {
+  ArrowCircleUp,
   BookBookmark,
   BookmarkSimple,
   BookOpen,
@@ -47,6 +48,7 @@ import {
 import { AnimatePresence, motion } from 'motion/react'
 import { cn } from '@/lib/utils/cn'
 import { librariesApi } from '@/lib/api/libraries'
+import { releasesApi } from '@/lib/api/releases'
 import { usersApi } from '@/lib/api/users'
 import { serverApi } from '@/lib/api/users'
 import { isAdmin, useAuthStore } from '@/lib/store/auth'
@@ -342,6 +344,13 @@ function SidebarFooter() {
   const clear = useAuthStore((s) => s.clear)
   const navigate = useNavigate()
   const { data: info } = useQuery({ queryKey: ['server-info'], queryFn: serverApi.info, staleTime: Infinity })
+  // admin-only endpoint: other roles would just collect 403s
+  const { data: update } = useQuery({
+    queryKey: ['releases', 'latest'],
+    queryFn: releasesApi.latest,
+    staleTime: 3_600_000,
+    enabled: isAdmin(user),
+  })
 
   const logout = async () => {
     try {
@@ -366,6 +375,12 @@ function SidebarFooter() {
               {user?.email?.[0]?.toUpperCase() ?? '?'}
             </span>
             <span className="min-w-0 flex-1 truncate text-[13px] text-ink-2">{user?.email}</span>
+            {update && (
+              <ArrowCircleUp
+                className="size-4 shrink-0 text-accent-strong"
+                aria-label={t('nav.updateAvailable', { version: update.version })}
+              />
+            )}
             <CaretDown className="size-3.5 text-ink-3" />
           </button>
         }
@@ -374,10 +389,15 @@ function SidebarFooter() {
         <MenuItem onSelect={logout}>
           <SignOut className="size-4" /> {t('nav.signOut')}
         </MenuItem>
-        {info?.build?.version && (
+        {(info?.build?.version || update) && (
           <>
             <MenuSeparator />
-            <MenuLabel>kmrs {info.build.version}</MenuLabel>
+            {info?.build?.version && <MenuLabel>kmrs {info.build.version}</MenuLabel>}
+            {update && (
+              <MenuItem onSelect={() => navigate('/admin/updates')}>
+                <Rocket className="size-4" /> {t('nav.updateAvailable', { version: update.version })}
+              </MenuItem>
+            )}
           </>
         )}
       </Menu>

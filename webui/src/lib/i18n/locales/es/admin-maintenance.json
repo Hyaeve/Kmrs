@@ -227,6 +227,7 @@
   "updates": {
     "subtitle": "Versión del servidor y versiones publicadas",
     "current": "Actual",
+    "latest": "Última",
     "preRelease": "Versión preliminar",
     "runningVersion": "Versión en ejecución",
     "notInFeed": "ausente del canal de versiones",

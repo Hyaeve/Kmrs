@@ -479,6 +479,7 @@ mod tests {
 
             shutdown_tx,
             api_key_activity_throttle: Arc::new(crate::auth::ApiKeyActivityThrottle::new()),
+            latest_update: Default::default(),
         };
         (state, shutdown_rx)
     }

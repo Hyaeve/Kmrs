@@ -794,6 +794,13 @@ export interface ReleaseDto {
   description: string
 }
 
+export interface LatestReleaseDto {
+  version: string
+  url: string
+  releaseDate: string
+  checkedAt: string
+}
+
 // ---- Admin: book import ----
 
 export type CopyMode = 'MOVE' | 'COPY' | 'HARDLINK'

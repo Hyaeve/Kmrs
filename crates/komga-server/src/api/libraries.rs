@@ -437,6 +437,7 @@ pub(crate) mod test_support {
 
                 shutdown_tx: tokio::sync::watch::channel(false).0,
                 api_key_activity_throttle: Arc::new(crate::auth::ApiKeyActivityThrottle::new()),
+                latest_update: Default::default(),
             };
             let app = routes
                 .layer(axum::middleware::from_fn_with_state(
@@ -562,6 +563,7 @@ pub(crate) mod test_support {
             komf_base_url: None,
             komf_auth_key: None,
             history_retention_days: 180,
+            update_check_enabled: true,
             sort_locale: None,
             thumbnail_storage: Default::default(),
             thumbnail_deep_etag: true,

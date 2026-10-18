@@ -191,6 +191,7 @@
   "updates": {
     "subtitle": "서버 버전 및 업스트림 릴리스",
     "current": "현재",
+    "latest": "최신",
     "preRelease": "사전 릴리스",
     "runningVersion": "실행 중인 버전",
     "notInFeed": "릴리스 피드에 없음",

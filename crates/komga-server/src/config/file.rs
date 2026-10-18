@@ -28,6 +28,15 @@ pub struct FileConfig {
     pub komf: Option<FileKomf>,
     pub history: Option<FileHistory>,
     pub thumbnails: Option<FileThumbnails>,
+    pub update_check: Option<FileUpdateCheck>,
+}
+
+/// Daily check for newer kmrs releases on GitHub (kmrs enhancement; the Java version only
+/// fetches the release list on demand). The outcome surfaces at `/api/v1/releases/latest`.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct FileUpdateCheck {
+    pub enabled: Option<bool>,
 }
 
 /// Retention for the HISTORICAL_EVENT table (kmrs enhancement; the Java version never cleans it).
@@ -567,6 +576,21 @@ pub fn render(file: &FileConfig, config: &ServerConfig, source: Option<&Path>) -
         format!(
             "retention-days = {} # 0 = keep forever; env: KOMGA_HISTORY_RETENTIONDAYS",
             config.history_retention_days
+        ),
+    );
+    out.push('\n');
+
+    out.push_str("[update-check]\n");
+    out.push_str(
+        "# daily check for a newer kmrs release on GitHub, exposed at /api/v1/releases/latest\n\
+         # (kmrs enhancement; the Java version only fetches the release list on demand)\n",
+    );
+    push_line(
+        &mut out,
+        file.update_check.as_ref().and_then(|u| u.enabled).is_some(),
+        format!(
+            "enabled = {} # env: KOMGA_UPDATECHECK_ENABLED",
+            config.update_check_enabled
         ),
     );
     out.push('\n');

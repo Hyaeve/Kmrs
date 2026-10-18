@@ -19,6 +19,7 @@ kmrs is a drop-in, data-level compatible reimplementation of [gotson/komga](http
 - kmrs-private state never goes into the main database. It lives in `kmrs.sqlite` — its own migration track (`crates/komga-db/migrations_kmrs/`, `kmrs_migrations()`), its own connection, its own config key (`kmrs-db` / `KOMGA_KMRSDB_FILE`) — so the Java version can always open a kmrs-written data directory.
 - When porting behavior, verify against the Java/Kotlin sources, never from memory.
 - Actuator endpoints and metrics that only expose JVM/Spring internals (beans, env, loggers, mappings, `system.*`, `jvm.*` beyond `jvm.memory.used`, ...) are intentional scope exclusions, not gaps.
+- `/actuator/**` is a pure compatibility surface, frozen at Java parity: never add endpoints or response fields there (kmrs-specific additions go under `/api/**`), and leave existing behavior alone unless fixing a parity bug.
 
 ## Versioning
 

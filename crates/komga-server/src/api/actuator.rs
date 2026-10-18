@@ -1,6 +1,9 @@
 //! Spring Boot Actuator endpoint subset (`/actuator/**`): links, health, info, flyway, logfile,
 //! metrics, scheduledtasks, sessions, shutdown.
 //!
+//! This surface is frozen at Java parity: no kmrs-specific endpoints or response fields
+//! (those go under `/api/**`), and no behavior changes except parity fixes.
+//!
 //! komga's `application.yml` sets `management.endpoints.web.exposure.include: "*"`, so Java
 //! exposes everything Spring can auto-configure. Endpoints and meters that only dump
 //! JVM/Spring internals (beans, conditions, env, configprops, loggers, mappings, heapdump,
@@ -1060,6 +1063,7 @@ mod tests {
             kobo_proxy: crate::service::kobo_proxy::KoboProxy::new(),
             shutdown_tx,
             api_key_activity_throttle: Arc::new(crate::auth::ApiKeyActivityThrottle::new()),
+            latest_update: Default::default(),
         };
         (state, shutdown_rx)
     }

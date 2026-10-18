@@ -169,6 +169,7 @@ async fn run() -> anyhow::Result<()> {
         kobo_proxy: service::kobo_proxy::KoboProxy::new(),
         shutdown_tx,
         api_key_activity_throttle: Arc::new(crate::auth::ApiKeyActivityThrottle::new()),
+        latest_update: service::update_check::LatestUpdate::default(),
         db,
         task_db,
         tasks_db,
@@ -185,6 +186,7 @@ async fn run() -> anyhow::Result<()> {
         processor_shutdown_rx,
     );
     service::scheduler::ScanScheduler::start(state.clone());
+    service::update_check::start(state.clone());
     service::maintenance::MaintenanceScheduler::start_auth_activity_cleanup(state.clone());
     service::maintenance::MaintenanceScheduler::start_history_cleanup(state.clone());
     if config.jdbc_session_enabled {

@@ -191,6 +191,7 @@
   "updates": {
     "subtitle": "サーバーバージョンと上流リリース",
     "current": "現在",
+    "latest": "最新",
     "preRelease": "プレリリース",
     "runningVersion": "実行中のバージョン",
     "notInFeed": "リリースフィードにありません",
