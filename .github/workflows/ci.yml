@@ -156,3 +156,19 @@ jobs:
           curl -sf http://localhost:25600/ | grep -q "<title>KMReader</title>"
           # the API is up and the database answers: claim status on a fresh install
           curl -sf http://localhost:25600/api/v1/claim | grep -q '"isClaimed":false'
+
+  ci:
+    # the single check the default-branch ruleset pins: a matrix leg skipped by
+    # the job-level if reports under one bare name, so requiring the expanded
+    # "build (os)" names blocks every web-only PR on a check that never runs
+    needs: [lint, test, build, web, docker]
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every leg passed or was filtered out
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          failed=$(echo "$RESULTS" | jq -r 'to_entries[] | select(.value.result != "success" and .value.result != "skipped") | .key')
+          [ -z "$failed" ] || { echo "red legs: $failed"; exit 1; }
+          echo "all legs green or filtered out"
