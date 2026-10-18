@@ -1,6 +1,6 @@
 //! Daily check for newer kmrs releases on GitHub (kmrs enhancement; the Java version only
 //! fetches the release list on demand for `/api/v1/releases`). The result lives in memory
-//! and surfaces at `GET /api/v1/releases/latest`.
+//! and surfaces at `GET /api/v1/update-check`.
 
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -8,7 +8,7 @@ use time::OffsetDateTime;
 
 const GITHUB_RELEASES_URL: &str = "https://api.github.com/repos/kmworks/kmrs/releases";
 
-/// A newer upstream release, as exposed at `/api/v1/releases/latest`.
+/// A newer upstream release, as exposed at `/api/v1/update-check`.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateInfo {
@@ -16,22 +16,26 @@ pub struct UpdateInfo {
     pub url: String,
     #[serde(with = "komga_core::dto::progression::zoned_date_time")]
     pub release_date: OffsetDateTime,
-    #[serde(with = "komga_core::dto::progression::zoned_date_time")]
-    pub checked_at: OffsetDateTime,
 }
 
-/// Shared outcome of the update check: `None` until the first successful check and
-/// whenever the running version is up to date.
+/// What one successful check learned: when it ran, and what it found (`None` = up to date).
+#[derive(Debug, Clone)]
+pub struct CheckOutcome {
+    pub checked_at: OffsetDateTime,
+    pub update: Option<UpdateInfo>,
+}
+
+/// Shared outcome of the update check: `None` until the first successful run.
 #[derive(Debug, Clone, Default)]
-pub struct LatestUpdate(Arc<std::sync::RwLock<Option<UpdateInfo>>>);
+pub struct LatestUpdate(Arc<std::sync::RwLock<Option<CheckOutcome>>>);
 
 impl LatestUpdate {
-    pub fn get(&self) -> Option<UpdateInfo> {
+    pub fn get(&self) -> Option<CheckOutcome> {
         self.0.read().unwrap().clone()
     }
 
-    pub fn set(&self, update: Option<UpdateInfo>) {
-        *self.0.write().unwrap() = update;
+    pub fn set(&self, outcome: Option<CheckOutcome>) {
+        *self.0.write().unwrap() = outcome;
     }
 }
 
@@ -66,16 +70,18 @@ async fn check_once(latest: &LatestUpdate, base_url: &str) {
         version: version.to_string(),
         url: release.html_url.clone(),
         release_date: release.published_at,
-        checked_at: komga_core::time_codec::now_utc(),
     });
     // the daily re-check usually finds the same release; log only on a version change
-    let changed = latest.get().map(|u| u.version) != update.as_ref().map(|u| u.version.clone());
-    if changed {
+    let known = latest.get().and_then(|o| o.update).map(|u| u.version);
+    if known != update.as_ref().map(|u| u.version.clone()) {
         if let Some(u) = &update {
             tracing::info!("a new kmrs release is available: {} ({})", u.version, u.url);
         }
     }
-    latest.set(update);
+    latest.set(Some(CheckOutcome {
+        checked_at: komga_core::time_codec::now_utc(),
+        update,
+    }));
 }
 
 /// The latest stable release strictly newer than `current`. GitHub returns newest first,
@@ -195,7 +201,6 @@ mod tests {
             version: "0.7.0".into(),
             url: "https://github.com/kmworks/kmrs/releases/tag/v0.7.0".into(),
             release_date: time::macros::datetime!(2026-10-15 12:34:56 UTC),
-            checked_at: time::macros::datetime!(2026-10-18 01:23:45 UTC),
         };
         let json = serde_json::to_value(&info).unwrap();
         assert_eq!(
@@ -204,7 +209,6 @@ mod tests {
                 "version": "0.7.0",
                 "url": "https://github.com/kmworks/kmrs/releases/tag/v0.7.0",
                 "releaseDate": "2026-10-15T12:34:56Z",
-                "checkedAt": "2026-10-18T01:23:45Z",
             })
         );
     }
@@ -214,14 +218,17 @@ mod tests {
         let latest = LatestUpdate::default();
         let url = serve(releases_json(&[("v99.0.0", false)])).await;
         check_once(&latest, &url).await;
-        let update = latest.get().expect("update stored");
+        let outcome = latest.get().expect("outcome stored");
+        let update = outcome.update.expect("update stored");
         assert_eq!(update.version, "99.0.0");
         assert_eq!(
             update.url,
             "https://github.com/kmworks/kmrs/releases/tag/v99.0.0"
         );
         assert_eq!(update.release_date.year(), 2026);
-        assert!(komga_core::time_codec::now_utc() - update.checked_at < time::Duration::minutes(1));
+        assert!(
+            komga_core::time_codec::now_utc() - outcome.checked_at < time::Duration::minutes(1)
+        );
     }
 
     #[tokio::test]
@@ -229,7 +236,14 @@ mod tests {
         let latest = LatestUpdate::default();
         let url = serve(releases_json(&[("v99.0.0", true), ("v98.0.0", false)])).await;
         check_once(&latest, &url).await;
-        assert_eq!(latest.get().expect("update stored").version, "98.0.0");
+        assert_eq!(
+            latest
+                .get()
+                .and_then(|o| o.update)
+                .expect("update stored")
+                .version,
+            "98.0.0"
+        );
     }
 
     #[tokio::test]
@@ -245,20 +259,25 @@ mod tests {
             let latest = LatestUpdate::default();
             let url = serve(body).await;
             check_once(&latest, &url).await;
-            assert!(latest.get().is_none(), "{body}");
+            let outcome = latest.get().expect("outcome stored");
+            assert!(outcome.update.is_none(), "{body}");
         }
     }
 
     #[tokio::test]
     async fn check_once_failure_keeps_previous_state() {
         let latest = LatestUpdate::default();
-        latest.set(Some(UpdateInfo {
-            version: "1.2.3".into(),
-            url: "https://example.com".into(),
-            release_date: OffsetDateTime::UNIX_EPOCH,
+        latest.set(Some(CheckOutcome {
             checked_at: OffsetDateTime::UNIX_EPOCH,
+            update: Some(UpdateInfo {
+                version: "1.2.3".into(),
+                url: "https://example.com".into(),
+                release_date: OffsetDateTime::UNIX_EPOCH,
+            }),
         }));
         check_once(&latest, "http://127.0.0.1:1/releases").await;
-        assert_eq!(latest.get().expect("state kept").version, "1.2.3");
+        let outcome = latest.get().expect("state kept");
+        assert_eq!(outcome.update.expect("update kept").version, "1.2.3");
+        assert_eq!(outcome.checked_at, OffsetDateTime::UNIX_EPOCH);
     }
 }

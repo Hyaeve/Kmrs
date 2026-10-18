@@ -77,7 +77,7 @@ pub struct ServerConfig {
     /// days to keep HISTORICAL_EVENT rows (pruned daily, 0 = keep forever);
     /// the Java version never cleans the table
     pub history_retention_days: u32,
-    /// daily GitHub check for a newer release, exposed at /api/v1/releases/latest (kmrs enhancement)
+    /// daily GitHub check for a newer release, exposed at /api/v1/update-check (kmrs enhancement)
     pub update_check_enabled: bool,
     /// where book/series thumbnail bytes live (kmrs enhancement; Java always uses DB blobs)
     pub thumbnail_storage: ThumbnailStorage,

@@ -122,7 +122,7 @@
 # retention-days = 180 # 0 = keep forever; env: KOMGA_HISTORY_RETENTIONDAYS
 
 [update-check]
-# daily check for a newer kmrs release on GitHub, exposed at /api/v1/releases/latest (kmrs enhancement; the Java version only fetches the release list on demand)
+# daily check for a newer kmrs release on GitHub, exposed at /api/v1/update-check (kmrs enhancement; the Java version only fetches the release list on demand)
 # enabled = true # env: KOMGA_UPDATECHECK_ENABLED
 
 [thumbnails]

@@ -15,8 +15,9 @@ pub fn router() -> Router<AppState> {
 pub(crate) fn router_with_base(base_url: &'static str) -> Router<AppState> {
     Router::new()
         .route("/api/v1/releases", routing::get(get_releases))
-        .route("/api/v1/releases/latest", routing::get(get_latest))
+        // a layer applies only to the routes above it: the update check has no use for the GitHub client
         .layer(axum::Extension(ReleasesClient::new(base_url)))
+        .route("/api/v1/update-check", routing::get(get_update_check))
 }
 
 #[derive(Clone)]
@@ -89,16 +90,29 @@ async fn get_releases(
     Ok(Json(dtos))
 }
 
-/// kmrs enhancement: the newest update found by the periodic check, 404 while none is known.
-async fn get_latest(
+/// kmrs enhancement: the periodic update check's last outcome. Always 200: `update` is
+/// null while the running version is up to date, `checkedAt` is null until the first
+/// successful check.
+async fn get_update_check(
     State(state): State<AppState>,
     auth: RequireAuth,
-) -> Result<Json<UpdateInfo>, ApiError> {
+) -> Result<Json<UpdateCheckDto>, ApiError> {
     auth.0.require_admin()?;
-    let Some(info) = state.latest_update.get() else {
-        return Err(ApiError::not_found(""));
-    };
-    Ok(Json(info))
+    let outcome = state.latest_update.get();
+    Ok(Json(UpdateCheckDto {
+        enabled: state.config.update_check_enabled,
+        checked_at: outcome.as_ref().map(|o| o.checked_at),
+        update: outcome.and_then(|o| o.update),
+    }))
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCheckDto {
+    pub enabled: bool,
+    #[serde(with = "komga_core::dto::progression::zoned_date_time_opt")]
+    pub checked_at: Option<time::OffsetDateTime>,
+    pub update: Option<UpdateInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,6 +132,7 @@ pub struct ReleaseDto {
 pub(crate) mod tests {
     use super::*;
     use crate::api::collections::tests::{call, get, insert_user, test_state};
+    use crate::service::update_check::CheckOutcome;
     use axum::http::StatusCode;
 
     const RELEASES: &str = r#"[
@@ -208,19 +223,21 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn latest_returns_update_when_set() {
+    async fn update_check_reports_outcome() {
         let state = test_state();
         let key = seed_admin(&state);
-        state.latest_update.set(Some(UpdateInfo {
-            version: "0.7.0".into(),
-            url: "https://github.com/kmworks/kmrs/releases/tag/v0.7.0".into(),
-            release_date: time::macros::datetime!(2026-10-15 12:34:56 UTC),
+        state.latest_update.set(Some(CheckOutcome {
             checked_at: time::macros::datetime!(2026-10-18 01:23:45 UTC),
+            update: Some(UpdateInfo {
+                version: "0.7.0".into(),
+                url: "https://github.com/kmworks/kmrs/releases/tag/v0.7.0".into(),
+                release_date: time::macros::datetime!(2026-10-15 12:34:56 UTC),
+            }),
         }));
         let (status, _, body) = call(
             &state,
             router_with_base("http://127.0.0.1:1/releases"),
-            get("/api/v1/releases/latest", &key),
+            get("/api/v1/update-check", &key),
         )
         .await;
         assert_eq!(status, StatusCode::OK);
@@ -228,41 +245,43 @@ pub(crate) mod tests {
         assert_eq!(
             json,
             serde_json::json!({
-                "version": "0.7.0",
-                "url": "https://github.com/kmworks/kmrs/releases/tag/v0.7.0",
-                "releaseDate": "2026-10-15T12:34:56Z",
+                "enabled": true,
                 "checkedAt": "2026-10-18T01:23:45Z",
+                "update": {
+                    "version": "0.7.0",
+                    "url": "https://github.com/kmworks/kmrs/releases/tag/v0.7.0",
+                    "releaseDate": "2026-10-15T12:34:56Z",
+                },
             })
         );
     }
 
     #[tokio::test]
-    async fn latest_is_404_without_update() {
+    async fn update_check_before_first_run_is_all_null() {
         let state = test_state();
         let key = seed_admin(&state);
-        let (status, _, _) = call(
+        let (status, _, body) = call(
             &state,
             router_with_base("http://127.0.0.1:1/releases"),
-            get("/api/v1/releases/latest", &key),
+            get("/api/v1/update-check", &key),
         )
         .await;
-        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(status, StatusCode::OK);
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({"enabled": true, "checkedAt": null, "update": null})
+        );
     }
 
     #[tokio::test]
-    async fn latest_requires_admin() {
+    async fn update_check_requires_admin() {
         let state = test_state();
         insert_user(&state.db, "u@b.c", &[], &[], Default::default(), "k");
-        state.latest_update.set(Some(UpdateInfo {
-            version: "0.7.0".into(),
-            url: "https://example.com".into(),
-            release_date: time::OffsetDateTime::UNIX_EPOCH,
-            checked_at: time::OffsetDateTime::UNIX_EPOCH,
-        }));
         let (status, _, _) = call(
             &state,
             router_with_base("http://127.0.0.1:1/releases"),
-            get("/api/v1/releases/latest", "k"),
+            get("/api/v1/update-check", "k"),
         )
         .await;
         assert_eq!(status, StatusCode::FORBIDDEN);

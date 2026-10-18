@@ -771,11 +771,16 @@ export interface ReleaseDto {
   description: string
 }
 
-export interface LatestReleaseDto {
+export interface AvailableUpdateDto {
   version: string
   url: string
   releaseDate: string
-  checkedAt: string
+}
+
+export interface UpdateCheckDto {
+  enabled: boolean
+  checkedAt: string | null
+  update: AvailableUpdateDto | null
 }
 
 // ---- Admin: book import ----
