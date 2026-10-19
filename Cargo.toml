@@ -62,7 +62,7 @@ image = "0.25"
 moka = { version = "0.12", features = ["future", "sync"] }
 sysinfo = { version = "0.39", default-features = false, features = ["system", "disk"] }
 jiff = "0.2"
-zip = { version = "8", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 roxmltree = "0.21"
 scraper = "0.27"
 compress-tools = { version = "0.16", default-features = false, features = ["static"] }
