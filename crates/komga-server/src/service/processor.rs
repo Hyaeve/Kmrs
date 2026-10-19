@@ -149,7 +149,7 @@ async fn execute_task(state: &AppState, task: &Task) -> anyhow::Result<()> {
     if let Task::AnalyzeBook(t) = task {
         if let Some(book) = BookDao::new(state.db.clone()).find_by_id(&t.book_id)? {
             if book.is_strm() {
-                crate::service::strm::resolve_strm(state, &book).await?;
+                crate::service::strm::analyze_strm(state, &book).await?;
                 return Ok(());
             }
         }
@@ -1045,15 +1045,38 @@ mod tests {
         let server_body = body.clone();
         let upstream = axum::Router::new().route(
             "/remote.cbz",
-            axum::routing::get(move || {
+            axum::routing::get(move |headers: axum::http::HeaderMap| {
                 let hits = server_hits.clone();
                 let body = server_body.clone();
                 async move {
                     hits.fetch_add(1, Ordering::SeqCst);
-                    (
-                        [(axum::http::header::CONTENT_TYPE, "application/zip")],
-                        body,
-                    )
+                    let Some(range) = headers
+                        .get(axum::http::header::RANGE)
+                        .and_then(|value| value.to_str().ok())
+                    else {
+                        return axum::response::Response::builder()
+                            .header(axum::http::header::CONTENT_TYPE, "application/zip")
+                            .body(axum::body::Body::from(body))
+                            .unwrap();
+                    };
+                    let (start, end) = range
+                        .strip_prefix("bytes=")
+                        .and_then(|value| value.split_once('-'))
+                        .unwrap();
+                    let start = start.parse::<usize>().unwrap();
+                    let end = end
+                        .parse::<usize>()
+                        .unwrap_or(body.len() - 1)
+                        .min(body.len() - 1);
+                    axum::response::Response::builder()
+                        .status(axum::http::StatusCode::PARTIAL_CONTENT)
+                        .header(axum::http::header::CONTENT_TYPE, "application/zip")
+                        .header(
+                            axum::http::header::CONTENT_RANGE,
+                            format!("bytes {start}-{end}/{}", body.len()),
+                        )
+                        .body(axum::body::Body::from(body[start..=end].to_vec()))
+                        .unwrap()
                 }
             }),
         );
@@ -1066,7 +1089,7 @@ mod tests {
         let root = visible_tempdir("strm-task");
         let series_dir = root.join("series");
         std::fs::create_dir_all(&series_dir).unwrap();
-        let strm_path = series_dir.join("remote.strm");
+        let strm_path = series_dir.join("remote.cbz.strm");
         std::fs::write(&strm_path, format!("http://{address}/remote.cbz\n")).unwrap();
 
         let library = test_library("lib-strm-task", &format!("file:{}/", root.display()));
@@ -1113,7 +1136,13 @@ mod tests {
             "STRM analyze task did not finish: {:?}",
             task_ids(&state)
         );
-        assert_eq!(hits.load(Ordering::SeqCst), 1);
+        assert!(hits.load(Ordering::SeqCst) >= 2);
+        let source = komga_db::dao::strm_source::StrmSourceDao::new(state.kmrs_db.clone())
+            .get(&book.id)
+            .unwrap()
+            .unwrap();
+        assert!(source.cache_path.is_empty());
+        assert!(!config_dir.path().join("strm-cache").exists());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

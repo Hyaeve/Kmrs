@@ -2416,16 +2416,32 @@ async fn get_book_page(
         restriction::check_book(&state, &auth.user, &book)?;
     }
 
-    let path = strm::path_for_book(&state, &book)?;
-    let name = book.name.clone();
-    let media_clone = media.clone();
     let number = usize::try_from(page_number).unwrap_or(usize::MAX);
-    let page_content = tokio::task::spawn_blocking(move || {
-        container::get_book_page(&path, &name, &media_clone, number, convert, None)
-    })
-    .await
-    .map_err(|e| ApiError::Internal(e.to_string()))?
-    .map_err(map_media_error)?;
+    let page_content = if book.is_strm()
+        && media.media_type.as_deref() == Some(komga_media::detect::APPLICATION_PDF)
+    {
+        strm::extract_pdf_page_content(&state, &book, number, convert, None)
+            .await
+            .map_err(ApiError::from)?
+    } else if book.is_strm()
+        && (media.media_type.as_deref() == Some(komga_media::detect::APPLICATION_ZIP)
+            || (media.media_type.as_deref() == Some(komga_media::detect::APPLICATION_EPUB)
+                && media.epub_divina_compatible))
+    {
+        strm::extract_page_content(&state, &book, &media, number, convert, None)
+            .await
+            .map_err(ApiError::from)?
+    } else {
+        let path = strm::path_for_book(&state, &book)?;
+        let name = book.name.clone();
+        let media_clone = media.clone();
+        tokio::task::spawn_blocking(move || {
+            container::get_book_page(&path, &name, &media_clone, number, convert, None)
+        })
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))?
+        .map_err(map_media_error)?
+    };
 
     let extension = detect::media_type_to_extension(&page_content.media_type).unwrap_or("jpeg");
     let mut response = Response::new(axum::body::Body::from(page_content.bytes));

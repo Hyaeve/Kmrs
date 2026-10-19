@@ -815,19 +815,20 @@ async fn update_book_metadata(
     if !violations.is_empty() {
         return Err(ApiError::Violations(violations));
     }
+    let Some(book) = book_dao(&state).find_by_id(&book_id)? else {
+        return Err(ApiError::not_found(""));
+    };
     let dao = BookMetadataDao::new(state.db.clone());
     let Some(existing) = dao.find_by_id(&book_id)? else {
         return Err(ApiError::not_found(""));
     };
     dao.update(&body.apply_to(&existing))?;
-    if let Some(book) = book_dao(&state).find_by_id(&book_id)? {
-        state
-            .task_emitter
-            .aggregate_series_metadata(&book.series_id, komga_core::task::DEFAULT_PRIORITY)?;
-        let _ = state
-            .events
-            .send(crate::events::DomainEvent::BookUpdated(book));
-    }
+    state
+        .task_emitter
+        .aggregate_series_metadata(&book.series_id, komga_core::task::DEFAULT_PRIORITY)?;
+    let _ = state
+        .events
+        .send(crate::events::DomainEvent::BookUpdated(book));
     crate::service::strm_metadata::schedule_book_write(&state, &book_id);
     Ok(StatusCode::NO_CONTENT)
 }
@@ -1200,6 +1201,33 @@ async fn extract_page(
     convert: Option<ImageType>,
     resize_to: Option<u32>,
 ) -> Result<container::PageContent, ApiError> {
+    if book.is_strm() && media.media_type.as_deref() == Some(komga_media::detect::APPLICATION_PDF) {
+        return strm::extract_pdf_page_content(
+            state,
+            book,
+            usize::try_from(page_number).unwrap_or(usize::MAX),
+            convert,
+            resize_to,
+        )
+        .await
+        .map_err(Into::into);
+    }
+    if book.is_strm()
+        && (media.media_type.as_deref() == Some(komga_media::detect::APPLICATION_ZIP)
+            || (media.media_type.as_deref() == Some(komga_media::detect::APPLICATION_EPUB)
+                && media.epub_divina_compatible))
+    {
+        return strm::extract_page_content(
+            state,
+            book,
+            media,
+            usize::try_from(page_number).unwrap_or(usize::MAX),
+            convert,
+            resize_to,
+        )
+        .await
+        .map_err(Into::into);
+    }
     let path = strm::path_for_book(state, book)?;
     let name = book.name.clone();
     let media = media.clone();
@@ -1218,6 +1246,15 @@ async fn extract_page_raw(
     media: &Media,
     page_number: i32,
 ) -> Result<container::PageContent, ApiError> {
+    if book.is_strm() {
+        return strm::extract_raw_pdf_page(
+            state,
+            book,
+            usize::try_from(page_number).unwrap_or(usize::MAX),
+        )
+        .await
+        .map_err(Into::into);
+    }
     let path = strm::path_for_book(state, book)?;
     let media = media.clone();
     let number = usize::try_from(page_number).unwrap_or(usize::MAX);
@@ -1368,18 +1405,22 @@ async fn get_book_epub_resource(
         return Err(ApiError::not_found(""));
     };
 
-    let path = strm::path_for_book(&state, &book)?;
-    let media_clone = media.clone();
-    let name = resource_name.clone();
-    let bytes = tokio::task::spawn_blocking(move || {
-        container::get_file_content(&path, &media_clone, &name)
-    })
-    .await
-    .map_err(|e| ApiError::Internal(e.to_string()))?
-    .map_err(|e| match e {
-        MediaError::EntryNotFound(_) => ApiError::not_found(""),
-        other => map_media_error(other),
-    })?;
+    let bytes = if book.is_strm() {
+        strm::extract_epub_resource(&state, &book, &resource_name)
+            .await
+            .map_err(ApiError::from)?
+    } else {
+        let path = strm::path_for_book(&state, &book)?;
+        let media_clone = media.clone();
+        let name = resource_name.clone();
+        tokio::task::spawn_blocking(move || container::get_file_content(&path, &media_clone, &name))
+            .await
+            .map_err(|e| ApiError::Internal(e.to_string()))?
+            .map_err(|e| match e {
+                MediaError::EntryNotFound(_) => ApiError::not_found(""),
+                other => map_media_error(other),
+            })?
+    };
 
     let basename = resource_name
         .rsplit(['/', '\\'])
@@ -1413,24 +1454,45 @@ async fn get_book_epub_resource(
 async fn download_book_file(
     State(state): State<AppState>,
     auth: RequireAuth,
+    headers: HeaderMap,
     Path(book_id): Path<String>,
 ) -> Result<Response, ApiError> {
-    download_book_file_internal(state, auth, book_id).await
+    download_book_file_internal(
+        state,
+        auth,
+        book_id,
+        headers
+            .get(axum::http::header::RANGE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string),
+    )
+    .await
 }
 
 /// `/file/*` variant: the trailing path is ignored, like the Spring mapping
 async fn download_book_file_wildcard(
     State(state): State<AppState>,
     auth: RequireAuth,
+    headers: HeaderMap,
     Path((book_id, _)): Path<(String, String)>,
 ) -> Result<Response, ApiError> {
-    download_book_file_internal(state, auth, book_id).await
+    download_book_file_internal(
+        state,
+        auth,
+        book_id,
+        headers
+            .get(axum::http::header::RANGE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string),
+    )
+    .await
 }
 
 pub(crate) async fn download_book_file_internal(
     state: AppState,
     auth: RequireAuth,
     book_id: String,
+    range: Option<String>,
 ) -> Result<Response, ApiError> {
     auth.0.require_role(UserRole::FileDownload)?;
     let Some(book) = book_dao(&state).find_by_id(&book_id)? else {
@@ -1439,6 +1501,57 @@ pub(crate) async fn download_book_file_internal(
     restriction::check_book(&state, &auth.0.user, &book)?;
     if book.is_strm() {
         strm::resolve_strm(&state, &book).await?;
+        let (upstream, source) =
+            strm::remote_response_range(&state, &book, range.as_deref()).await?;
+        let content_type = upstream
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .or(source.media_type.as_deref())
+            .unwrap_or(komga_media::detect::APPLICATION_OCTET_STREAM)
+            .to_string();
+        let content_length = upstream
+            .content_length()
+            .unwrap_or(source.file_size.max(0) as u64);
+        let content_range = upstream
+            .headers()
+            .get(reqwest::header::CONTENT_RANGE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
+        let accept_ranges = upstream
+            .headers()
+            .get(reqwest::header::ACCEPT_RANGES)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
+        let status = upstream.status();
+        let mut response = Response::new(Body::from_stream(upstream.bytes_stream()));
+        *response.status_mut() = status;
+        response.headers_mut().insert(
+            axum::http::header::CONTENT_DISPOSITION,
+            HeaderValue::from_str(&content_disposition("attachment", &source.file_name)).unwrap(),
+        );
+        response.headers_mut().insert(
+            axum::http::header::CONTENT_TYPE,
+            HeaderValue::from_str(&content_type)
+                .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+        );
+        response.headers_mut().insert(
+            axum::http::header::CONTENT_LENGTH,
+            HeaderValue::from_str(&content_length.to_string()).unwrap(),
+        );
+        if let Some(content_range) = content_range {
+            response.headers_mut().insert(
+                axum::http::header::CONTENT_RANGE,
+                HeaderValue::from_str(&content_range).unwrap(),
+            );
+        }
+        if let Some(accept_ranges) = accept_ranges {
+            response.headers_mut().insert(
+                axum::http::header::ACCEPT_RANGES,
+                HeaderValue::from_str(&accept_ranges).unwrap(),
+            );
+        }
+        return Ok(response);
     }
     let media = require_media(&state, &book.id)?;
     let path = strm::path_for_book(&state, &book)?;
@@ -2257,6 +2370,82 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/tests/resources/archives/zip.zip"
     );
+    const FIXTURE_EPUB: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/resources/archives/epub3.epub"
+    );
+    const FIXTURE_PDF: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/resources/pdf/komga.pdf");
+
+    struct RangeServer {
+        address: std::net::SocketAddr,
+        hits: Arc<std::sync::atomic::AtomicUsize>,
+        full_requests: Arc<std::sync::atomic::AtomicBool>,
+        task: tokio::task::JoinHandle<()>,
+    }
+
+    async fn spawn_range_server(
+        route: &'static str,
+        body: Vec<u8>,
+        content_type: &'static str,
+    ) -> RangeServer {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+        let hits = Arc::new(AtomicUsize::new(0));
+        let full_requests = Arc::new(AtomicBool::new(false));
+        let server_hits = hits.clone();
+        let server_full_requests = full_requests.clone();
+        let upstream = Router::new().route(
+            route,
+            axum::routing::get(move |headers: axum::http::HeaderMap| {
+                let hits = server_hits.clone();
+                let full_requests = server_full_requests.clone();
+                let body = body.clone();
+                async move {
+                    hits.fetch_add(1, Ordering::SeqCst);
+                    let Some(range) = headers
+                        .get(axum::http::header::RANGE)
+                        .and_then(|value| value.to_str().ok())
+                    else {
+                        full_requests.store(true, Ordering::SeqCst);
+                        return axum::response::Response::builder()
+                            .header(axum::http::header::CONTENT_TYPE, content_type)
+                            .body(axum::body::Body::from(body))
+                            .unwrap();
+                    };
+                    let (start, end) = range
+                        .strip_prefix("bytes=")
+                        .and_then(|value| value.split_once('-'))
+                        .unwrap();
+                    let start = start.parse::<usize>().unwrap();
+                    let end = end
+                        .parse::<usize>()
+                        .unwrap_or(body.len() - 1)
+                        .min(body.len() - 1);
+                    let slice = body[start..=end].to_vec();
+                    axum::response::Response::builder()
+                        .status(StatusCode::PARTIAL_CONTENT)
+                        .header(axum::http::header::CONTENT_TYPE, content_type)
+                        .header(
+                            axum::http::header::CONTENT_RANGE,
+                            format!("bytes {start}-{end}/{}", body.len()),
+                        )
+                        .body(axum::body::Body::from(slice))
+                        .unwrap()
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move {
+            axum::serve(listener, upstream).await.unwrap();
+        });
+        RangeServer {
+            address,
+            hits,
+            full_requests,
+            task,
+        }
+    }
 
     const PNG_1X1: &[u8] = &[
         137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6,
@@ -3228,8 +3417,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn strm_resolves_only_when_opened_and_reuses_cache() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
+    async fn strm_zip_reads_remote_ranges_without_a_local_cache() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
         let mut state = test_state_with_settings();
         let config_dir = tempfile::tempdir().unwrap();
@@ -3243,19 +3432,47 @@ mod tests {
 
         let source = std::fs::read(FIXTURE_ZIP).unwrap();
         let hits = Arc::new(AtomicUsize::new(0));
+        let full_requests = Arc::new(AtomicBool::new(false));
         let server_hits = hits.clone();
+        let server_full_requests = full_requests.clone();
         let server_body = source.clone();
         let upstream = Router::new().route(
             "/remote.cbz",
-            axum::routing::get(move || {
+            axum::routing::get(move |headers: axum::http::HeaderMap| {
                 let hits = server_hits.clone();
+                let full_requests = server_full_requests.clone();
                 let body = server_body.clone();
                 async move {
                     hits.fetch_add(1, Ordering::SeqCst);
-                    (
-                        [(axum::http::header::CONTENT_TYPE, "application/zip")],
-                        body,
-                    )
+                    let Some(range) = headers
+                        .get(axum::http::header::RANGE)
+                        .and_then(|value| value.to_str().ok())
+                    else {
+                        full_requests.store(true, Ordering::SeqCst);
+                        return axum::response::Response::builder()
+                            .header(axum::http::header::CONTENT_TYPE, "application/zip")
+                            .body(axum::body::Body::from(body))
+                            .unwrap();
+                    };
+                    let (start, end) = range
+                        .strip_prefix("bytes=")
+                        .and_then(|value| value.split_once('-'))
+                        .unwrap();
+                    let start = start.parse::<usize>().unwrap();
+                    let end = end
+                        .parse::<usize>()
+                        .unwrap_or(body.len() - 1)
+                        .min(body.len() - 1);
+                    let slice = body[start..=end].to_vec();
+                    axum::response::Response::builder()
+                        .status(StatusCode::PARTIAL_CONTENT)
+                        .header(axum::http::header::CONTENT_TYPE, "application/zip")
+                        .header(
+                            axum::http::header::CONTENT_RANGE,
+                            format!("bytes {start}-{end}/{}", body.len()),
+                        )
+                        .body(axum::body::Body::from(slice))
+                        .unwrap()
                 }
             }),
         );
@@ -3266,7 +3483,7 @@ mod tests {
         });
 
         let work = tempfile::tempdir().unwrap();
-        let strm_path = work.path().join("remote.strm");
+        let strm_path = work.path().join("remote.cbz.strm");
         let strm_url = format!("http://{address}/remote.cbz");
         std::fs::write(&strm_path, format!("{strm_url}\n")).unwrap();
         seed_book(
@@ -3297,7 +3514,8 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::NO_CONTENT);
-        assert_eq!(hits.load(Ordering::SeqCst), 1);
+        assert!(hits.load(Ordering::SeqCst) >= 2);
+        assert!(!full_requests.load(Ordering::SeqCst));
 
         let (status, media_type, page_count): (String, String, i32) = db
             .ro()
@@ -3311,95 +3529,28 @@ mod tests {
         assert_eq!(status, "READY");
         assert_eq!(media_type, detect::APPLICATION_ZIP);
         assert_eq!(page_count, 1);
-        assert_eq!(
-            std::fs::read(&strm_path).unwrap(),
-            format!("{strm_url}\n").as_bytes()
-        );
 
-        let (status, _, _) = call(
-            &app,
-            "POST",
-            "/api/v1/books/b1/resolve-strm",
-            Some(&auth),
-            None,
-        )
-        .await;
-        assert_eq!(status, StatusCode::NO_CONTENT);
-        assert_eq!(hits.load(Ordering::SeqCst), 1);
+        let (status, headers, body) =
+            call(&app, "GET", "/api/v1/books/b1/pages/1", Some(&auth), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(headers["content-type"], "image/png");
+        assert_eq!(&body[0..4], b"\x89PNG");
 
         let resolved = komga_db::dao::strm_source::StrmSourceDao::new(state.kmrs_db.clone())
             .get("b1")
             .unwrap()
             .unwrap();
-        let cache_path = resolved.cache_path.clone();
-        assert!(std::path::Path::new(&cache_path).is_file());
-        let stale_access = komga_core::time_codec::now_utc() - time::Duration::hours(24);
-        state
-            .kmrs_db
-            .rw()
-            .unwrap()
-            .execute(
-                "UPDATE STRM_SOURCE SET LAST_ACCESSED_AT = ? WHERE BOOK_ID = 'b1'",
-                [komga_core::time_codec::format_datetime(stale_access)],
-            )
-            .unwrap();
-        let (status, _, _) = call(
-            &app,
-            "POST",
-            "/api/v1/books/b1/resolve-strm",
-            Some(&auth),
-            None,
-        )
-        .await;
-        assert_eq!(status, StatusCode::NO_CONTENT);
-        assert_eq!(hits.load(Ordering::SeqCst), 1);
-        let touched = komga_db::dao::strm_source::StrmSourceDao::new(state.kmrs_db.clone())
-            .get("b1")
-            .unwrap()
-            .unwrap();
-        assert!(touched.last_accessed_at > stale_access);
-
-        let expired = komga_core::time_codec::format_datetime(
-            komga_core::time_codec::now_utc() - time::Duration::hours(13),
-        );
-        let updated = state
-            .kmrs_db
-            .rw()
-            .unwrap()
-            .execute(
-                "UPDATE STRM_SOURCE SET CACHED_AT = ? WHERE BOOK_ID = 'b1'",
-                [expired],
-            )
-            .unwrap();
-        assert_eq!(updated, 1);
+        assert!(resolved.cache_path.is_empty());
+        assert_eq!(resolved.file_name, "remote.cbz");
+        assert_eq!(resolved.file_size, source.len() as i64);
+        assert!(!config_dir.path().join("strm-cache").exists());
         assert_eq!(
-            std::path::Path::new(&cache_path)
-                .file_name()
-                .and_then(|name| name.to_str()),
-            Some("remote.cbz")
+            std::fs::read(&strm_path).unwrap(),
+            format!("{strm_url}\n").as_bytes()
         );
-        assert_eq!(
-            std::path::Path::new(&cache_path)
-                .parent()
-                .and_then(|path| path.file_name())
-                .and_then(|name| name.to_str()),
-            Some("b1")
-        );
-
-        let (status, _, _) = call(
-            &app,
-            "POST",
-            "/api/v1/books/b1/resolve-strm",
-            Some(&auth),
-            None,
-        )
-        .await;
-        assert_eq!(status, StatusCode::NO_CONTENT);
-        assert_eq!(hits.load(Ordering::SeqCst), 2);
 
         let book = BookDao::new(db.clone()).find_by_id("b1").unwrap().unwrap();
         crate::service::book::delete_one(&state, &book).unwrap();
-        assert!(!std::path::Path::new(&cache_path).exists());
         assert!(
             komga_db::dao::strm_source::StrmSourceDao::new(state.kmrs_db.clone())
                 .get("b1")
@@ -3407,6 +3558,276 @@ mod tests {
                 .is_none()
         );
         server.abort();
+    }
+
+    #[tokio::test]
+    async fn strm_epub_reads_remote_ranges_without_a_local_cache() {
+        use std::sync::atomic::Ordering;
+
+        let mut state = test_state_with_settings();
+        let config_dir = tempfile::tempdir().unwrap();
+        state.config = Arc::new(crate::config::ServerConfig {
+            config_dir: config_dir.path().to_path_buf(),
+            ..(*state.config).clone()
+        });
+        let db = state.db.clone();
+        seed_library(&db, "l1");
+        seed_series(&db, "s1", "l1");
+
+        let source = std::fs::read(FIXTURE_EPUB).unwrap();
+        let server =
+            spawn_range_server("/remote.epub", source.clone(), "application/epub+zip").await;
+        let work = tempfile::tempdir().unwrap();
+        let strm_path = work.path().join("remote.epub.strm");
+        let strm_url = format!("http://{}/remote.epub", server.address);
+        std::fs::write(&strm_path, format!("{strm_url}\n")).unwrap();
+        seed_book(
+            &db,
+            "b1",
+            "s1",
+            "l1",
+            &komga_media::scanner::path_to_url(&strm_path),
+        );
+        seed_media(
+            &db,
+            "b1",
+            MediaStatus::Unknown,
+            detect::APPLICATION_OCTET_STREAM,
+            vec![],
+        );
+        seed_user(&db, "admin@example.org", "pw", true);
+        let app = test_router(state.clone());
+        let auth = basic("admin@example.org", "pw");
+
+        let (status, _, _) = call(
+            &app,
+            "POST",
+            "/api/v1/books/b1/resolve-strm",
+            Some(&auth),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert!(server.hits.load(Ordering::SeqCst) >= 2);
+        assert!(!server.full_requests.load(Ordering::SeqCst));
+
+        let media = MediaDao::new(db.clone()).find_by_id("b1").unwrap().unwrap();
+        assert_eq!(media.status, MediaStatus::Ready);
+        assert_eq!(media.media_type.as_deref(), Some(detect::APPLICATION_EPUB));
+
+        if media.epub_divina_compatible {
+            let (status, _, body) =
+                call(&app, "GET", "/api/v1/books/b1/pages/1", Some(&auth), None).await;
+            assert_eq!(status, StatusCode::OK);
+            assert!(!body.is_empty());
+        }
+
+        let resource = media
+            .files
+            .iter()
+            .find(|file| {
+                file.media_type
+                    .as_deref()
+                    .is_some_and(|media_type| media_type.contains("xhtml"))
+                    && file.file_name.is_ascii()
+            })
+            .map(|file| file.file_name.clone())
+            .expect("EPUB fixture should expose an ASCII XHTML resource");
+        let (status, _, body) = call(
+            &app,
+            "GET",
+            &format!("/api/v1/books/b1/resource/{resource}"),
+            Some(&auth),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(!body.is_empty());
+
+        let resolved = komga_db::dao::strm_source::StrmSourceDao::new(state.kmrs_db.clone())
+            .get("b1")
+            .unwrap()
+            .unwrap();
+        assert!(resolved.cache_path.is_empty());
+        assert!(!config_dir.path().join("strm-cache").exists());
+
+        server.task.abort();
+    }
+
+    #[tokio::test]
+    async fn strm_pdf_reads_remote_ranges_without_a_local_cache() {
+        if !komga_media::pdf::pdf_available() {
+            eprintln!("libpdfium not available, skipping STRM PDF range test");
+            return;
+        }
+        use std::sync::atomic::Ordering;
+
+        let mut state = test_state_with_settings();
+        let config_dir = tempfile::tempdir().unwrap();
+        state.config = Arc::new(crate::config::ServerConfig {
+            config_dir: config_dir.path().to_path_buf(),
+            ..(*state.config).clone()
+        });
+        let db = state.db.clone();
+        seed_library(&db, "l1");
+        seed_series(&db, "s1", "l1");
+
+        let source = std::fs::read(FIXTURE_PDF).unwrap();
+        let server = spawn_range_server("/remote.pdf", source, "application/pdf").await;
+        let work = tempfile::tempdir().unwrap();
+        let strm_path = work.path().join("remote.pdf.strm");
+        let strm_url = format!("http://{}/remote.pdf", server.address);
+        std::fs::write(&strm_path, format!("{strm_url}\n")).unwrap();
+        seed_book(
+            &db,
+            "b1",
+            "s1",
+            "l1",
+            &komga_media::scanner::path_to_url(&strm_path),
+        );
+        seed_media(
+            &db,
+            "b1",
+            MediaStatus::Unknown,
+            detect::APPLICATION_OCTET_STREAM,
+            vec![],
+        );
+        seed_user(&db, "admin@example.org", "pw", true);
+        let app = test_router(state.clone());
+        let auth = basic("admin@example.org", "pw");
+
+        let (status, _, _) = call(
+            &app,
+            "POST",
+            "/api/v1/books/b1/resolve-strm",
+            Some(&auth),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert!(server.hits.load(Ordering::SeqCst) >= 2);
+        assert!(!server.full_requests.load(Ordering::SeqCst));
+
+        let media = MediaDao::new(db.clone()).find_by_id("b1").unwrap().unwrap();
+        assert_eq!(media.status, MediaStatus::Ready);
+        assert_eq!(media.media_type.as_deref(), Some(detect::APPLICATION_PDF));
+
+        let (status, _, body) =
+            call(&app, "GET", "/api/v1/books/b1/pages/1", Some(&auth), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(&body[0..3], b"\xFF\xD8\xFF");
+
+        let (status, _, body) = call(
+            &app,
+            "GET",
+            "/api/v1/books/b1/pages/1/raw",
+            Some(&auth),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.starts_with(b"%PDF-"));
+
+        let resolved = komga_db::dao::strm_source::StrmSourceDao::new(state.kmrs_db.clone())
+            .get("b1")
+            .unwrap()
+            .unwrap();
+        assert!(resolved.cache_path.is_empty());
+        assert!(!config_dir.path().join("strm-cache").exists());
+
+        server.task.abort();
+    }
+
+    #[tokio::test]
+    async fn strm_rar_uses_direct_file_streaming_without_a_local_cache() {
+        use std::sync::atomic::Ordering;
+
+        let mut state = test_state_with_settings();
+        let config_dir = tempfile::tempdir().unwrap();
+        state.config = Arc::new(crate::config::ServerConfig {
+            config_dir: config_dir.path().to_path_buf(),
+            ..(*state.config).clone()
+        });
+        let db = state.db.clone();
+        seed_library(&db, "l1");
+        seed_series(&db, "s1", "l1");
+
+        let source = b"remote RAR stream payload".to_vec();
+        let server = spawn_range_server(
+            "/remote.cbr",
+            source.clone(),
+            "application/x-rar-compressed",
+        )
+        .await;
+        let work = tempfile::tempdir().unwrap();
+        let strm_path = work.path().join("remote.cbr.strm");
+        let strm_url = format!("http://{}/remote.cbr", server.address);
+        std::fs::write(&strm_path, format!("{strm_url}\n")).unwrap();
+        seed_book(
+            &db,
+            "b1",
+            "s1",
+            "l1",
+            &komga_media::scanner::path_to_url(&strm_path),
+        );
+        seed_media(
+            &db,
+            "b1",
+            MediaStatus::Unknown,
+            detect::APPLICATION_OCTET_STREAM,
+            vec![],
+        );
+        seed_user(&db, "admin@example.org", "pw", true);
+        let app = test_router(state.clone());
+        let auth = basic("admin@example.org", "pw");
+
+        let (status, _, _) = call(
+            &app,
+            "POST",
+            "/api/v1/books/b1/resolve-strm",
+            Some(&auth),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let media = MediaDao::new(db.clone()).find_by_id("b1").unwrap().unwrap();
+        assert_eq!(media.status, MediaStatus::Unsupported);
+
+        let range_response = app
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("GET")
+                    .uri("/api/v1/books/b1/file")
+                    .header("authorization", &auth)
+                    .header("range", "bytes=0-5")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(range_response.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(
+            range_response.headers()["content-range"],
+            format!("bytes 0-5/{}", source.len())
+        );
+        let range_body = axum::body::to_bytes(range_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(&range_body[..], &source[..6]);
+
+        let (status, _, body) = call(&app, "GET", "/api/v1/books/b1/file", Some(&auth), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, source);
+        assert!(server.full_requests.load(Ordering::SeqCst));
+
+        let resolved = komga_db::dao::strm_source::StrmSourceDao::new(state.kmrs_db.clone())
+            .get("b1")
+            .unwrap()
+            .unwrap();
+        assert!(resolved.cache_path.is_empty());
+        assert!(!config_dir.path().join("strm-cache").exists());
+        server.task.abort();
     }
 
     #[tokio::test]

@@ -328,13 +328,27 @@ async fn download_readlist_as_zip(
     auth.0.require_role(UserRole::FileDownload)?;
     let readlist = find_visible_readlist(&state, &auth.0.user, &id)?;
 
-    let mut entries: Vec<(String, std::path::PathBuf)> = vec![];
+    enum ReadlistEntry {
+        Path(std::path::PathBuf),
+        Bytes(Vec<u8>),
+    }
+
+    let mut entries: Vec<(String, ReadlistEntry)> = vec![];
     for (index, book_id) in &readlist.book_ids {
         let Some(book) = BookDao::new(state.db.clone()).find_by_id(book_id)? else {
             continue;
         };
         if book.is_strm() {
             crate::service::strm::resolve_strm(&state, &book).await?;
+            let source = komga_db::dao::strm_source::StrmSourceDao::new(state.kmrs_db.clone())
+                .get(&book.id)?
+                .ok_or_else(|| ApiError::not_found("STRM source not found"))?;
+            let bytes = crate::service::strm::download_bytes(&state, &book).await?;
+            entries.push((
+                format!("{} - {}", index + 1, source.file_name),
+                ReadlistEntry::Bytes(bytes),
+            ));
+            continue;
         }
         let path = crate::service::strm::path_for_book(&state, &book)?;
         if !path.exists() {
@@ -348,17 +362,29 @@ async fn download_readlist_as_zip(
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
-        entries.push((format!("{} - {}", index + 1, file_name), path));
+        entries.push((
+            format!("{} - {}", index + 1, file_name),
+            ReadlistEntry::Path(path),
+        ));
     }
 
     // the whole archive is built in memory: a zip buffer cannot be rewound mid-stream
     // without much more complexity
     let mut zip = crate::zip_archive::ZipWriter::new(Vec::new());
-    for (name, path) in &entries {
-        let file = std::fs::File::open(path)
-            .map_err(|e| ApiError::Internal(format!("could not read {}: {e}", path.display())))?;
-        zip.add_entry(name, file)
-            .map_err(|e| ApiError::Internal(e.to_string()))?;
+    for (name, entry) in &entries {
+        match entry {
+            ReadlistEntry::Path(path) => {
+                let file = std::fs::File::open(path).map_err(|e| {
+                    ApiError::Internal(format!("could not read {}: {e}", path.display()))
+                })?;
+                zip.add_entry(name, file)
+                    .map_err(|e| ApiError::Internal(e.to_string()))?;
+            }
+            ReadlistEntry::Bytes(bytes) => {
+                zip.add_entry(name, std::io::Cursor::new(bytes))
+                    .map_err(|e| ApiError::Internal(e.to_string()))?;
+            }
+        }
     }
     let bytes = zip
         .finish()

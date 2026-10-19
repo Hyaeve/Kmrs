@@ -393,6 +393,14 @@ fn write_book_metadata_inner(state: &AppState, book_id: &str) -> Result<()> {
 }
 
 pub fn schedule_series_write(state: &AppState, series_id: &str) {
+    let enabled = SeriesDao::new(state.db.clone())
+        .find_by_id(series_id)
+        .ok()
+        .flatten()
+        .is_some_and(|series| metadata_write_enabled(state, &series.library_id).unwrap_or(false));
+    if !enabled {
+        return;
+    }
     let state = state.clone();
     let series_id = series_id.to_string();
     tokio::spawn(async move {
@@ -405,6 +413,15 @@ pub fn schedule_series_write(state: &AppState, series_id: &str) {
 }
 
 pub fn schedule_book_write(state: &AppState, book_id: &str) {
+    let enabled = BookDao::new(state.db.clone())
+        .find_by_id(book_id)
+        .ok()
+        .flatten()
+        .filter(Book::is_strm)
+        .is_some_and(|book| metadata_write_enabled(state, &book.library_id).unwrap_or(false));
+    if !enabled {
+        return;
+    }
     let state = state.clone();
     let book_id = book_id.to_string();
     tokio::spawn(async move {
@@ -427,6 +444,7 @@ mod tests {
     use komga_db::dao::book::BookMetadataDao;
     use komga_db::dao::thumbnail::{ThumbnailBookDao, ThumbnailSeriesDao};
     use std::collections::BTreeSet;
+    use std::time::Duration;
 
     fn series_metadata() -> SeriesMetadata {
         SeriesMetadata {
@@ -537,6 +555,96 @@ mod tests {
         assert!(xml.contains("<Writer>Writer One</Writer>"));
         assert!(xml.contains("<Publisher>Publisher</Publisher>"));
         assert!(xml.contains("<Tags>Action, Adventure</Tags>"));
+    }
+
+    #[tokio::test]
+    async fn sidecar_write_follows_metadata_update_without_waiting_for_background_tasks() {
+        let state = crate::service::series::tests::test_state();
+        let root = tempfile::tempdir().unwrap();
+        let series_dir = root.path().join("Example");
+        std::fs::create_dir_all(&series_dir).unwrap();
+        let pointer = series_dir.join("Example 1.pdf.strm");
+        std::fs::write(&pointer, b"https://example.test/book.pdf\n").unwrap();
+        let library_url = format!(
+            "{}/",
+            komga_media::scanner::path_to_url(root.path()).trim_end_matches('/')
+        );
+        state
+            .db
+            .rw()
+            .unwrap()
+            .execute(
+                "INSERT INTO LIBRARY (ID, NAME, ROOT) VALUES ('l1', 'Library', ?)",
+                [&library_url],
+            )
+            .unwrap();
+        LibrarySettingDao::new(state.kmrs_db.clone())
+            .set(
+                "l1",
+                komga_db::dao::library_setting::LibrarySettings {
+                    scan_strm: false,
+                    real_time_scan: false,
+                    write_metadata: true,
+                },
+            )
+            .unwrap();
+
+        let db = state.db.rw().unwrap();
+        db.execute(
+            "INSERT INTO SERIES (ID, NAME, URL, FILE_LAST_MODIFIED, LIBRARY_ID, CREATED_DATE, LAST_MODIFIED_DATE) \
+             VALUES ('s1', 'Example', ?, '2020-01-01 00:00:00.0', 'l1', '2020-01-01 00:00:00.0', '2020-01-01 00:00:00.0')",
+            [komga_media::scanner::path_to_url(&series_dir)],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO SERIES_METADATA (SERIES_ID, STATUS, TITLE, TITLE_SORT) \
+             VALUES ('s1', 'ONGOING', 'Example', 'Example')",
+            [],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO BOOK_METADATA_AGGREGATION (SERIES_ID) VALUES ('s1')",
+            [],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO BOOK (ID, NAME, URL, FILE_LAST_MODIFIED, SERIES_ID, LIBRARY_ID) \
+             VALUES ('b1', 'Example 1', ?, '2020-01-01 00:00:00.0', 's1', 'l1')",
+            [komga_media::scanner::path_to_url(&pointer)],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO BOOK_METADATA (BOOK_ID, NUMBER, NUMBER_SORT, TITLE) \
+             VALUES ('b1', '1', 1, 'Example 1')",
+            [],
+        )
+        .unwrap();
+        drop(db);
+
+        let tasks = komga_db::dao::tasks::TasksDao::new(state.tasks_db.clone());
+        let pending = komga_core::task::Task::scan_library(
+            "unrelated-library",
+            false,
+            komga_core::task::DEFAULT_PRIORITY,
+        );
+        tasks.save(&pending).unwrap();
+        schedule_book_write(&state, "b1");
+
+        let sidecar = series_dir.join("Example 1.pdf.strm.ComicInfo.xml");
+        let written = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if sidecar.is_file() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        })
+        .await;
+        assert!(
+            written.is_ok(),
+            "metadata sidecar write should follow the metadata update without a second queue wait"
+        );
+        tasks.delete(&pending.unique_id()).unwrap();
     }
 
     #[test]

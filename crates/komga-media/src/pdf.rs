@@ -20,6 +20,7 @@ use crate::error::{MediaError, Result};
 use crate::image;
 use crate::lru::{file_key, key_error, FileKey, Lru};
 use pdfium_render::prelude::*;
+use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
@@ -102,10 +103,41 @@ fn load(pdfium: &'static Pdfium, path: &Path) -> Result<PdfDocument<'static>> {
         .map_err(|e| MediaError::unsupported(format!("could not open pdf document: {e}")))
 }
 
+fn load_reader<R: Read + Seek + Send + 'static>(
+    pdfium: &'static Pdfium,
+    reader: R,
+) -> Result<PdfDocument<'static>> {
+    pdfium
+        .load_pdf_from_reader(reader, None)
+        .map_err(|e| MediaError::unsupported(format!("could not open pdf document: {e}")))
+}
+
 /// Opens a document without entering the render cache; for one-shot consumers.
 pub fn open_document(path: &Path) -> Result<PdfDocument<'static>> {
     let pdfium = pdfium()?;
     load(pdfium, path)
+}
+
+pub fn open_document_from_reader<R: Read + Seek + Send + 'static>(
+    reader: R,
+) -> Result<PdfDocument<'static>> {
+    let pdfium = pdfium()?;
+    load_reader(pdfium, reader)
+}
+
+pub fn inspect_pages<R: Read + Seek + Send + 'static>(
+    reader: R,
+) -> Result<Vec<Option<(i32, i32)>>> {
+    let document = open_document_from_reader(reader)?;
+    (0..document.pages().len())
+        .map(|index| {
+            let page = document.pages().get(index).map_err(|error| {
+                MediaError::unsupported(format!("could not get pdf page {index}: {error}"))
+            })?;
+            let (width, height) = crop_box_size(&page);
+            Ok(Some((width.round() as i32, height.round() as i32)))
+        })
+        .collect()
 }
 
 static DOCS: OnceLock<Mutex<Lru<FileKey, PdfDocument<'static>>>> = OnceLock::new();
@@ -131,6 +163,14 @@ fn with_cached_document<R>(
 /// and encode as JPEG. Serves from the render cache.
 pub fn get_page_content_as_image(path: &Path, page_number: usize) -> Result<Vec<u8>> {
     with_cached_document(path, |document| render_page(document, page_number))
+}
+
+pub fn get_page_content_as_image_from_reader<R: Read + Seek + Send + 'static>(
+    reader: R,
+    page_number: usize,
+) -> Result<Vec<u8>> {
+    let document = open_document_from_reader(reader)?;
+    render_page(&document, page_number)
 }
 
 /// Renders several pages with a single document open, in the order given. Network mounts
@@ -201,6 +241,24 @@ pub fn get_page_content_as_pdf(path: &Path, page_number: usize) -> Result<Vec<u8
             .save_to_bytes()
             .map_err(|e| MediaError::unsupported(format!("could not save pdf document: {e}")))
     })
+}
+
+pub fn get_page_content_as_pdf_from_reader<R: Read + Seek + Send + 'static>(
+    reader: R,
+    page_number: usize,
+) -> Result<Vec<u8>> {
+    let pdfium = pdfium()?;
+    let source = open_document_from_reader(reader)?;
+    let mut extracted = pdfium
+        .create_new_pdf()
+        .map_err(|e| MediaError::unsupported(format!("could not create pdf document: {e}")))?;
+    extracted
+        .pages_mut()
+        .copy_pages_from_document(&source, &page_number.to_string(), 0)
+        .map_err(|_| MediaError::PageOutOfBounds(page_number))?;
+    extracted
+        .save_to_bytes()
+        .map_err(|e| MediaError::unsupported(format!("could not save pdf document: {e}")))
 }
 
 /// `PdfExtractor.scaleDimension`: dimensions after applying the render scale

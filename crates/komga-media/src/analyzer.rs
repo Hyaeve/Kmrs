@@ -243,6 +243,69 @@ impl Analyzer {
             }
         };
 
+        self.divina_media_from_entries(entries, &book_path.display().to_string())
+    }
+
+    pub fn analyze_zip_stream<R: Read + Seek>(&self, archive: &mut zip::ZipArchive<R>) -> Analysis {
+        let mut metadata_sources = CapturedMetadataSources::default();
+        let media = match get_zip_entries_stream(archive, &mut metadata_sources.comicinfo) {
+            Ok(entries) => self.divina_media_from_entries(entries, "STRM ZIP stream"),
+            Err(MediaError::Unsupported { code, .. }) => {
+                media(MediaStatus::Unsupported, None, code)
+            }
+            Err(e) => {
+                tracing::error!("Error while analyzing STRM ZIP stream: {e}");
+                media(MediaStatus::Error, None, Some("ERR_1008".into()))
+            }
+        };
+        Analysis {
+            media: Media {
+                media_type: Some(detect::APPLICATION_ZIP.to_string()),
+                ..media
+            },
+            epub_extension: None,
+            kepub_file_size: None,
+            metadata_sources,
+        }
+    }
+
+    pub fn analyze_pdf_stream<R: Read + Seek + Send + 'static>(&self, reader: R) -> Analysis {
+        let media = match pdf::inspect_pages(reader) {
+            Ok(pages) => {
+                let pages: Vec<BookPage> = pages
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, dimension)| BookPage {
+                        file_name: (index + 1).to_string(),
+                        media_type: String::new(),
+                        width: dimension.map(|dimension| dimension.0),
+                        height: dimension.map(|dimension| dimension.1),
+                        file_hash: String::new(),
+                        file_size: None,
+                    })
+                    .collect();
+                Media {
+                    status: MediaStatus::Ready,
+                    page_count: pages.len() as i32,
+                    media_type: Some(detect::APPLICATION_PDF.to_string()),
+                    pages,
+                    ..media(MediaStatus::Ready, None, None)
+                }
+            }
+            Err(error) => {
+                tracing::error!("Error while analyzing STRM PDF stream: {error}");
+                error_media(&error)
+            }
+        };
+        Analysis {
+            media,
+            epub_extension: None,
+            kepub_file_size: None,
+            metadata_sources: CapturedMetadataSources::default(),
+        }
+    }
+
+    fn divina_media_from_entries(&self, entries: Vec<ContainerEntry>, book_label: &str) -> Media {
         let (pages, others): (Vec<_>, Vec<_>) = entries.into_iter().partition(|e| {
             e.media_type
                 .as_deref()
@@ -269,7 +332,7 @@ impl Analyzer {
         };
 
         if pages.is_empty() {
-            tracing::warn!("Book {} does not contain any pages", book_path.display());
+            tracing::warn!("Book {book_label} does not contain any pages");
             return media(MediaStatus::Error, None, Some("ERR_1006".into()));
         }
 
@@ -319,7 +382,44 @@ impl Analyzer {
         analyze_dimensions: bool,
         sources: &mut CapturedMetadataSources,
     ) -> Result<(Media, MediaExtensionEpub, Option<u64>)> {
-        let mut pkg = open_epub(book_path)?;
+        let pkg = open_epub(book_path)?;
+        self.analyze_epub_package(pkg, Some(book_path), analyze_dimensions, sources)
+    }
+
+    pub fn analyze_epub_stream<R: Read + Seek + Send + 'static>(&self, reader: R) -> Analysis {
+        let mut sources = CapturedMetadataSources::default();
+        let result = open_epub_reader(reader)
+            .and_then(|pkg| self.analyze_epub_package(pkg, None, false, &mut sources));
+        let (media, extension, kepub_file_size) = match result {
+            Ok(result) => result,
+            Err(error) => {
+                tracing::error!("Error while analyzing STRM EPUB stream: {error}");
+                return Analysis {
+                    media: error_media(&error),
+                    epub_extension: None,
+                    kepub_file_size: None,
+                    metadata_sources: sources,
+                };
+            }
+        };
+        Analysis {
+            media: Media {
+                media_type: Some(detect::APPLICATION_EPUB.to_string()),
+                ..media
+            },
+            epub_extension: Some(extension),
+            kepub_file_size,
+            metadata_sources: sources,
+        }
+    }
+
+    fn analyze_epub_package(
+        &self,
+        mut pkg: EpubPackage,
+        book_path: Option<&Path>,
+        analyze_dimensions: bool,
+        sources: &mut CapturedMetadataSources,
+    ) -> Result<(Media, MediaExtensionEpub, Option<u64>)> {
         // the OPF document is already fully in memory from open_epub; hand it over for the
         // metadata refresh instead of letting it re-open the file
         sources.epub_opf = Some(pkg.opf_content.clone().into_bytes());
@@ -461,6 +561,28 @@ impl Analyzer {
             width: w as i32,
             height: h as i32,
             bytes,
+        })
+    }
+
+    pub fn generate_thumbnail_from_epub_reader<R: Read + Seek + Send + 'static>(
+        &self,
+        reader: R,
+    ) -> Result<GeneratedThumbnail> {
+        let mut pkg = open_epub_reader(reader)?;
+        let poster = get_cover_from_package(&mut pkg)
+            .ok_or_else(|| MediaError::Conversion("no cover could be found".into()))?;
+        let bytes = image::resize(
+            &poster.bytes,
+            image::ImageType::Jpeg,
+            self.thumbnail_max_edge,
+        )?;
+        let (width, height) = image::get_dimension(&bytes).unwrap_or((0, 0));
+        Ok(GeneratedThumbnail {
+            file_size: bytes.len() as i64,
+            bytes,
+            media_type: detect::IMAGE_JPEG.to_string(),
+            width: width as i32,
+            height: height as i32,
         })
     }
 
@@ -749,6 +871,39 @@ fn get_zip_entries(
     Ok(entries)
 }
 
+fn get_zip_entries_stream<R: Read + Seek>(
+    archive: &mut zip::ZipArchive<R>,
+    captured_comicinfo: &mut Option<Vec<u8>>,
+) -> Result<Vec<ContainerEntry>> {
+    let mut entries = Vec::new();
+    for index in 0..archive.len() {
+        let entry = archive
+            .by_index(index)
+            .map_err(|e| MediaError::Other(anyhow::anyhow!("could not read zip entry: {e}")))?;
+        if entry.is_dir() {
+            continue;
+        }
+        let name = zip_utils::java_entry_name(entry.name_raw());
+        entries.push(ContainerEntry {
+            media_type: detect::media_type_from_extension(&name).map(str::to_string),
+            dimension: None,
+            file_size: Some(entry.size() as i64),
+            name,
+        });
+    }
+    entries.sort_by(|a, b| compare_natural(&a.name, &b.name));
+
+    if let Ok(mut entry) =
+        zip_utils::by_name_decoded(archive, crate::metadata::comicinfo::COMIC_INFO)
+    {
+        let mut buf = Vec::with_capacity(entry.size() as usize);
+        if entry.read_to_end(&mut buf).is_ok() {
+            *captured_comicinfo = Some(buf);
+        }
+    }
+    Ok(entries)
+}
+
 /// Entry loop of `get_zip_entries`, split from file opening so tests can drive it with
 /// instrumented readers.
 pub(crate) fn zip_entries_from<R: std::io::Read + std::io::Seek>(
@@ -936,8 +1091,13 @@ fn crop_box_size(page: &pdfium_render::prelude::PdfPage<'_>) -> (f32, f32) {
 
 // region epub package
 
+trait ReadSeekSend: Read + Seek + Send {}
+impl<T: Read + Seek + Send> ReadSeekSend for T {}
+
+type EpubReader = Box<dyn ReadSeekSend>;
+
 struct EpubPackage {
-    archive: zip::ZipArchive<std::fs::File>,
+    archive: zip::ZipArchive<EpubReader>,
     opf_content: String,
     opf_dir: Option<String>,
     /// manifest items in document order (Kotlin's LinkedHashMap)
@@ -1021,8 +1181,12 @@ impl EpubPackage {
 
 /// `Path.epub {}`: opens the zip, locates the OPF via META-INF/container.xml, parses the manifest
 fn open_epub(book_path: &Path) -> Result<EpubPackage> {
-    let file = open_book_file(book_path)?;
-    let mut archive = zip::ZipArchive::new(file)
+    open_epub_reader(open_book_file(book_path)?)
+}
+
+fn open_epub_reader<R: Read + Seek + Send + 'static>(reader: R) -> Result<EpubPackage> {
+    let reader: EpubReader = Box::new(reader);
+    let mut archive = zip::ZipArchive::new(reader)
         .map_err(|e| MediaError::unsupported(format!("could not open epub archive: {e}")))?;
 
     let opf_path = {
@@ -1570,7 +1734,7 @@ fn compute_positions(
     resources: &[MediaFile],
     is_fixed_layout: bool,
     is_kepub: bool,
-    book_path: &Path,
+    book_path: Option<&Path>,
     kepubify_path: Option<&Path>,
 ) -> Result<(Vec<R2Locator>, Option<u64>)> {
     let reading_order: Vec<&MediaFile> = resources
@@ -1587,7 +1751,7 @@ fn compute_positions(
             })?,
             None,
         )
-    } else if let Some(kepubify_path) = kepubify_path {
+    } else if let (Some(kepubify_path), Some(book_path)) = (kepubify_path, book_path) {
         let (spans, size) = positions_via_kepubify(kepubify_path, book_path, &reading_order);
         (
             spans.unwrap_or_else(|| {
@@ -2038,6 +2202,10 @@ fn text_content(node: &roxmltree::Node<'_, '_>) -> String {
 /// the first one that reads from the archive wins.
 fn get_cover(book_path: &Path) -> Option<PageContent> {
     let mut pkg = open_epub(book_path).ok()?;
+    get_cover_from_package(&mut pkg)
+}
+
+fn get_cover_from_package(pkg: &mut EpubPackage) -> Option<PageContent> {
     let cover_image_property = pkg
         .manifest
         .iter()
@@ -2068,7 +2236,7 @@ fn get_cover(book_path: &Path) -> Option<PageContent> {
         .iter()
         .find(|item| item.id == "cover-image")
         .cloned();
-    let guide_cover_item = guide_cover_item(&mut pkg);
+    let guide_cover_item = guide_cover_item(pkg);
     let id_cover_heuristic = pkg
         .manifest
         .iter()

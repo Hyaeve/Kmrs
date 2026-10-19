@@ -311,7 +311,24 @@ pub fn get_book_page(
     } else {
         media.pages[number - 1].media_type.as_str()
     };
+    process_page_content(
+        book_name,
+        number,
+        page_content,
+        page_media_type,
+        convert_to,
+        resize_to,
+    )
+}
 
+pub fn process_page_content(
+    book_name: &str,
+    number: usize,
+    page_content: Vec<u8>,
+    page_media_type: &str,
+    convert_to: Option<ImageType>,
+    resize_to: Option<u32>,
+) -> Result<PageContent> {
     if let Some(resize_to) = resize_to {
         let bytes = image::resize(&page_content, ImageType::Jpeg, resize_to).map_err(|e| {
             MediaError::Conversion(format!(

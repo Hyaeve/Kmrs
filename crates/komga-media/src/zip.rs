@@ -183,7 +183,7 @@ impl ZipEntries {
 
 /// Returns the bytes of `entry_name` inside the zip at `path`, on the cached archive.
 pub fn get_entry_bytes(path: &Path, entry_name: &str) -> Result<Vec<u8>> {
-    with_archive(path, |archive| read_entry(archive, entry_name))
+    with_archive(path, |archive| get_entry_bytes_from(archive, entry_name))
 }
 
 /// Reads several entries with a single archive open, in the order given. Network mounts
@@ -193,9 +193,16 @@ pub fn get_entries_bytes(path: &Path, entry_names: &[&str]) -> Result<Vec<Vec<u8
     with_archive(path, |archive| {
         entry_names
             .iter()
-            .map(|name| read_entry(archive, name))
+            .map(|name| get_entry_bytes_from(archive, name))
             .collect()
     })
+}
+
+pub fn get_entry_bytes_from<R: std::io::Read + std::io::Seek>(
+    archive: &mut zip::ZipArchive<R>,
+    entry_name: &str,
+) -> Result<Vec<u8>> {
+    read_entry(archive, entry_name)
 }
 
 /// `ZipArchive::by_name` matches the raw central-directory bytes, which the stored name
@@ -223,7 +230,10 @@ pub(crate) fn by_name_decoded<'a, R: std::io::Read + std::io::Seek>(
     }
 }
 
-fn read_entry(archive: &mut zip::ZipArchive<std::fs::File>, entry_name: &str) -> Result<Vec<u8>> {
+fn read_entry<R: std::io::Read + std::io::Seek>(
+    archive: &mut zip::ZipArchive<R>,
+    entry_name: &str,
+) -> Result<Vec<u8>> {
     let mut entry = match by_name_decoded(archive, entry_name) {
         Ok(entry) => entry,
         Err(zip::result::ZipError::FileNotFound) => {

@@ -117,6 +117,26 @@ pub fn is_image(media_type: &str) -> bool {
     media_type.starts_with("image/")
 }
 
+pub fn media_type_from_extension(name: &str) -> Option<&'static str> {
+    let extension = name.rsplit_once('.')?.1.to_ascii_lowercase();
+    Some(match extension.as_str() {
+        "jpg" | "jpeg" => IMAGE_JPEG,
+        "png" => IMAGE_PNG,
+        "gif" => IMAGE_GIF,
+        "webp" => IMAGE_WEBP,
+        "tif" | "tiff" => IMAGE_TIFF,
+        "bmp" => IMAGE_BMP,
+        "jxl" => IMAGE_JXL,
+        "heif" => IMAGE_HEIF,
+        "heic" => IMAGE_HEIC,
+        "avif" => IMAGE_AVIF,
+        "jp2" | "j2k" => IMAGE_JP2,
+        "pdf" => APPLICATION_PDF,
+        "epub" => APPLICATION_EPUB,
+        _ => return None,
+    })
+}
+
 /// `ContentDetector.mediaTypeToExtension`: Tika's default extension for the type
 /// (first glob pattern), including the leading dot.
 pub fn media_type_to_extension(media_type: &str) -> Option<&'static str> {

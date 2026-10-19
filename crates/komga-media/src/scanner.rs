@@ -620,6 +620,10 @@ fn parse_strm_name(name: &str) -> Option<ParsedStrmName> {
     })
 }
 
+pub fn strm_entity_extension(name: &str) -> Option<String> {
+    parse_strm_name(name).map(|parsed| parsed.entity_extension)
+}
+
 fn book_name(name: &str) -> String {
     parse_strm_name(name)
         .map(|parsed| parsed.name)

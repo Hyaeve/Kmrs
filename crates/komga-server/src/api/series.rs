@@ -719,16 +719,17 @@ async fn update_series_metadata(
     if !violations.is_empty() {
         return Err(ApiError::Violations(violations));
     }
+    let Some(series) = SeriesDao::new(state.db.clone()).find_by_id(&series_id)? else {
+        return Err(ApiError::not_found(""));
+    };
     let dao = SeriesMetadataDao::new(state.db.clone());
     let Some(existing) = dao.find_by_id(&series_id)? else {
         return Err(ApiError::not_found(""));
     };
     dao.update(&body.apply_to(&existing))?;
-    if let Some(series) = SeriesDao::new(state.db.clone()).find_by_id(&series_id)? {
-        let _ = state
-            .events
-            .send(crate::events::DomainEvent::SeriesUpdated(series));
-    }
+    let _ = state
+        .events
+        .send(crate::events::DomainEvent::SeriesUpdated(series));
     crate::service::strm_metadata::schedule_series_write(&state, &series_id);
     Ok(StatusCode::NO_CONTENT)
 }

@@ -1104,6 +1104,7 @@ async fn get_book_file(
                 api_key_id: auth.api_key_id,
             }),
             book_id,
+            None,
         )
         .await;
     }
@@ -1121,7 +1122,17 @@ async fn get_book_file(
     let media = MediaDao::new(state.db.clone())
         .find_by_id(&book.id)?
         .ok_or_else(|| ApiError::Internal(format!("no media for book {book_id}")))?;
-    let book_path = strm::path_for_book(&state, &book)?;
+    let (book_path, streamed_bytes) = if book.is_strm() {
+        let source = komga_db::dao::strm_source::StrmSourceDao::new(state.kmrs_db.clone())
+            .get(&book.id)?
+            .ok_or_else(|| ApiError::not_found("STRM source not found"))?;
+        (
+            std::path::PathBuf::from(source.file_name),
+            Some(strm::download_bytes(&state, &book).await?),
+        )
+    } else {
+        (strm::path_for_book(&state, &book)?, None)
+    };
     if media.media_type.as_deref() != Some(komga_media::detect::APPLICATION_EPUB) {
         return Err(ApiError::Internal(format!(
             "Cannot convert, not an EPUB: {}",
@@ -1134,7 +1145,7 @@ async fn get_book_file(
             book_path.display()
         )));
     }
-    if !book_path.exists() {
+    if streamed_bytes.is_none() && !book_path.exists() {
         return Err(ApiError::Internal(format!(
             "Source file does not exist: {}",
             book_path.display()
@@ -1154,7 +1165,16 @@ async fn get_book_file(
     let kepub_path = state
         .kepub
         .cached_or_convert(&cache_key, |tmp_dir| {
-            let converted = komga_media::kepubify::convert(&kepubify, &book_path, Some(tmp_dir))?;
+            let converted = if let Some(bytes) = streamed_bytes.as_ref() {
+                let source_path = tmp_dir.join("stream-source.epub");
+                std::fs::write(&source_path, bytes).ok()?;
+                let converted =
+                    komga_media::kepubify::convert(&kepubify, &source_path, Some(tmp_dir));
+                let _ = std::fs::remove_file(&source_path);
+                converted?
+            } else {
+                komga_media::kepubify::convert(&kepubify, &book_path, Some(tmp_dir))?
+            };
             // store the kepub file size, so it can be passed back during Kobo Sync
             match std::fs::metadata(&converted) {
                 Ok(meta) => {

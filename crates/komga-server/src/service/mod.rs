@@ -22,6 +22,7 @@ pub mod series;
 pub mod smart_list;
 pub mod strm;
 pub mod strm_metadata;
+pub mod strm_stream;
 pub mod sync_point;
 pub mod tasks;
 pub mod tracker_sync;

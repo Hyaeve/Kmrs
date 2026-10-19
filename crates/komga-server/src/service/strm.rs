@@ -12,17 +12,15 @@ use komga_core::time_codec;
 use komga_db::dao::media::MediaDao;
 use komga_db::dao::strm_source::{StrmSource, StrmSourceDao};
 use komga_media::detect;
-use reqwest::header::CONTENT_TYPE;
+use komga_media::image::ImageType;
 use reqwest::{Client, Url};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::Duration;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+use super::strm_stream::{self, StrmStreamError};
 
 const MAX_STRM_BYTES: u64 = 8 * 1024 * 1024 * 1024;
-const PREFIX_BYTES: usize = 8192;
-const STRM_CACHE_TTL_HOURS: i64 = 12;
-const STRM_CACHE_MAX_BYTES: u64 = 20 * 1024 * 1024 * 1024;
 const STRM_CACHE_ROOT: &str = "/data/strm-cache";
 
 #[derive(Debug, thiserror::Error)]
@@ -41,10 +39,14 @@ pub enum StrmError {
     RemoteStatus(u16),
     #[error("remote content exceeds the {MAX_STRM_BYTES} byte limit")]
     TooLarge,
+    #[error("STRM Range streaming is not supported for '{0}'")]
+    UnsupportedMedia(String),
     #[error(transparent)]
     Db(#[from] komga_db::Error),
     #[error("failed to analyze resolved STRM content: {0}")]
     Analysis(String),
+    #[error(transparent)]
+    Stream(#[from] StrmStreamError),
 }
 
 impl From<StrmError> for ApiError {
@@ -53,22 +55,16 @@ impl From<StrmError> for ApiError {
             StrmError::NotStrm | StrmError::EmptyPointer | StrmError::InvalidUrl(_) => {
                 Self::bad_request(error.to_string())
             }
-            StrmError::Io(_) | StrmError::Http(_) | StrmError::RemoteStatus(_) => {
+            StrmError::Io(_)
+            | StrmError::Http(_)
+            | StrmError::RemoteStatus(_)
+            | StrmError::Stream(_) => Self::bad_gateway(error.to_string()),
+            StrmError::TooLarge | StrmError::UnsupportedMedia(_) => {
                 Self::bad_gateway(error.to_string())
             }
-            StrmError::TooLarge => Self::bad_gateway(error.to_string()),
             StrmError::Db(_) | StrmError::Analysis(_) => Self::Internal(error.to_string()),
         }
     }
-}
-
-struct ResolvedCache<'a> {
-    source_url: &'a str,
-    strm_last_modified: time::OffsetDateTime,
-    cached_at: time::OffsetDateTime,
-    last_accessed_at: time::OffsetDateTime,
-    path: &'a Path,
-    file_name: &'a str,
 }
 
 fn http_client() -> &'static Client {
@@ -90,14 +86,6 @@ fn cache_dir(state: &AppState) -> PathBuf {
     } else {
         PathBuf::from(STRM_CACHE_ROOT)
     }
-}
-
-fn book_cache_dir(state: &AppState, book_id: &str) -> PathBuf {
-    cache_dir(state).join(book_id)
-}
-
-fn cache_is_fresh(cached_at: time::OffsetDateTime, now: time::OffsetDateTime) -> bool {
-    now - cached_at < time::Duration::hours(STRM_CACHE_TTL_HOURS)
 }
 
 fn source_path(book: &Book) -> PathBuf {
@@ -202,39 +190,6 @@ fn remove_cache_file(book_id: &str, path: &Path) {
     }
 }
 
-fn cached_file_size(source: &StrmSource) -> u64 {
-    std::fs::metadata(&source.cache_path)
-        .map(|metadata| metadata.len())
-        .unwrap_or_else(|_| u64::try_from(source.file_size).unwrap_or(0))
-}
-
-fn enforce_cache_limit(
-    state: &AppState,
-    keep_book_id: &str,
-    max_bytes: u64,
-) -> Result<(), StrmError> {
-    let dao = StrmSourceDao::new(state.kmrs_db.clone());
-    let sources = dao.find_all_by_lru()?;
-    let mut total_bytes = sources.iter().map(cached_file_size).sum::<u64>();
-    if total_bytes <= max_bytes {
-        return Ok(());
-    }
-
-    for source in sources {
-        if source.book_id == keep_book_id {
-            continue;
-        }
-        let removed_bytes = cached_file_size(&source);
-        remove_cache_file(&source.book_id, Path::new(&source.cache_path));
-        dao.delete(&source.book_id)?;
-        total_bytes = total_bytes.saturating_sub(removed_bytes);
-        if total_bytes <= max_bytes {
-            break;
-        }
-    }
-    Ok(())
-}
-
 fn resolved_cache_path(state: &AppState, book: &Book) -> Option<PathBuf> {
     if !book.is_strm() {
         return None;
@@ -242,6 +197,9 @@ fn resolved_cache_path(state: &AppState, book: &Book) -> Option<PathBuf> {
     let source = StrmSourceDao::new(state.kmrs_db.clone())
         .get(&book.id)
         .ok()??;
+    if source.cache_path.is_empty() {
+        return None;
+    }
     let path = PathBuf::from(source.cache_path);
     (path.is_file()
         && cache_path_is_within(&cache_dir(state), &path)
@@ -272,55 +230,78 @@ pub fn delete_resolution(state: &AppState, book_id: &str) -> komga_db::Result<()
     Ok(())
 }
 
-async fn analyze_resolved(
+fn stream_media_type(book: &Book) -> Result<String, StrmError> {
+    let pointer_name = source_path(book)
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .ok_or(StrmError::NotStrm)?;
+    let extension =
+        komga_media::scanner::strm_entity_extension(&pointer_name).ok_or(StrmError::NotStrm)?;
+    match extension.as_str() {
+        "zip" | "cbz" => Ok(detect::APPLICATION_ZIP.to_string()),
+        "epub" => Ok(detect::APPLICATION_EPUB.to_string()),
+        "pdf" => Ok(detect::APPLICATION_PDF.to_string()),
+        "cbr" | "rar" => Ok("application/x-rar-compressed".to_string()),
+        other => Err(StrmError::UnsupportedMedia(other.to_string())),
+    }
+}
+
+async fn generate_stream_thumbnail(
     state: &AppState,
     book: &Book,
-    cache: ResolvedCache<'_>,
-) -> Result<StrmSource, StrmError> {
-    let (actions, sources) = book::analyze_and_persist_at(state, book, cache.path)
-        .map_err(|e| StrmError::Analysis(e.to_string()))?;
+    source: &StrmSource,
+) -> Result<(), StrmError> {
     let media = MediaDao::new(state.db.clone())
         .find_by_id(&book.id)?
         .ok_or_else(|| StrmError::Analysis("book has no media row".to_string()))?;
-    let media_type = media.media_type.clone();
-    let file_size = std::fs::metadata(cache.path)?.len() as i64;
-    StrmSourceDao::new(state.kmrs_db.clone()).upsert(
-        &book.id,
-        cache.source_url,
-        cache.strm_last_modified,
-        cache.cached_at,
-        cache.last_accessed_at,
-        &cache.path.to_string_lossy(),
-        cache.file_name,
-        media_type.as_deref(),
-        file_size,
-    )?;
-
-    if actions.contains(&book::BookAction::GenerateThumbnail) {
-        book::generate_thumbnail_and_persist_at(state, book, false, cache.path)
-            .map_err(|e| StrmError::Analysis(e.to_string()))?;
-    }
-    if actions.contains(&book::BookAction::RefreshMetadata) {
-        metadata::refresh_book_metadata_with_sources(
-            state,
-            book,
-            &BookMetadataPatchCapability::all(),
-            Some(&sources),
-        )
-        .map_err(|e| StrmError::Analysis(e.to_string()))?;
-        let _ = state
-            .task_emitter
-            .refresh_series_metadata(&book.series_id, komga_core::task::DEFAULT_PRIORITY);
-    }
-
-    StrmSourceDao::new(state.kmrs_db.clone())
-        .get(&book.id)?
-        .ok_or_else(|| StrmError::Analysis("resolved source row disappeared".to_string()))
+    let page_name = media.pages.first().map(|page| page.file_name.clone());
+    let source = source.clone();
+    let analyzer = book::analyzer_for(state);
+    let max_edge = state.settings.get().thumbnail_size.max_edge();
+    let generated = tokio::task::spawn_blocking(move || {
+        if source.media_type.as_deref() == Some(detect::APPLICATION_EPUB) {
+            return strm_stream::generate_epub_thumbnail(&source, &analyzer);
+        }
+        if source.media_type.as_deref() == Some(detect::APPLICATION_PDF) {
+            let bytes = strm_stream::render_pdf_page(&source, 1)?;
+            let bytes = komga_media::image::resize(&bytes, ImageType::Jpeg, max_edge)
+                .map_err(|error| StrmStreamError::Media(error.to_string()))?;
+            let (width, height) = komga_media::image::get_dimension(&bytes).unwrap_or((0, 0));
+            return Ok(komga_media::analyzer::GeneratedThumbnail {
+                file_size: bytes.len() as i64,
+                bytes,
+                media_type: detect::IMAGE_JPEG.to_string(),
+                width: width as i32,
+                height: height as i32,
+            });
+        }
+        let entry_name =
+            page_name.ok_or_else(|| StrmStreamError::Media("book has no first page".into()))?;
+        let bytes = strm_stream::read_zip_entry(&source, &entry_name)?;
+        let bytes = komga_media::image::resize(&bytes, ImageType::Jpeg, max_edge)
+            .map_err(|error| StrmStreamError::Media(error.to_string()))?;
+        let (width, height) = komga_media::image::get_dimension(&bytes).unwrap_or((0, 0));
+        Ok(komga_media::analyzer::GeneratedThumbnail {
+            file_size: bytes.len() as i64,
+            bytes,
+            media_type: detect::IMAGE_JPEG.to_string(),
+            width: width as i32,
+            height: height as i32,
+        })
+    })
+    .await
+    .map_err(|error| StrmError::Analysis(error.to_string()))??;
+    book::persist_generated_thumbnail_bytes(state, book, generated.bytes);
+    Ok(())
 }
 
-/// Resolve a `.strm` pointer on reader access. Cached content is reused for twelve hours
-/// while the pointer URL and modification time remain unchanged.
-pub async fn resolve_strm(state: &AppState, book: &Book) -> Result<StrmSource, StrmError> {
+/// Resolve a `.strm` pointer on reader access. ZIP content remains remote; the service
+/// probes byte-range support and later fetches only the blocks needed for analysis/pages.
+async fn resolve_strm_inner(
+    state: &AppState,
+    book: &Book,
+    force: bool,
+) -> Result<StrmSource, StrmError> {
     if !book.is_strm() {
         return Err(StrmError::NotStrm);
     }
@@ -333,116 +314,268 @@ pub async fn resolve_strm(state: &AppState, book: &Book) -> Result<StrmSource, S
     let content = tokio::fs::read_to_string(&pointer).await?;
     let source_url = read_source_url(&content)?;
     let source_url_string = source_url.to_string();
-
+    let media_type = stream_media_type(book)?;
     let source_dao = StrmSourceDao::new(state.kmrs_db.clone());
-    let existing = source_dao.get(&book.id)?;
-    if let Some(existing) = existing.as_ref() {
-        let current_cache_root = cache_dir(state);
-        if existing.source_url == source_url_string
-            && time_codec::truncate_to_millis(existing.strm_last_modified)
-                == time_codec::truncate_to_millis(strm_last_modified)
-            && Path::new(&existing.cache_path).is_file()
-            && cache_path_is_within(&current_cache_root, Path::new(&existing.cache_path))
-            && cache_path_uses_file_name(Path::new(&existing.cache_path), &existing.file_name)
-            && cache_is_fresh(existing.cached_at, time_codec::now_utc())
-        {
+    if !force {
+        if let Some(existing) = source_dao.get(&book.id)? {
             let media = MediaDao::new(state.db.clone()).find_by_id(&book.id)?;
-            let last_accessed_at = time_codec::now_utc();
-            if media
-                .as_ref()
-                .is_some_and(|media| media.status != MediaStatus::Ready)
+            if existing.source_url == source_url_string
+                && existing.cache_path.is_empty()
+                && time_codec::truncate_to_millis(existing.strm_last_modified)
+                    == time_codec::truncate_to_millis(strm_last_modified)
+                && media.is_some_and(|media| {
+                    media.status == MediaStatus::Ready
+                        || (media.status == MediaStatus::Unsupported
+                            && existing.media_type.as_deref()
+                                == Some("application/x-rar-compressed"))
+                })
             {
-                return analyze_resolved(
-                    state,
-                    book,
-                    ResolvedCache {
-                        source_url: &existing.source_url,
-                        strm_last_modified: existing.strm_last_modified,
-                        cached_at: existing.cached_at,
-                        last_accessed_at,
-                        path: Path::new(&existing.cache_path),
-                        file_name: &existing.file_name,
-                    },
-                )
-                .await;
+                let last_accessed_at = time_codec::now_utc();
+                source_dao.touch(&book.id, last_accessed_at)?;
+                return Ok(StrmSource {
+                    last_accessed_at,
+                    ..existing
+                });
             }
-            source_dao.touch(&book.id, last_accessed_at)?;
-            return Ok(StrmSource {
-                last_accessed_at,
-                ..existing.clone()
-            });
         }
     }
 
-    let book_cache_dir = book_cache_dir(state, &book.id);
-    tokio::fs::create_dir_all(&book_cache_dir).await?;
-    let partial = book_cache_dir.join(format!("{}.partial", uuid::Uuid::new_v4()));
-    let response = http_client().get(source_url.clone()).send().await?;
-    let status = response.status();
-    if !status.is_success() {
-        return Err(StrmError::RemoteStatus(status.as_u16()));
+    let probe = strm_stream::probe_remote(source_url).await?;
+    if media_type != "application/x-rar-compressed" && !probe.range_supported {
+        return Err(StrmStreamError::RangeUnsupported.into());
     }
-    let final_url = response.url().clone();
-    let header_media_type = response
-        .headers()
-        .get(CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .map(|value| value.split(';').next().unwrap_or(value).trim().to_string())
-        .filter(|value| !value.is_empty());
+    if probe.content_length > MAX_STRM_BYTES {
+        return Err(StrmError::TooLarge);
+    }
+    let now = time_codec::now_utc();
+    let file_name = file_name_from_url(&probe.resolved_url, &media_type, &book.name);
+    let source = StrmSource {
+        book_id: book.id.clone(),
+        source_url: source_url_string,
+        strm_last_modified,
+        cache_path: String::new(),
+        file_name,
+        media_type: Some(media_type.clone()),
+        file_size: i64::try_from(probe.content_length).unwrap_or(i64::MAX),
+        created_date: now,
+        last_modified_date: now,
+        cached_at: now,
+        last_accessed_at: now,
+    };
 
-    let mut file = tokio::fs::File::create(&partial).await?;
-    let mut response = response;
-    let mut written = 0u64;
-    while let Some(chunk) = response.chunk().await? {
-        written = written.saturating_add(chunk.len() as u64);
-        if written > MAX_STRM_BYTES {
-            drop(file);
-            let _ = tokio::fs::remove_file(&partial).await;
-            return Err(StrmError::TooLarge);
+    let analysis = if source.media_type.as_deref() == Some("application/x-rar-compressed") {
+        let mut media = MediaDao::new(state.db.clone())
+            .find_by_id(&book.id)?
+            .ok_or_else(|| StrmError::Analysis("book has no media row".to_string()))?;
+        media.status = MediaStatus::Unsupported;
+        media.media_type = source.media_type.clone();
+        media.comment = Some("ERR_1001".to_string());
+        media.page_count = 0;
+        media.pages.clear();
+        media.files.clear();
+        komga_media::analyzer::Analysis {
+            media,
+            epub_extension: None,
+            kepub_file_size: None,
+            metadata_sources: Default::default(),
         }
-        file.write_all(&chunk).await?;
-    }
-    file.flush().await?;
-    drop(file);
+    } else {
+        let analyzer = book::analyzer_for(state);
+        let source_for_analysis = source.clone();
+        tokio::task::spawn_blocking(move || {
+            if source_for_analysis.media_type.as_deref() == Some(detect::APPLICATION_EPUB) {
+                strm_stream::analyze_epub(&source_for_analysis, &analyzer)
+            } else if source_for_analysis.media_type.as_deref() == Some(detect::APPLICATION_PDF) {
+                strm_stream::analyze_pdf(&source_for_analysis, &analyzer)
+            } else {
+                strm_stream::analyze_zip(&source_for_analysis, &analyzer)
+            }
+        })
+        .await
+        .map_err(|error| StrmError::Analysis(error.to_string()))??
+    };
+    let (actions, metadata_sources) = book::persist_analysis(state, book, analysis)
+        .map_err(|error| StrmError::Analysis(error.to_string()))?;
 
-    let mut prefix = vec![0u8; PREFIX_BYTES.min(written as usize)];
-    if !prefix.is_empty() {
-        let mut prefix_file = tokio::fs::File::open(&partial).await?;
-        prefix_file.read_exact(&mut prefix).await?;
-    }
-    let detected_media_type = detect::detect_media_type(&prefix);
-    let media_type = header_media_type
-        .filter(|value| value != detect::APPLICATION_OCTET_STREAM)
-        .unwrap_or(detected_media_type);
-    let file_name = file_name_from_url(&final_url, &media_type, &book.name);
-    let final_path = book_cache_dir.join(&file_name);
+    let previous = source_dao.get(&book.id)?;
+    source_dao.upsert(
+        &source.book_id,
+        &source.source_url,
+        source.strm_last_modified,
+        source.cached_at,
+        source.last_accessed_at,
+        "",
+        &source.file_name,
+        source.media_type.as_deref(),
+        source.file_size,
+    )?;
 
-    if final_path.exists() {
-        tokio::fs::remove_file(&final_path).await?;
+    if actions.contains(&book::BookAction::GenerateThumbnail) {
+        generate_stream_thumbnail(state, book, &source).await?;
     }
-    tokio::fs::rename(&partial, &final_path).await?;
-    let cached_at = time_codec::now_utc();
-
-    let resolved = analyze_resolved(
-        state,
-        book,
-        ResolvedCache {
-            source_url: &source_url_string,
-            strm_last_modified,
-            cached_at,
-            last_accessed_at: cached_at,
-            path: &final_path,
-            file_name: &file_name,
-        },
-    )
-    .await?;
-    if let Some(previous) = existing {
-        if previous.cache_path != resolved.cache_path {
+    if actions.contains(&book::BookAction::RefreshMetadata) {
+        metadata::refresh_book_metadata_with_sources(
+            state,
+            book,
+            &BookMetadataPatchCapability::all(),
+            Some(&metadata_sources),
+        )
+        .map_err(|error| StrmError::Analysis(error.to_string()))?;
+        let _ = state
+            .task_emitter
+            .refresh_series_metadata(&book.series_id, komga_core::task::DEFAULT_PRIORITY);
+    }
+    if let Some(previous) = previous {
+        if !previous.cache_path.is_empty() {
             remove_cache_file(&previous.book_id, Path::new(&previous.cache_path));
         }
     }
-    enforce_cache_limit(state, &book.id, STRM_CACHE_MAX_BYTES)?;
-    Ok(resolved)
+
+    source_dao
+        .get(&book.id)?
+        .ok_or_else(|| StrmError::Analysis("resolved source row disappeared".to_string()))
+}
+
+pub async fn resolve_strm(state: &AppState, book: &Book) -> Result<StrmSource, StrmError> {
+    resolve_strm_inner(state, book, false).await
+}
+
+pub async fn analyze_strm(state: &AppState, book: &Book) -> Result<StrmSource, StrmError> {
+    resolve_strm_inner(state, book, true).await
+}
+
+pub async fn remote_response(
+    state: &AppState,
+    book: &Book,
+) -> Result<(reqwest::Response, StrmSource), StrmError> {
+    remote_response_range(state, book, None).await
+}
+
+pub async fn remote_response_range(
+    state: &AppState,
+    book: &Book,
+    range: Option<&str>,
+) -> Result<(reqwest::Response, StrmSource), StrmError> {
+    let source = StrmSourceDao::new(state.kmrs_db.clone())
+        .get(&book.id)?
+        .ok_or(StrmError::NotStrm)?;
+    let mut request = http_client().get(source.source_url.clone());
+    if let Some(range) = range {
+        request = request.header(reqwest::header::RANGE, range);
+    }
+    let response = request.send().await?;
+    if !response.status().is_success() {
+        return Err(StrmError::RemoteStatus(response.status().as_u16()));
+    }
+    Ok((response, source))
+}
+
+pub async fn download_bytes(state: &AppState, book: &Book) -> Result<Vec<u8>, StrmError> {
+    let (response, _) = remote_response(state, book).await?;
+    Ok(response.bytes().await?.to_vec())
+}
+
+pub async fn extract_page_content(
+    state: &AppState,
+    book: &Book,
+    media: &komga_core::model::media::Media,
+    page_number: usize,
+    convert_to: Option<ImageType>,
+    resize_to: Option<u32>,
+) -> Result<komga_media::container::PageContent, StrmError> {
+    if media.status != MediaStatus::Ready
+        || page_number == 0
+        || page_number > media.page_count as usize
+    {
+        return Err(StrmError::Analysis("STRM page is not ready".to_string()));
+    }
+    let source = StrmSourceDao::new(state.kmrs_db.clone())
+        .get(&book.id)?
+        .ok_or(StrmError::NotStrm)?;
+    if !source.cache_path.is_empty() {
+        return Err(StrmError::Analysis(
+            "legacy STRM cache path cannot be used by the streaming page reader".to_string(),
+        ));
+    }
+    let entry_name = media.pages[page_number - 1].file_name.clone();
+    let media_type = media.pages[page_number - 1].media_type.clone();
+    let book_name = book.name.clone();
+    tokio::task::spawn_blocking(move || {
+        let bytes = strm_stream::read_zip_entry(&source, &entry_name)
+            .map_err(|error| StrmError::Analysis(error.to_string()))?;
+        komga_media::container::process_page_content(
+            &book_name,
+            page_number,
+            bytes,
+            &media_type,
+            convert_to,
+            resize_to,
+        )
+        .map_err(|error| StrmError::Analysis(error.to_string()))
+    })
+    .await
+    .map_err(|error| StrmError::Analysis(error.to_string()))?
+}
+
+pub async fn extract_pdf_page_content(
+    state: &AppState,
+    book: &Book,
+    page_number: usize,
+    convert_to: Option<ImageType>,
+    resize_to: Option<u32>,
+) -> Result<komga_media::container::PageContent, StrmError> {
+    let source = StrmSourceDao::new(state.kmrs_db.clone())
+        .get(&book.id)?
+        .ok_or(StrmError::NotStrm)?;
+    let book_name = book.name.clone();
+    tokio::task::spawn_blocking(move || {
+        let bytes = strm_stream::render_pdf_page(&source, page_number)
+            .map_err(|error| StrmError::Analysis(error.to_string()))?;
+        komga_media::container::process_page_content(
+            &book_name,
+            page_number,
+            bytes,
+            detect::IMAGE_JPEG,
+            convert_to,
+            resize_to,
+        )
+        .map_err(|error| StrmError::Analysis(error.to_string()))
+    })
+    .await
+    .map_err(|error| StrmError::Analysis(error.to_string()))?
+}
+
+pub async fn extract_raw_pdf_page(
+    state: &AppState,
+    book: &Book,
+    page_number: usize,
+) -> Result<komga_media::container::PageContent, StrmError> {
+    let source = StrmSourceDao::new(state.kmrs_db.clone())
+        .get(&book.id)?
+        .ok_or(StrmError::NotStrm)?;
+    let bytes =
+        tokio::task::spawn_blocking(move || strm_stream::extract_pdf_page(&source, page_number))
+            .await
+            .map_err(|error| StrmError::Analysis(error.to_string()))??;
+    Ok(komga_media::container::PageContent {
+        bytes,
+        media_type: detect::APPLICATION_PDF.to_string(),
+    })
+}
+
+pub async fn extract_epub_resource(
+    state: &AppState,
+    book: &Book,
+    resource_name: &str,
+) -> Result<Vec<u8>, StrmError> {
+    let source = StrmSourceDao::new(state.kmrs_db.clone())
+        .get(&book.id)?
+        .ok_or(StrmError::NotStrm)?;
+    let resource_name = resource_name.to_string();
+    tokio::task::spawn_blocking(move || strm_stream::read_zip_entry(&source, &resource_name))
+        .await
+        .map_err(|error| StrmError::Analysis(error.to_string()))?
+        .map_err(Into::into)
 }
 
 #[cfg(test)]
@@ -464,80 +597,28 @@ mod tests {
     }
 
     #[test]
-    fn cache_ttl_expires_after_twelve_hours() {
-        let cached_at = time_codec::parse_datetime_utc("2026-10-17 00:00:00").unwrap();
-        assert!(cache_is_fresh(
-            cached_at,
-            cached_at + time::Duration::hours(11) + time::Duration::minutes(59)
-        ));
-        assert!(!cache_is_fresh(
-            cached_at,
-            cached_at + time::Duration::hours(12)
-        ));
-    }
-
-    #[test]
-    fn cache_paths_preserve_the_remote_file_name() {
+    fn remote_file_names_are_preserved() {
         let url = Url::parse("https://example.test/library/My-Book.cbz").unwrap();
         let file_name = file_name_from_url(&url, detect::APPLICATION_ZIP, "fallback");
         assert_eq!(file_name, "My-Book.cbz");
-        assert!(cache_path_uses_file_name(
-            Path::new("/cache/b1/My-Book.cbz"),
-            &file_name
-        ));
-        assert!(!cache_path_uses_file_name(
-            Path::new("/cache/b1.cbz"),
-            &file_name
-        ));
     }
 
     #[test]
-    fn production_cache_root_uses_the_data_mount() {
-        assert_eq!(STRM_CACHE_ROOT, "/data/strm-cache");
-        assert!(cache_path_is_within(
-            Path::new(STRM_CACHE_ROOT),
-            Path::new("/data/strm-cache/b1/book.cbz")
-        ));
-        assert!(!cache_path_is_within(
-            Path::new(STRM_CACHE_ROOT),
-            Path::new("/config/strm-cache/b1/book.cbz")
-        ));
-    }
+    fn streaming_maps_supported_pointer_extensions() {
+        let mut book = crate::service::series::tests::sample_book("s1", "l1", "book");
+        book.url = "file:/library/book.cbz.strm".into();
+        assert_eq!(stream_media_type(&book).unwrap(), detect::APPLICATION_ZIP);
 
-    #[test]
-    fn cache_limit_evicts_least_recently_used_entries() {
-        let mut state = crate::service::series::tests::test_state();
-        let config_dir = tempfile::tempdir().unwrap();
-        state.config = std::sync::Arc::new(crate::config::ServerConfig {
-            config_dir: config_dir.path().to_path_buf(),
-            ..(*state.config).clone()
-        });
+        book.url = "file:/library/book.epub.strm".into();
+        assert_eq!(stream_media_type(&book).unwrap(), detect::APPLICATION_EPUB);
 
-        let now = time_codec::now_utc();
-        let dao = StrmSourceDao::new(state.kmrs_db.clone());
-        for (book_id, accessed_hours_ago) in [("b1", 3), ("b2", 2), ("b3", 1)] {
-            let path = cache_dir(&state).join(book_id).join("book.cbz");
-            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(&path, b"123456").unwrap();
-            dao.upsert(
-                book_id,
-                "https://example.test/book.cbz",
-                now,
-                now,
-                now - time::Duration::hours(accessed_hours_ago),
-                &path.to_string_lossy(),
-                "book.cbz",
-                Some(detect::APPLICATION_ZIP),
-                6,
-            )
-            .unwrap();
-        }
+        book.url = "file:/library/book.pdf.strm".into();
+        assert_eq!(stream_media_type(&book).unwrap(), detect::APPLICATION_PDF);
 
-        enforce_cache_limit(&state, "b3", 12).unwrap();
-
-        assert!(dao.get("b1").unwrap().is_none());
-        assert!(!cache_dir(&state).join("b1").exists());
-        assert!(dao.get("b2").unwrap().is_some());
-        assert!(dao.get("b3").unwrap().is_some());
+        book.url = "file:/library/book.cbr.strm".into();
+        assert_eq!(
+            stream_media_type(&book).unwrap(),
+            "application/x-rar-compressed"
+        );
     }
 }

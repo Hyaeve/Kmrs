@@ -62,7 +62,7 @@ fn service_error(message: impl Into<String>) -> komga_db::Error {
     ))
 }
 
-fn analyzer_for(state: &AppState) -> Analyzer {
+pub(crate) fn analyzer_for(state: &AppState) -> Analyzer {
     Analyzer::new(
         state.config.page_hashing,
         state.settings.get().thumbnail_size.max_edge(),
@@ -113,7 +113,14 @@ pub fn analyze_and_persist_at(
         .find_by_id(&book.library_id)?
         .expect("book references a missing library");
     let analysis = analyzer_for(state).analyze(path, library.analyze_dimensions);
+    persist_analysis(state, book, analysis)
+}
 
+pub fn persist_analysis(
+    state: &AppState,
+    book: &Book,
+    analysis: komga_media::analyzer::Analysis,
+) -> komga_db::Result<(BTreeSet<BookAction>, CapturedMetadataSources)> {
     // `KepubConverter`: the size of the on-the-fly kepub conversion is stored for Kobo Sync
     if let Some(size) = analysis.kepub_file_size {
         BookProjectionDao::new(state.db.clone()).save(&BookProjection {
@@ -311,6 +318,10 @@ fn persist_generated_thumbnail(state: &AppState, book: &Book, bytes: Vec<u8>) ->
             false
         }
     }
+}
+
+pub fn persist_generated_thumbnail_bytes(state: &AppState, book: &Book, bytes: Vec<u8>) {
+    persist_generated_thumbnail(state, book, bytes);
 }
 
 /// `BookLifecycle.generateThumbnailAndPersist`.
