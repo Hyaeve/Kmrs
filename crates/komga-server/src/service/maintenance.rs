@@ -6,6 +6,28 @@ use crate::state::AppState;
 pub struct MaintenanceScheduler;
 
 impl MaintenanceScheduler {
+    /// STRM temporary files: remove caches idle for three hours and enforce the
+    /// 20 GiB LRU limit at startup and every fifteen minutes.
+    pub fn start_strm_cache_cleanup(state: AppState) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(900));
+            loop {
+                interval.tick().await;
+                let state = state.clone();
+                match tokio::task::spawn_blocking(move || {
+                    crate::service::strm::cleanup_cache(&state)
+                })
+                .await
+                {
+                    Ok(Ok(n)) if n > 0 => tracing::info!("Removed {n} idle STRM cache files"),
+                    Ok(Ok(_)) => {}
+                    Ok(Err(e)) => tracing::error!("Failed to cleanup STRM cache: {e}"),
+                    Err(e) => tracing::error!("STRM cache cleanup task failed: {e}"),
+                }
+            }
+        })
+    }
+
     /// History retention: every day, delete events older than `history-retention-days`
     /// (0 = keep forever). Runs on the task write pool like the auth-activity cleanup.
     pub fn start_history_cleanup(state: AppState) -> tokio::task::JoinHandle<()> {

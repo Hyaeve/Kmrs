@@ -21,9 +21,10 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 const MAX_STRM_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 const PREFIX_BYTES: usize = 8192;
-const STRM_CACHE_TTL_HOURS: i64 = 12;
+const STRM_CACHE_IDLE_HOURS: i64 = 3;
 const STRM_CACHE_MAX_BYTES: u64 = 20 * 1024 * 1024 * 1024;
 const STRM_CACHE_ROOT: &str = "/data/strm-cache";
+const STRM_CACHE_TOUCH_INTERVAL_SECONDS: i64 = 60;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StrmError {
@@ -96,8 +97,8 @@ fn book_cache_dir(state: &AppState, book_id: &str) -> PathBuf {
     cache_dir(state).join(book_id)
 }
 
-fn cache_is_fresh(cached_at: time::OffsetDateTime, now: time::OffsetDateTime) -> bool {
-    now - cached_at < time::Duration::hours(STRM_CACHE_TTL_HOURS)
+fn cache_is_fresh(last_accessed_at: time::OffsetDateTime, now: time::OffsetDateTime) -> bool {
+    now - last_accessed_at < time::Duration::hours(STRM_CACHE_IDLE_HOURS)
 }
 
 fn source_path(book: &Book) -> PathBuf {
@@ -186,7 +187,15 @@ fn cache_path_is_within(root: &Path, path: &Path) -> bool {
     path.starts_with(root)
 }
 
-fn remove_cache_file(book_id: &str, path: &Path) {
+fn remove_cache_file(state: &AppState, book_id: &str, path: &Path) {
+    if !cache_path_is_within(&cache_dir(state), path) {
+        tracing::warn!(
+            book_id,
+            path = %path.display(),
+            "refusing to remove STRM cache outside the managed root"
+        );
+        return;
+    }
     if let Err(error) = std::fs::remove_file(path) {
         if error.kind() != std::io::ErrorKind::NotFound {
             tracing::warn!(
@@ -202,7 +211,10 @@ fn remove_cache_file(book_id: &str, path: &Path) {
     }
 }
 
-fn cached_file_size(source: &StrmSource) -> u64 {
+fn cached_file_size(state: &AppState, source: &StrmSource) -> u64 {
+    if !cache_path_is_within(&cache_dir(state), Path::new(&source.cache_path)) {
+        return 0;
+    }
     std::fs::metadata(&source.cache_path)
         .map(|metadata| metadata.len())
         .unwrap_or_else(|_| u64::try_from(source.file_size).unwrap_or(0))
@@ -210,22 +222,32 @@ fn cached_file_size(source: &StrmSource) -> u64 {
 
 fn enforce_cache_limit(
     state: &AppState,
-    keep_book_id: &str,
+    keep_book_id: Option<&str>,
     max_bytes: u64,
 ) -> Result<(), StrmError> {
     let dao = StrmSourceDao::new(state.kmrs_db.clone());
-    let sources = dao.find_all_by_lru()?;
-    let mut total_bytes = sources.iter().map(cached_file_size).sum::<u64>();
+    let sources = dao
+        .find_all_by_lru()?
+        .into_iter()
+        .filter(|source| {
+            cache_path_is_within(&cache_dir(state), Path::new(&source.cache_path))
+                && Path::new(&source.cache_path).is_file()
+        })
+        .collect::<Vec<_>>();
+    let mut total_bytes = sources
+        .iter()
+        .map(|source| cached_file_size(state, source))
+        .sum::<u64>();
     if total_bytes <= max_bytes {
         return Ok(());
     }
 
     for source in sources {
-        if source.book_id == keep_book_id {
+        if keep_book_id == Some(source.book_id.as_str()) {
             continue;
         }
-        let removed_bytes = cached_file_size(&source);
-        remove_cache_file(&source.book_id, Path::new(&source.cache_path));
+        let removed_bytes = cached_file_size(state, &source);
+        remove_cache_file(state, &source.book_id, Path::new(&source.cache_path));
         dao.delete(&source.book_id)?;
         total_bytes = total_bytes.saturating_sub(removed_bytes);
         if total_bytes <= max_bytes {
@@ -245,7 +267,8 @@ fn resolved_cache_path(state: &AppState, book: &Book) -> Option<PathBuf> {
     let path = PathBuf::from(source.cache_path);
     (path.is_file()
         && cache_path_is_within(&cache_dir(state), &path)
-        && cache_path_uses_file_name(&path, &source.file_name))
+        && cache_path_uses_file_name(&path, &source.file_name)
+        && cache_is_fresh(source.last_accessed_at, time_codec::now_utc()))
     .then_some(path)
 }
 
@@ -268,8 +291,28 @@ pub fn delete_resolution(state: &AppState, book_id: &str) -> komga_db::Result<()
     let Some(source) = StrmSourceDao::new(state.kmrs_db.clone()).delete(book_id)? else {
         return Ok(());
     };
-    remove_cache_file(book_id, Path::new(&source.cache_path));
+    remove_cache_file(state, book_id, Path::new(&source.cache_path));
     Ok(())
+}
+
+pub fn cleanup_cache(state: &AppState) -> Result<usize, StrmError> {
+    let dao = StrmSourceDao::new(state.kmrs_db.clone());
+    let now = time_codec::now_utc();
+    let mut removed = 0;
+    for source in dao.find_all_by_lru()? {
+        let path = Path::new(&source.cache_path);
+        let expired = !cache_is_fresh(source.last_accessed_at, now);
+        let invalid = !cache_path_is_within(&cache_dir(state), path) || !path.is_file();
+        if expired || invalid {
+            remove_cache_file(state, &source.book_id, path);
+            dao.delete(&source.book_id)?;
+            if expired {
+                removed += 1;
+            }
+        }
+    }
+    enforce_cache_limit(state, None, STRM_CACHE_MAX_BYTES)?;
+    Ok(removed)
 }
 
 async fn analyze_resolved(
@@ -318,8 +361,8 @@ async fn analyze_resolved(
         .ok_or_else(|| StrmError::Analysis("resolved source row disappeared".to_string()))
 }
 
-/// Resolve a `.strm` pointer on reader access. Cached content is reused for twelve hours
-/// while the pointer URL and modification time remain unchanged.
+/// Resolve a `.strm` pointer on reader access. Cached content is reused while the pointer
+/// URL and modification time remain unchanged and the cache was accessed within three hours.
 pub async fn resolve_strm(state: &AppState, book: &Book) -> Result<StrmSource, StrmError> {
     if !book.is_strm() {
         return Err(StrmError::NotStrm);
@@ -337,14 +380,13 @@ pub async fn resolve_strm(state: &AppState, book: &Book) -> Result<StrmSource, S
     let source_dao = StrmSourceDao::new(state.kmrs_db.clone());
     let existing = source_dao.get(&book.id)?;
     if let Some(existing) = existing.as_ref() {
-        let current_cache_root = cache_dir(state);
         if existing.source_url == source_url_string
             && time_codec::truncate_to_millis(existing.strm_last_modified)
                 == time_codec::truncate_to_millis(strm_last_modified)
             && Path::new(&existing.cache_path).is_file()
-            && cache_path_is_within(&current_cache_root, Path::new(&existing.cache_path))
+            && cache_path_is_within(&cache_dir(state), Path::new(&existing.cache_path))
             && cache_path_uses_file_name(Path::new(&existing.cache_path), &existing.file_name)
-            && cache_is_fresh(existing.cached_at, time_codec::now_utc())
+            && cache_is_fresh(existing.last_accessed_at, time_codec::now_utc())
         {
             let media = MediaDao::new(state.db.clone()).find_by_id(&book.id)?;
             let last_accessed_at = time_codec::now_utc();
@@ -366,7 +408,13 @@ pub async fn resolve_strm(state: &AppState, book: &Book) -> Result<StrmSource, S
                 )
                 .await;
             }
-            source_dao.touch(&book.id, last_accessed_at)?;
+            if last_accessed_at - existing.last_accessed_at
+                >= time::Duration::seconds(STRM_CACHE_TOUCH_INTERVAL_SECONDS)
+            {
+                source_dao.touch(&book.id, last_accessed_at)?;
+            } else {
+                return Ok(existing.clone());
+            }
             return Ok(StrmSource {
                 last_accessed_at,
                 ..existing.clone()
@@ -438,10 +486,10 @@ pub async fn resolve_strm(state: &AppState, book: &Book) -> Result<StrmSource, S
     .await?;
     if let Some(previous) = existing {
         if previous.cache_path != resolved.cache_path {
-            remove_cache_file(&previous.book_id, Path::new(&previous.cache_path));
+            remove_cache_file(state, &previous.book_id, Path::new(&previous.cache_path));
         }
     }
-    enforce_cache_limit(state, &book.id, STRM_CACHE_MAX_BYTES)?;
+    enforce_cache_limit(state, Some(&book.id), STRM_CACHE_MAX_BYTES)?;
     Ok(resolved)
 }
 
@@ -464,15 +512,15 @@ mod tests {
     }
 
     #[test]
-    fn cache_ttl_expires_after_twelve_hours() {
-        let cached_at = time_codec::parse_datetime_utc("2026-10-17 00:00:00").unwrap();
+    fn cache_expires_after_three_idle_hours() {
+        let last_accessed_at = time_codec::parse_datetime_utc("2026-10-17 00:00:00").unwrap();
         assert!(cache_is_fresh(
-            cached_at,
-            cached_at + time::Duration::hours(11) + time::Duration::minutes(59)
+            last_accessed_at,
+            last_accessed_at + time::Duration::hours(2) + time::Duration::minutes(59)
         ));
         assert!(!cache_is_fresh(
-            cached_at,
-            cached_at + time::Duration::hours(12)
+            last_accessed_at,
+            last_accessed_at + time::Duration::hours(3)
         ));
     }
 
@@ -533,11 +581,46 @@ mod tests {
             .unwrap();
         }
 
-        enforce_cache_limit(&state, "b3", 12).unwrap();
+        enforce_cache_limit(&state, Some("b3"), 12).unwrap();
 
         assert!(dao.get("b1").unwrap().is_none());
         assert!(!cache_dir(&state).join("b1").exists());
         assert!(dao.get("b2").unwrap().is_some());
         assert!(dao.get("b3").unwrap().is_some());
+    }
+
+    #[test]
+    fn cleanup_removes_idle_cache_entries() {
+        let mut state = crate::service::series::tests::test_state();
+        let config_dir = tempfile::tempdir().unwrap();
+        state.config = std::sync::Arc::new(crate::config::ServerConfig {
+            config_dir: config_dir.path().to_path_buf(),
+            ..(*state.config).clone()
+        });
+
+        let now = time_codec::now_utc();
+        let dao = StrmSourceDao::new(state.kmrs_db.clone());
+        for (book_id, accessed_hours_ago) in [("b1", 4), ("b2", 2)] {
+            let path = cache_dir(&state).join(book_id).join("book.cbz");
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, b"123456").unwrap();
+            dao.upsert(
+                book_id,
+                "https://example.test/book.cbz",
+                now,
+                now,
+                now - time::Duration::hours(accessed_hours_ago),
+                &path.to_string_lossy(),
+                "book.cbz",
+                Some(detect::APPLICATION_ZIP),
+                6,
+            )
+            .unwrap();
+        }
+
+        assert_eq!(cleanup_cache(&state).unwrap(), 1);
+        assert!(dao.get("b1").unwrap().is_none());
+        assert!(!cache_dir(&state).join("b1").exists());
+        assert!(dao.get("b2").unwrap().is_some());
     }
 }

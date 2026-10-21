@@ -3333,7 +3333,9 @@ mod tests {
             .unwrap();
         let cache_path = resolved.cache_path.clone();
         assert!(std::path::Path::new(&cache_path).is_file());
-        let stale_access = komga_core::time_codec::now_utc() - time::Duration::hours(24);
+        let stale_access = komga_core::time_codec::now_utc()
+            - time::Duration::hours(3)
+            - time::Duration::minutes(1);
         state
             .kmrs_db
             .rw()
@@ -3352,14 +3354,15 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::NO_CONTENT);
-        assert_eq!(hits.load(Ordering::SeqCst), 1);
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
         let touched = komga_db::dao::strm_source::StrmSourceDao::new(state.kmrs_db.clone())
             .get("b1")
             .unwrap()
             .unwrap();
         assert!(touched.last_accessed_at > stale_access);
 
-        let expired = komga_core::time_codec::format_datetime(
+        // CACHED_AT no longer controls reuse; only LAST_ACCESSED_AT does.
+        let old_cached_at = komga_core::time_codec::format_datetime(
             komga_core::time_codec::now_utc() - time::Duration::hours(13),
         );
         let updated = state
@@ -3368,7 +3371,7 @@ mod tests {
             .unwrap()
             .execute(
                 "UPDATE STRM_SOURCE SET CACHED_AT = ? WHERE BOOK_ID = 'b1'",
-                [expired],
+                [old_cached_at],
             )
             .unwrap();
         assert_eq!(updated, 1);

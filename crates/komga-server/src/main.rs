@@ -187,6 +187,7 @@ async fn run() -> anyhow::Result<()> {
     );
     service::scheduler::ScanScheduler::start(state.clone());
     service::update_check::start(state.clone());
+    service::maintenance::MaintenanceScheduler::start_strm_cache_cleanup(state.clone());
     service::maintenance::MaintenanceScheduler::start_auth_activity_cleanup(state.clone());
     service::maintenance::MaintenanceScheduler::start_history_cleanup(state.clone());
     if config.jdbc_session_enabled {
