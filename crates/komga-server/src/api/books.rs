@@ -2,7 +2,7 @@
 //! `/api/v1/books/**` list/detail/thumbnails/pages/file/progression/read-progress endpoints.
 
 use crate::api::restriction;
-use crate::auth::{MaybeAuth, RequireAuth};
+use crate::auth::RequireAuth;
 use crate::dto::book::BookMetadataUpdateDto;
 use crate::dto::common::{Page, Pageable, SortOrder};
 use crate::error::{ApiError, Violation};
@@ -54,9 +54,6 @@ use std::io::Read;
 
 const MEDIATYPE_PROGRESSION_JSON: &str = "application/vnd.readium.progression+json";
 const MEDIATYPE_POSITION_LIST_JSON: &str = "application/vnd.readium.position-list+json";
-
-/// `CommonBookController.FONT_EXTENSIONS`
-const FONT_EXTENSIONS: [&str; 6] = ["otf", "woff", "woff2", "eot", "ttf", "svg"];
 
 const CSP_HEADER: &str = "script-src 'none'; object-src 'none';";
 
@@ -122,6 +119,11 @@ pub fn router() -> Router<AppState> {
         )
         .route(
             "/api/v1/books/{bookId}/resource/{*resource}",
+            routing::get(get_book_epub_resource),
+        )
+        // the Java controller maps both paths to the same handler
+        .route(
+            "/opds/v2/books/{bookId}/resource/{*resource}",
             routing::get(get_book_epub_resource),
         )
         .route(
@@ -1314,27 +1316,39 @@ async fn get_book_page_raw_by_number(
 
 // region epub resource
 
+/// Best-effort Content-Type for container entries the OPF does not declare
+fn undeclared_resource_media_type(name: &str) -> Option<&'static str> {
+    let (_, extension) = name.rsplit_once('.')?;
+    Some(match extension.to_lowercase().as_str() {
+        "jpg" | "jpeg" => detect::IMAGE_JPEG,
+        "png" => detect::IMAGE_PNG,
+        "gif" => detect::IMAGE_GIF,
+        "webp" => detect::IMAGE_WEBP,
+        "svg" => "image/svg+xml",
+        "avif" => detect::IMAGE_AVIF,
+        "bmp" => detect::IMAGE_BMP,
+        "tiff" => detect::IMAGE_TIFF,
+        "css" => "text/css",
+        "xhtml" => "application/xhtml+xml",
+        "html" | "htm" => "text/html",
+        "js" => "text/javascript",
+        "otf" => "font/otf",
+        "ttf" => "font/ttf",
+        "eot" => "application/vnd.ms-fontobject",
+        "woff" => "font/woff",
+        "woff2" => "font/woff2",
+        "ncx" => "application/x-dtbncx+xml",
+        _ => return None,
+    })
+}
+
 async fn get_book_epub_resource(
     State(state): State<AppState>,
-    auth: MaybeAuth,
+    auth: RequireAuth,
     headers: HeaderMap,
     Path((book_id, resource)): Path<(String, String)>,
 ) -> Result<Response, ApiError> {
     let resource_name = resource.strip_prefix('/').unwrap_or(&resource).to_string();
-    let extension = resource_name
-        .rsplit_once('.')
-        .map(|(_, e)| e.to_lowercase())
-        .unwrap_or_default();
-    let is_font = FONT_EXTENSIONS.contains(&extension.as_str());
-
-    if !is_font && auth.0.is_none() {
-        // ResponseStatusException(UNAUTHORIZED) with no reason: Spring error JSON, not the
-        // filter-level 401 (this path is whitelisted in the security configuration)
-        return Err(ApiError::Status {
-            status: StatusCode::UNAUTHORIZED,
-            message: String::new(),
-        });
-    }
 
     let Some(book) = book_dao(&state).find_by_id(&book_id)? else {
         return Err(ApiError::not_found(""));
@@ -1360,13 +1374,22 @@ async fn get_book_epub_resource(
         )));
     }
 
-    if !is_font {
-        restriction::check_book(&state, &auth.0.as_ref().unwrap().user, &book)?;
-    }
+    restriction::check_book(&state, &auth.0.user, &book)?;
 
-    let Some(res) = media.files.iter().find(|f| f.file_name == resource_name) else {
-        return Err(ApiError::not_found(""));
-    };
+    // repacked EPUBs often skip OPF declarations for files that are in the container;
+    // serve those anyway (intentional deviation from Java, which 404s here)
+    let (resource_name, media_type) =
+        match media.files.iter().find(|f| f.file_name == resource_name) {
+            Some(res) => (resource_name, res.media_type.clone()),
+            None => {
+                let name = komga_media::analyzer::normalize_zip_path(&resource_name);
+                if name.split('/').next() == Some("..") {
+                    return Err(ApiError::not_found(""));
+                }
+                let media_type = undeclared_resource_media_type(&name).map(str::to_string);
+                (name, media_type)
+            }
+        };
 
     let path = strm::path_for_book(&state, &book)?;
     let media_clone = media.clone();
@@ -1399,7 +1422,7 @@ async fn get_book_epub_resource(
         );
         headers.insert(
             axum::http::header::CONTENT_TYPE,
-            content_type_header(res.media_type.as_deref()),
+            content_type_header(media_type.as_deref()),
         );
     }
     set_last_modified(&mut response, &media);
@@ -1581,7 +1604,7 @@ fn manifest_epub_internal(
     let media = require_media(state, book_id)?;
     let series_metadata = series_metadata(state, &book_dto.series_id)?;
     let extension = crate::webpub::decode_epub_extension_view(media.extension_value.as_deref());
-    let base = crate::http::base_url::base_url(parts, &state.settings);
+    let base = crate::http::base_url::base_url(parts, &state.config);
     let publication = crate::webpub::to_manifest_epub(
         &book_dto,
         &media,
@@ -1614,7 +1637,7 @@ fn manifest_pdf_internal(
     restriction::check_book_dto(state, &auth.0.user, &book_dto)?;
     let media = require_media(state, book_id)?;
     let series_metadata = series_metadata(state, &book_dto.series_id)?;
-    let base = crate::http::base_url::base_url(parts, &state.settings);
+    let base = crate::http::base_url::base_url(parts, &state.config);
     let publication = crate::webpub::to_manifest_pdf(
         &book_dto,
         &media,
@@ -1639,7 +1662,7 @@ fn manifest_divina_internal(
     restriction::check_book_dto(state, &auth.0.user, &book_dto)?;
     let media = require_media(state, book_id)?;
     let series_metadata = series_metadata(state, &book_dto.series_id)?;
-    let base = crate::http::base_url::base_url(parts, &state.settings);
+    let base = crate::http::base_url::base_url(parts, &state.config);
     let publication = crate::webpub::to_manifest_divina(
         &book_dto,
         &media,
@@ -2250,6 +2273,7 @@ mod tests {
     use komga_db::dao::user::UserDao;
     use komga_db::pool::Database;
     use komga_db::{Migrator, Placeholders};
+    use std::path::PathBuf;
     use std::sync::Arc;
     use tower::ServiceExt;
 
@@ -4729,6 +4753,241 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    // endregion
+
+    // region epub resource
+
+    fn write_epub(dir: &std::path::Path, entries: &[(&str, &[u8])]) -> PathBuf {
+        let path = dir.join("book.epub");
+        let file = std::fs::File::create(&path).unwrap();
+        let mut writer = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        for (name, bytes) in entries {
+            writer.start_file(name, options).unwrap();
+            std::io::Write::write_all(&mut writer, bytes).unwrap();
+        }
+        writer.finish().unwrap();
+        path
+    }
+
+    fn epub_resource_book(db: &Database, url: &str, files: Vec<MediaFile>) {
+        seed_book(db, "b1", "s1", "l1", url);
+        let media = Media {
+            book_id: "b1".into(),
+            status: MediaStatus::Ready,
+            media_type: Some(detect::APPLICATION_EPUB.to_string()),
+            comment: None,
+            page_count: 0,
+            pages: vec![],
+            files,
+            extension_class: None,
+            extension_value: None,
+            epub_divina_compatible: false,
+            epub_is_kepub: false,
+            created_date: time_codec::now_utc(),
+            last_modified_date: time_codec::now_utc(),
+        };
+        MediaDao::new(db.clone()).update(&media).unwrap();
+    }
+
+    #[tokio::test]
+    async fn epub_resource_served_on_api_and_opds_v2_paths() {
+        let state = test_state_with_settings();
+        let db = state.db.clone();
+        seed_library(&db, "l1");
+        seed_series(&db, "s1", "l1");
+        let dir = tempfile::tempdir().unwrap();
+        let epub = write_epub(dir.path(), &[("images/cover.png", PNG_1X1)]);
+        epub_resource_book(
+            &db,
+            &format!("file:{}", epub.display()),
+            vec![MediaFile {
+                file_name: "images/cover.png".into(),
+                media_type: Some(detect::IMAGE_PNG.to_string()),
+                sub_type: Some(MediaFileSubType::EpubAsset),
+                file_size: None,
+            }],
+        );
+        seed_user(&db, "admin@example.org", "pw", true);
+        let app = test_router(state.clone());
+
+        for uri in [
+            "/api/v1/books/b1/resource/images/cover.png",
+            "/opds/v2/books/b1/resource/images/cover.png",
+        ] {
+            let (status, headers, body) = call(
+                &app,
+                "GET",
+                uri,
+                Some(&basic("admin@example.org", "pw")),
+                None,
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{uri}");
+            assert_eq!(body, PNG_1X1, "{uri}");
+            assert_eq!(
+                headers[axum::http::header::CONTENT_TYPE],
+                "image/png",
+                "{uri}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn epub_resource_undeclared_entry_served_from_container() {
+        let state = test_state_with_settings();
+        let db = state.db.clone();
+        seed_library(&db, "l1");
+        seed_series(&db, "s1", "l1");
+        let dir = tempfile::tempdir().unwrap();
+        // repacked EPUBs often skip manifest declarations: these entries sit in the
+        // container but not in the parsed OPF manifest (media.files)
+        let epub = write_epub(
+            dir.path(),
+            &[
+                ("images/cover.png", PNG_1X1),
+                ("images/illustration.png", PNG_1X1),
+                ("styles/main.css", b"body {}".as_slice()),
+                ("misc/data.bin", b"\x00\x01".as_slice()),
+                ("fonts/declared.ttf", b"ttf".as_slice()),
+                ("fonts/undeclared.ttf", b"ttf".as_slice()),
+                ("images/vector.svg", b"<svg/>".as_slice()),
+            ],
+        );
+        epub_resource_book(
+            &db,
+            &format!("file:{}", epub.display()),
+            vec![
+                MediaFile {
+                    file_name: "images/cover.png".into(),
+                    media_type: Some(detect::IMAGE_PNG.to_string()),
+                    sub_type: Some(MediaFileSubType::EpubAsset),
+                    file_size: None,
+                },
+                MediaFile {
+                    file_name: "fonts/declared.ttf".into(),
+                    media_type: Some("font/ttf".to_string()),
+                    sub_type: Some(MediaFileSubType::EpubAsset),
+                    file_size: None,
+                },
+            ],
+        );
+        seed_user(&db, "admin@example.org", "pw", true);
+        let app = test_router(state.clone());
+
+        // declared entry: served with the manifest's media type
+        let (status, headers, body) = call(
+            &app,
+            "GET",
+            "/api/v1/books/b1/resource/images/cover.png",
+            Some(&basic("admin@example.org", "pw")),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, PNG_1X1);
+        assert_eq!(headers[axum::http::header::CONTENT_TYPE], "image/png");
+
+        // undeclared but present in the container: served with a guessed Content-Type
+        let (status, headers, body) = call(
+            &app,
+            "GET",
+            "/api/v1/books/b1/resource/images/illustration.png",
+            Some(&basic("admin@example.org", "pw")),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, PNG_1X1);
+        assert_eq!(headers[axum::http::header::CONTENT_TYPE], "image/png");
+
+        let (status, headers, body) = call(
+            &app,
+            "GET",
+            "/api/v1/books/b1/resource/styles/main.css",
+            Some(&basic("admin@example.org", "pw")),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, b"body {}");
+        assert_eq!(headers[axum::http::header::CONTENT_TYPE], "text/css");
+
+        // unknown extension: octet-stream
+        let (status, headers, _) = call(
+            &app,
+            "GET",
+            "/api/v1/books/b1/resource/misc/data.bin",
+            Some(&basic("admin@example.org", "pw")),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            headers[axum::http::header::CONTENT_TYPE],
+            "application/octet-stream"
+        );
+
+        // neither declared nor in the container: still 404
+        let (status, _, _) = call(
+            &app,
+            "GET",
+            "/api/v1/books/b1/resource/images/missing.png",
+            Some(&basic("admin@example.org", "pw")),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        // escaping the archive root: 404
+        let (status, _, _) = call(
+            &app,
+            "GET",
+            "/api/v1/books/b1/resource/../images/cover.png",
+            Some(&basic("admin@example.org", "pw")),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        // non-canonical paths are normalized before the container lookup
+        let (status, _, body) = call(
+            &app,
+            "GET",
+            "/api/v1/books/b1/resource/images/./illustration.png",
+            Some(&basic("admin@example.org", "pw")),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, PNG_1X1);
+
+        // undeclared font: served to users with book access
+        let (status, headers, body) = call(
+            &app,
+            "GET",
+            "/api/v1/books/b1/resource/fonts/undeclared.ttf",
+            Some(&basic("admin@example.org", "pw")),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, b"ttf");
+        assert_eq!(headers[axum::http::header::CONTENT_TYPE], "font/ttf");
+
+        // anonymous requests are rejected, fonts included
+        for uri in [
+            "/api/v1/books/b1/resource/images/cover.png",
+            "/api/v1/books/b1/resource/fonts/declared.ttf",
+            "/api/v1/books/b1/resource/fonts/undeclared.ttf",
+            "/api/v1/books/b1/resource/images/vector.svg",
+        ] {
+            let (status, _, _) = call(&app, "GET", uri, None, None).await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED, "{uri}");
+        }
     }
 
     // endregion

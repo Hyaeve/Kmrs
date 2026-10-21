@@ -143,6 +143,7 @@ export function EpubReader({ book }: { book: BookDto }) {
       instance = new EpubNavigator(containerRef.current!, publication, listeners, positions, initialPosition, {
         preferences: buildEpubPreferences(useReaderSettings.getState()),
         defaults: { optimalLineLength: cjk ? CJK_OPTIMAL_LINE_LENGTH : null },
+        upgradeInsecureRequests: 'auto',
         injectables: {
           rules: [
             {

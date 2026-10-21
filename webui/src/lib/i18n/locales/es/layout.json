@@ -65,11 +65,13 @@
   },
   "libraryMenu": {
     "actions": "Acciones de {{name}}",
+    "allLibraries": "Todas las bibliotecas",
     "scan": "Escanear",
     "scanDeep": "Escanear (en profundidad)",
     "analyze": "Analizar",
     "refreshMetadata": "Actualizar metadatos",
     "emptyTrash": "Vaciar la papelera",
+    "emptyTrashAllBody": "Se eliminará permanentemente toda la información sobre medios con archivos faltantes en cada biblioteca. Esta acción no se puede deshacer.",
     "scanQueued": "Escaneo en cola",
     "scanFailed": "No se pudo encolar el escaneo",
     "analyzeQueued": "Análisis en cola",

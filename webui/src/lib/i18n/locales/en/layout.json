@@ -64,11 +64,13 @@
   },
   "libraryMenu": {
     "actions": "{{name}} actions",
+    "allLibraries": "All libraries",
     "scan": "Scan",
     "scanDeep": "Scan (deep)",
     "analyze": "Analyze",
     "refreshMetadata": "Refresh metadata",
     "emptyTrash": "Empty trash",
+    "emptyTrashAllBody": "Permanently deletes all information about missing media in every library. This cannot be undone.",
     "scanQueued": "Scan queued",
     "scanFailed": "Could not queue the scan",
     "analyzeQueued": "Analysis queued",

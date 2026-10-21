@@ -346,10 +346,11 @@ function SidebarFooter() {
   const { data: info } = useQuery({ queryKey: ['server-info'], queryFn: serverApi.info, staleTime: Infinity })
   // admin-only endpoint: other roles would just collect 403s
   const { data: update } = useQuery({
-    queryKey: ['releases', 'latest'],
-    queryFn: releasesApi.latest,
+    queryKey: ['update-check'],
+    queryFn: releasesApi.updateCheck,
     staleTime: 3_600_000,
     enabled: isAdmin(user),
+    select: (check) => check.update,
   })
 
   const logout = async () => {

@@ -85,8 +85,8 @@ export function SeriesPickerDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} title={title} size="lg">
-      <div className="px-5 pt-4">
+    <Dialog open={open} onOpenChange={onOpenChange} title={title} size="lg" fill>
+      <div className="shrink-0 px-5 pt-4">
         <div className="relative">
           <MagnifyingGlass className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-3" />
           <input
@@ -99,7 +99,33 @@ export function SeriesPickerDialog({
           />
         </div>
       </div>
-      <div className="min-h-72 px-5 py-4">
+      <div className="flex shrink-0 items-center justify-between gap-2 px-5 py-3.5">
+        <p className="text-sm text-ink-3">
+          {error ? (
+            <span className="text-danger">{error}</span>
+          ) : selected.size > 0 ? (
+            t('collection.selectedSeriesCount', { count: selected.size })
+          ) : mode === 'single' ? (
+            t('picker.pickOneSeries')
+          ) : (
+            t('picker.noneSelected')
+          )}
+        </p>
+        <div className="flex gap-2">
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            {t('common:action.cancel')}
+          </Button>
+          <Button
+            variant="primary"
+            loading={confirming}
+            disabled={selected.size === 0 || (mode === 'single' && selected.size !== 1)}
+            onClick={() => onConfirm([...selected.values()])}
+          >
+            {confirmLabel}
+          </Button>
+        </div>
+      </div>
+      <div className="min-h-72 flex-1 overflow-y-auto border-t border-line px-5 py-4">
         {q.isPending ? (
           <div className="grid grid-cols-3 gap-4 sm:grid-cols-4">
             {Array.from({ length: 8 }, (_, i) => (
@@ -169,32 +195,6 @@ export function SeriesPickerDialog({
             )}
           </>
         )}
-      </div>
-      <div className="flex items-center justify-between gap-2 border-t border-line px-5 py-3.5">
-        <p className="text-sm text-ink-3">
-          {error ? (
-            <span className="text-danger">{error}</span>
-          ) : selected.size > 0 ? (
-            t('collection.selectedSeriesCount', { count: selected.size })
-          ) : mode === 'single' ? (
-            t('picker.pickOneSeries')
-          ) : (
-            t('picker.noneSelected')
-          )}
-        </p>
-        <div className="flex gap-2">
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            {t('common:action.cancel')}
-          </Button>
-          <Button
-            variant="primary"
-            loading={confirming}
-            disabled={selected.size === 0 || (mode === 'single' && selected.size !== 1)}
-            onClick={() => onConfirm([...selected.values()])}
-          >
-            {confirmLabel}
-          </Button>
-        </div>
       </div>
     </Dialog>
   )

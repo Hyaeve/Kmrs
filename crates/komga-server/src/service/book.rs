@@ -67,9 +67,7 @@ fn analyzer_for(state: &AppState) -> Analyzer {
         state.config.page_hashing,
         state.settings.get().thumbnail_size.max_edge(),
         state.config.epub_divina_letter_count_threshold,
-        state
-            .kepub
-            .kepubify_path(&state.settings.get(), &state.config),
+        state.kepub.kepubify_path(&state.config),
     )
 }
 

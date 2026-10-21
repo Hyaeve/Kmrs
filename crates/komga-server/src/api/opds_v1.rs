@@ -654,7 +654,7 @@ async fn get_catalog(
     _auth: RequireAuth,
     headers: HeaderMap,
 ) -> Response {
-    let base = base_url_from_headers(&headers, &state.settings);
+    let base = base_url_from_headers(&headers, &state.config);
     catalog_feed(&base)
 }
 
@@ -753,7 +753,7 @@ async fn get_search(
     _auth: RequireAuth,
     headers: HeaderMap,
 ) -> Response {
-    let base = base_url_from_headers(&headers, &state.settings);
+    let base = base_url_from_headers(&headers, &state.config);
     atom_response(write_open_search(
         &(uri(&base, "/series") + "?search={searchTerms}"),
     ))
@@ -765,7 +765,7 @@ async fn get_on_deck(
     headers: HeaderMap,
     query: QueryPageable,
 ) -> Result<Response, ApiError> {
-    let base = base_url_from_headers(&headers, &state.settings);
+    let base = base_url_from_headers(&headers, &state.config);
     let user = &auth.0.user;
     let book_page = BookDtoDao::new(state.db.clone())
         .with_searcher(Some(crate::search_index::searcher(&state)))
@@ -801,7 +801,7 @@ async fn get_keep_reading(
     headers: HeaderMap,
     query: QueryPageable,
 ) -> Result<Response, ApiError> {
-    let base = base_url_from_headers(&headers, &state.settings);
+    let base = base_url_from_headers(&headers, &state.config);
     let user = &auth.0.user;
     let book_page = BookDtoDao::new(state.db.clone())
         .with_searcher(Some(crate::search_index::searcher(&state)))
@@ -862,7 +862,7 @@ async fn get_all_series(
     headers: HeaderMap,
     query: QueryPageable,
 ) -> Result<Response, ApiError> {
-    let base = base_url_from_headers(&headers, &state.settings);
+    let base = base_url_from_headers(&headers, &state.config);
     let user = &auth.0.user;
     let search_term = query.params.first("search").map(str::to_string);
     let publishers = query.params.all("publisher");
@@ -953,7 +953,7 @@ async fn get_latest_series(
     headers: HeaderMap,
     query: QueryPageable,
 ) -> Result<Response, ApiError> {
-    let base = base_url_from_headers(&headers, &state.settings);
+    let base = base_url_from_headers(&headers, &state.config);
     let user = &auth.0.user;
     let series_page = SeriesDtoDao::new(state.db.clone())
         .with_searcher(Some(crate::search_index::searcher(&state)))
@@ -1004,7 +1004,7 @@ async fn get_latest_books(
     headers: HeaderMap,
     query: QueryPageable,
 ) -> Result<Response, ApiError> {
-    let base = base_url_from_headers(&headers, &state.settings);
+    let base = base_url_from_headers(&headers, &state.config);
     let user = &auth.0.user;
     let book_page = BookDtoDao::new(state.db.clone())
         .with_searcher(Some(crate::search_index::searcher(&state)))
@@ -1059,7 +1059,7 @@ async fn get_libraries(
     auth: RequireAuth,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    let base = base_url_from_headers(&headers, &state.settings);
+    let base = base_url_from_headers(&headers, &state.config);
     let user = &auth.0.user;
     let dao = LibraryDao::new(state.db.clone());
     let libraries = if user.can_access_all_libraries() {
@@ -1092,7 +1092,7 @@ async fn get_collections(
     headers: HeaderMap,
     query: QueryPageable,
 ) -> Result<Response, ApiError> {
-    let base = base_url_from_headers(&headers, &state.settings);
+    let base = base_url_from_headers(&headers, &state.config);
     let user = &auth.0.user;
     let collections = CollectionDtoDao::new(state.db.clone()).find_all(
         user.get_authorized_library_ids(None).as_ref(),
@@ -1137,7 +1137,7 @@ async fn get_readlists(
     headers: HeaderMap,
     query: QueryPageable,
 ) -> Result<Response, ApiError> {
-    let base = base_url_from_headers(&headers, &state.settings);
+    let base = base_url_from_headers(&headers, &state.config);
     let user = &auth.0.user;
     let readlists = ReadListDtoDao::new(state.db.clone()).find_all(
         user.get_authorized_library_ids(None).as_ref(),
@@ -1182,7 +1182,7 @@ async fn get_smart_lists(
     headers: HeaderMap,
     query: QueryPageable,
 ) -> Result<Response, ApiError> {
-    let base = base_url_from_headers(&headers, &state.settings);
+    let base = base_url_from_headers(&headers, &state.config);
     let user = &auth.0.user;
     let lists = crate::service::smart_list::find_visible_lists(&state, user)?;
 
@@ -1250,7 +1250,7 @@ async fn get_one_smart_list(
     Path(id): Path<String>,
     query: QueryPageable,
 ) -> Result<Response, ApiError> {
-    let base = base_url_from_headers(&headers, &state.settings);
+    let base = base_url_from_headers(&headers, &state.config);
     let user = &auth.0.user;
     let smart_list = crate::service::smart_list::find_visible(&state, user, &id)?
         .ok_or_else(|| ApiError::not_found(""))?;
@@ -1326,7 +1326,7 @@ async fn get_publishers(
     headers: HeaderMap,
     query: QueryPageable,
 ) -> Result<Response, ApiError> {
-    let base = base_url_from_headers(&headers, &state.settings);
+    let base = base_url_from_headers(&headers, &state.config);
     let user = &auth.0.user;
     let publishers = ReferentialDao::new(state.db.clone())
         .find_all_publishers(user.get_authorized_library_ids(None).as_ref())?;
@@ -1382,7 +1382,7 @@ async fn get_one_series(
     Path(id): Path<String>,
     query: QueryPageable,
 ) -> Result<Response, ApiError> {
-    let base = base_url_from_headers(&headers, &state.settings);
+    let base = base_url_from_headers(&headers, &state.config);
     let user = &auth.0.user;
     let series = SeriesDtoDao::new(state.db.clone())
         .with_searcher(Some(crate::search_index::searcher(&state)))
@@ -1448,7 +1448,7 @@ async fn get_one_library(
     Path(id): Path<String>,
     query: QueryPageable,
 ) -> Result<Response, ApiError> {
-    let base = base_url_from_headers(&headers, &state.settings);
+    let base = base_url_from_headers(&headers, &state.config);
     let user = &auth.0.user;
     let library = LibraryDao::new(state.db.clone())
         .find_by_id(&id)?
@@ -1514,7 +1514,7 @@ async fn get_one_collection(
     Path(id): Path<String>,
     query: QueryPageable,
 ) -> Result<Response, ApiError> {
-    let base = base_url_from_headers(&headers, &state.settings);
+    let base = base_url_from_headers(&headers, &state.config);
     let user = &auth.0.user;
     let collection = CollectionDtoDao::new(state.db.clone())
         .find_by_id(
@@ -1588,7 +1588,7 @@ async fn get_one_readlist(
     Path(id): Path<String>,
     query: QueryPageable,
 ) -> Result<Response, ApiError> {
-    let base = base_url_from_headers(&headers, &state.settings);
+    let base = base_url_from_headers(&headers, &state.config);
     let user = &auth.0.user;
     let readlist = ReadListDtoDao::new(state.db.clone())
         .find_by_id(

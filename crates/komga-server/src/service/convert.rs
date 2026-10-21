@@ -244,9 +244,7 @@ pub fn convert_to_cbz(state: &AppState, book: &Book) -> ConvertResult<()> {
         state.config.page_hashing,
         state.settings.get().thumbnail_size.max_edge(),
         state.config.epub_divina_letter_count_threshold,
-        state
-            .kepub
-            .kepubify_path(&state.settings.get(), &state.config),
+        state.kepub.kepubify_path(&state.config),
     );
     let mut converted_media = analyzer
         .analyze(&destination_path, library.analyze_dimensions)
@@ -554,9 +552,7 @@ pub fn remove_hashed_pages(
         state.config.page_hashing,
         state.settings.get().thumbnail_size.max_edge(),
         state.config.epub_divina_letter_count_threshold,
-        state
-            .kepub
-            .kepubify_path(&state.settings.get(), &state.config),
+        state.kepub.kepubify_path(&state.config),
     );
     let library = LibraryDao::new(state.db.clone())
         .find_by_id(&book.library_id)?

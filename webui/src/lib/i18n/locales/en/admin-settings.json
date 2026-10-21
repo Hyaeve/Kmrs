@@ -38,9 +38,7 @@
     "security": "Security",
     "thumbnails": "Thumbnails",
     "tasks": "Tasks",
-    "server": "Server",
-    "kobo": "Kobo",
-    "kepubify": "Kepubify"
+    "kobo": "Kobo"
   },
   "content": {
     "libraries": "Libraries",
@@ -148,13 +146,7 @@
     "thumbnailSizeHelper": "Larger thumbnails look sharper but take more disk space.",
     "taskPoolSize": "Task pool size",
     "taskPoolSizeHelper": "How many background tasks can run at once.",
-    "serverPort": "Server port",
-    "contextPath": "Context path",
-    "contextPathHelper": "Base path the server is served under, e.g. /kmrs.",
     "koboProxy": "Kobo proxy",
-    "koboPort": "Kobo port",
-    "kepubifyPath": "Kepubify path",
-    "kepubifyPathHelper": "Path to the kepubify binary, used for EPUB to KEPUB conversion.",
     "unsaved_one": "{{count}} unsaved change",
     "unsaved_other": "{{count}} unsaved changes",
     "discard": "Discard",
@@ -166,16 +158,6 @@
     "medium": "Medium",
     "large": "Large",
     "xlarge": "XL"
-  },
-  "multiSource": {
-    "notSet": "Not set",
-    "overridden": "Overridden in database",
-    "fromConfig": "From configuration",
-    "default": "Default",
-    "clearOverride": "Clear override",
-    "clearOverrideTooltip": "Clear the database override",
-    "effective": "Effective: {{value}}",
-    "none": "none"
   },
   "rotateKey": {
     "button": "Rotate remember-me key",
@@ -194,8 +176,7 @@
   },
   "validation": {
     "positiveDays": "Must be a positive whole number of days.",
-    "positiveInt": "Must be a positive whole number.",
-    "contextPath": "Must start with / and end with a letter or digit, e.g. /kmrs."
+    "positiveInt": "Must be a positive whole number."
   },
   "logfile": {
     "title": "Logfile",

@@ -63,11 +63,13 @@
   },
   "libraryMenu": {
     "actions": "{{name}} 動作",
+    "allLibraries": "所有書庫",
     "scan": "掃描",
     "scanDeep": "掃描（深度）",
     "analyze": "分析",
     "refreshMetadata": "重新整理詮釋資料",
     "emptyTrash": "清空垃圾桶",
+    "emptyTrashAllBody": "將永久刪除所有書庫中檔案已遺失的媒體資訊，此操作無法復原。",
     "scanQueued": "已排入掃描",
     "scanFailed": "無法排入掃描",
     "analyzeQueued": "已排入分析",

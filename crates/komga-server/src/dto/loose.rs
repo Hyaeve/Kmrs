@@ -39,15 +39,6 @@ fn loose_i64(value: &Value) -> Option<i64> {
     }
 }
 
-/// Parse a JSON value as an unsigned 16-bit integer, tolerating numeric strings.
-fn loose_u16(value: &Value) -> Option<u16> {
-    match value {
-        Value::Number(number) => number.as_u64().and_then(|v| u16::try_from(v).ok()),
-        Value::String(string) => string.trim().parse::<u16>().ok(),
-        _ => None,
-    }
-}
-
 /// Parse a JSON value as a finite floating point, tolerating numeric strings;
 /// non-finite values are rejected (stricter than the Kotlin backend, which accepts them).
 fn loose_f64(value: &Value) -> Option<f64> {
@@ -143,18 +134,6 @@ where
     )
 }
 
-/// `isSet` `Option<Option<u16>>`: JSON integer or numeric string; explicit null clears.
-pub fn loose_some_u16<'de, D>(deserializer: D) -> Result<Option<Option<u16>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    loose_some(
-        deserializer,
-        loose_u16,
-        "expected an integer or a numeric string, or null",
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -170,30 +149,24 @@ mod tests {
         ratio: Option<f32>,
         #[serde(deserialize_with = "loose_some_i32")]
         age: Option<Option<i32>>,
-        #[serde(deserialize_with = "loose_some_u16")]
-        port: Option<Option<u16>>,
     }
 
     #[test]
     fn accepts_native_and_string_forms() {
-        let s: Sample = serde_json::from_str(
-            r#"{"flag":"true","count":"42","ratio":"1.5","age":"18","port":"8080"}"#,
-        )
-        .unwrap();
+        let s: Sample =
+            serde_json::from_str(r#"{"flag":"true","count":"42","ratio":"1.5","age":"18"}"#)
+                .unwrap();
         assert_eq!(s.flag, Some(true));
         assert_eq!(s.count, Some(42));
         assert_eq!(s.ratio, Some(1.5));
         assert_eq!(s.age, Some(Some(18)));
-        assert_eq!(s.port, Some(Some(8080)));
 
         let s: Sample =
-            serde_json::from_str(r#"{"flag":false,"count":7,"ratio":2.0,"age":12,"port":17878}"#)
-                .unwrap();
+            serde_json::from_str(r#"{"flag":false,"count":7,"ratio":2.0,"age":12}"#).unwrap();
         assert_eq!(s.flag, Some(false));
         assert_eq!(s.count, Some(7));
         assert_eq!(s.ratio, Some(2.0));
         assert_eq!(s.age, Some(Some(12)));
-        assert_eq!(s.port, Some(Some(17878)));
 
         // "1"/"0" are accepted by deliberate choice
         let s: Sample = serde_json::from_str(r#"{"flag":"1"}"#).unwrap();
@@ -207,9 +180,8 @@ mod tests {
         let s: Sample = serde_json::from_str(r#"{}"#).unwrap();
         assert_eq!(s, Sample::default());
 
-        let s: Sample = serde_json::from_str(r#"{"age":null,"port":null}"#).unwrap();
+        let s: Sample = serde_json::from_str(r#"{"age":null}"#).unwrap();
         assert_eq!(s.age, Some(None));
-        assert_eq!(s.port, Some(None));
         assert_eq!(s.flag, None);
     }
 
@@ -219,7 +191,6 @@ mod tests {
         assert!(serde_json::from_str::<Sample>(r#"{"flag":"yes"}"#).is_err());
         assert!(serde_json::from_str::<Sample>(r#"{"ratio":"NaN"}"#).is_err());
         assert!(serde_json::from_str::<Sample>(r#"{"age":"3000000000"}"#).is_err());
-        assert!(serde_json::from_str::<Sample>(r#"{"port":"70000"}"#).is_err());
         assert!(serde_json::from_str::<Sample>(r#"{"count":4.5}"#).is_err());
     }
 }

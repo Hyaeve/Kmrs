@@ -11,7 +11,6 @@ import { Switch } from '@/components/ui/Switch'
 import { Section } from '@/components/account/Section'
 import { computeChanges, draftFromSettings, validateDraft, type SettingsDraft } from './draft'
 import { FieldInput } from './FieldInput'
-import { MultiSourceField } from './MultiSourceField'
 import { RegenerateThumbnailsDialog } from './RegenerateThumbnailsDialog'
 import { RotateKeyButton } from './RotateKeyButton'
 
@@ -130,55 +129,9 @@ export function SettingsForm({ settings }: { settings: SettingsDto }) {
         </FormRow>
       </Section>
 
-      <Section title={t('sections.server')}>
-        <FormRow label={t('form.serverPort')}>
-          <MultiSourceField
-            ariaLabel={t('form.serverPort')}
-            source={settings.serverPort}
-            value={draft.serverPort}
-            onChange={(v) => set('serverPort', v)}
-            error={errors.serverPort}
-            inputMode="numeric"
-          />
-        </FormRow>
-        <FormRow label={t('form.contextPath')} helper={t('form.contextPathHelper')}>
-          <MultiSourceField
-            ariaLabel={t('form.contextPath')}
-            source={settings.serverContextPath}
-            value={draft.serverContextPath}
-            onChange={(v) => set('serverContextPath', v)}
-            error={errors.serverContextPath}
-          />
-        </FormRow>
-      </Section>
-
       <Section title={t('sections.kobo')}>
         <FormRow label={t('form.koboProxy')}>
           <Switch checked={draft.koboProxy} onCheckedChange={(v) => set('koboProxy', v)} label={t('form.koboProxy')} />
-        </FormRow>
-        <FormRow label={t('form.koboPort')}>
-          <div className="flex flex-col items-end gap-1">
-            <FieldInput
-              aria-label={t('form.koboPort')}
-              className="w-24 text-right"
-              inputMode="numeric"
-              value={draft.koboPort}
-              onChange={(e) => set('koboPort', e.target.value)}
-              invalid={!!errors.koboPort}
-            />
-            {errors.koboPort && <p className="text-xs text-danger">{errors.koboPort}</p>}
-          </div>
-        </FormRow>
-      </Section>
-
-      <Section title={t('sections.kepubify')}>
-        <FormRow label={t('form.kepubifyPath')} helper={t('form.kepubifyPathHelper')}>
-          <MultiSourceField
-            ariaLabel={t('form.kepubifyPath')}
-            source={settings.kepubifyPath}
-            value={draft.kepubifyPath}
-            onChange={(v) => set('kepubifyPath', v)}
-          />
         </FormRow>
       </Section>
 

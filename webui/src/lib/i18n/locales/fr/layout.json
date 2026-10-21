@@ -65,11 +65,13 @@
   },
   "libraryMenu": {
     "actions": "Actions de {{name}}",
+    "allLibraries": "Toutes les bibliothèques",
     "scan": "Scanner",
     "scanDeep": "Scanner (en profondeur)",
     "analyze": "Analyser",
     "refreshMetadata": "Actualiser les métadonnées",
     "emptyTrash": "Vider la corbeille",
+    "emptyTrashAllBody": "Toutes les informations sur les médias dont les fichiers sont manquants seront définitivement supprimées dans chaque bibliothèque. Cette action est irréversible.",
     "scanQueued": "Scan mis en file",
     "scanFailed": "Impossible de mettre le scan en file",
     "analyzeQueued": "Analyse mise en file",

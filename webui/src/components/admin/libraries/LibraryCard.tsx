@@ -50,6 +50,13 @@ export function LibraryCard({ library, onEdit, onDelete }: LibraryCardProps) {
 
   const librariesStats = useLibrariesStats()
   const stats = librariesStats.data?.libraries.find((l) => l.libraryId === library.id)
+  const statsParts: string[] = []
+  if (stats) {
+    if (stats.series > 0) statsParts.push(t('libraries.stats.series', { count: stats.series }))
+    if (stats.books > 0) statsParts.push(t('libraries.stats.books', { count: stats.books }))
+    if (stats.fileSize > 0) statsParts.push(formatBytes(stats.fileSize))
+    if ((stats.sidecars ?? 0) > 0) statsParts.push(t('libraries.stats.sidecars', { count: stats.sidecars ?? 0 }))
+  }
 
   return (
     <div className="flex flex-col rounded-xl border border-line bg-surface p-4 transition-colors hover:border-line-strong">
@@ -60,21 +67,14 @@ export function LibraryCard({ library, onEdit, onDelete }: LibraryCardProps) {
           {intervalKey && <Badge>{t(intervalKey)}</Badge>}
         </div>
       </div>
-      <Tooltip content={library.root}>
-        <p className="mt-1.5 flex items-center gap-1.5 font-mono text-xs text-ink-3">
-          <Folder className="size-3.5 shrink-0" />
+      <p className="mt-1.5 flex items-center gap-1.5 font-mono text-xs text-ink-3">
+        <Folder className="size-3.5 shrink-0" />
+        <Tooltip content={library.root}>
           <span className="min-w-0 truncate">{library.root}</span>
-        </p>
-      </Tooltip>
-      {stats && (
-        <p className="mt-1.5 text-xs text-ink-2">
-          {t('libraries.stats.line', {
-            series: t('libraries.stats.series', { count: stats.series }),
-            books: t('libraries.stats.books', { count: stats.books }),
-            size: formatBytes(stats.fileSize),
-            sidecars: t('libraries.stats.sidecars', { count: stats.sidecars ?? 0 }),
-          })}
-        </p>
+        </Tooltip>
+      </p>
+      {statsParts.length > 0 && (
+        <p className="mt-1.5 text-xs text-ink-2">{statsParts.join(' · ')}</p>
       )}
       <div className="mt-4 flex items-center justify-between border-t border-line pt-3">
         <Button size="sm" loading={scan.isPending} disabled={busy} onClick={() => scan.mutate(false)}>

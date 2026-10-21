@@ -65,11 +65,13 @@
   },
   "libraryMenu": {
     "actions": "Azioni per {{name}}",
+    "allLibraries": "Tutte le librerie",
     "scan": "Scansiona",
     "scanDeep": "Scansiona (approfondita)",
     "analyze": "Analizza",
     "refreshMetadata": "Aggiorna metadati",
     "emptyTrash": "Svuota cestino",
+    "emptyTrashAllBody": "Tutte le informazioni sui media con file mancanti verranno eliminate definitivamente in ogni libreria. L'operazione non può essere annullata.",
     "scanQueued": "Scansione in coda",
     "scanFailed": "Impossibile mettere in coda la scansione",
     "analyzeQueued": "Analisi in coda",

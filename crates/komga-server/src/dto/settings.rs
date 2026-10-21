@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::dto::loose::{loose_bool_opt, loose_i64_opt, loose_some_u16};
+use crate::dto::loose::{loose_bool_opt, loose_i64_opt};
 use crate::settings::ThumbnailSize;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -26,13 +26,10 @@ pub struct SettingsDto {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kobo_proxy: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub kobo_port: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub kepubify_path: Option<SettingMultiSource<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_upload_file_size_bytes: Option<i64>,
 }
-
 impl SettingsDto {
     /// `SettingsDto.public()`: non-admin users only see the upload size limit
     pub fn public(self) -> Self {
@@ -45,13 +42,14 @@ impl SettingsDto {
             server_port: None,
             server_context_path: None,
             kobo_proxy: None,
-            kobo_port: None,
             kepubify_path: None,
             max_upload_file_size_bytes: self.max_upload_file_size_bytes,
         }
     }
 }
 
+/// Java response shape: port / context-path / kepubify-path are configuration-only in kmrs,
+/// so `database_source` always serializes null here.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingMultiSource<T: Serialize> {
@@ -106,19 +104,9 @@ impl ThumbnailSizeDto {
     }
 }
 
-/// serde_json cannot distinguish "key absent" from "key: null" for `Option<Option<T>>` on its
-/// own; this restores the distinction komga's `isSet` tracking needs.
-fn deserialize_some<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: serde::Deserialize<'de>,
-{
-    Ok(Some(Option::<T>::deserialize(deserializer)?))
-}
-
-/// `SettingsUpdateDto`: every field is optional; `serverPort`/`serverContextPath`/`koboPort`/
-/// `kepubifyPath` use the isSet semantics (explicit null clears the DB value, omitted keeps it),
-/// so they are double-Option.
+/// `SettingsUpdateDto`: every field is optional.
+/// Java's `serverPort` / `serverContextPath` / `kepubifyPath` are configuration-only in
+/// kmrs, and `koboPort` is gone entirely; all four are silently ignored when sent.
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SettingsUpdateDto {
@@ -133,14 +121,6 @@ pub struct SettingsUpdateDto {
     pub thumbnail_size: Option<ThumbnailSizeDto>,
     #[serde(deserialize_with = "loose_i64_opt")]
     pub task_pool_size: Option<i64>,
-    #[serde(deserialize_with = "loose_some_u16")]
-    pub server_port: Option<Option<u16>>,
-    #[serde(deserialize_with = "deserialize_some")]
-    pub server_context_path: Option<Option<String>>,
     #[serde(deserialize_with = "loose_bool_opt")]
     pub kobo_proxy: Option<bool>,
-    #[serde(deserialize_with = "loose_some_u16")]
-    pub kobo_port: Option<Option<u16>>,
-    #[serde(deserialize_with = "deserialize_some")]
-    pub kepubify_path: Option<Option<String>>,
 }

@@ -64,11 +64,13 @@
   },
   "libraryMenu": {
     "actions": "{{name}}-Aktionen",
+    "allLibraries": "Alle Bibliotheken",
     "scan": "Scannen",
     "scanDeep": "Scannen (tief)",
     "analyze": "Analysieren",
     "refreshMetadata": "Metadaten aktualisieren",
     "emptyTrash": "Papierkorb leeren",
+    "emptyTrashAllBody": "Alle Informationen über Medien mit fehlenden Dateien werden in jeder Bibliothek endgültig gelöscht. Dies kann nicht rückgängig gemacht werden.",
     "scanQueued": "Scan eingereiht",
     "scanFailed": "Der Scan konnte nicht eingereiht werden",
     "analyzeQueued": "Analyse eingereiht",

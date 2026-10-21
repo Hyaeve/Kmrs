@@ -392,12 +392,11 @@ export interface SettingsDto {
   serverPort?: SettingMultiSource<number>
   serverContextPath?: SettingMultiSource<string>
   koboProxy?: boolean
-  koboPort?: number
   kepubifyPath?: SettingMultiSource<string>
   maxUploadFileSizeBytes?: number
 }
 
-/** Patch semantics: omit = unchanged; null on multi-source fields clears the database override. */
+/** Patch semantics: omit = unchanged. */
 export interface SettingsUpdateDto {
   deleteEmptyCollections?: boolean
   deleteEmptyReadLists?: boolean
@@ -405,11 +404,7 @@ export interface SettingsUpdateDto {
   renewRememberMeKey?: boolean
   thumbnailSize?: ThumbnailSize
   taskPoolSize?: number
-  serverPort?: number | null
-  serverContextPath?: string | null
   koboProxy?: boolean
-  koboPort?: number | null
-  kepubifyPath?: string | null
 }
 
 // ---- Admin: filesystem browser ----
@@ -780,11 +775,16 @@ export interface ReleaseDto {
   description: string
 }
 
-export interface LatestReleaseDto {
+export interface AvailableUpdateDto {
   version: string
   url: string
   releaseDate: string
-  checkedAt: string
+}
+
+export interface UpdateCheckDto {
+  enabled: boolean
+  checkedAt: string | null
+  update: AvailableUpdateDto | null
 }
 
 // ---- Admin: book import ----

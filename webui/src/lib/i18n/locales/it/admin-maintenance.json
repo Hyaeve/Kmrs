@@ -12,7 +12,6 @@
     "actions": "Azioni libreria",
     "actionFailed": "Azione non riuscita.",
     "stats": {
-      "line": "{{series}} · {{books}} · {{size}} · {{sidecars}}",
       "series_one": "{{count}} serie",
       "series_many": "{{count}} serie",
       "series_other": "{{count}} serie",
@@ -28,7 +27,7 @@
     "namePlaceholder": "es. Fumetti",
     "rootFolder": "Cartella radice",
     "rootHelper": "Percorso assoluto sulla macchina che esegue kmrs.",
-    "oneshotsDirectory": "Cartella oneshot",
+    "oneshotsDirectory": "Parola chiave oneshot",
     "oneshotsHelper": "I libri in cartelle il cui percorso contiene questo valore diventano oneshot. Lascia vuoto per disattivare.",
     "oneshotsPlaceholder": "es. @oneshot",
     "autoScanNote": "La libreria viene scansionata automaticamente subito dopo la creazione.",

@@ -37,9 +37,7 @@
     "security": "安全",
     "thumbnails": "缩略图",
     "tasks": "任务",
-    "server": "服务器",
-    "kobo": "Kobo",
-    "kepubify": "Kepubify"
+    "kobo": "Kobo"
   },
   "content": {
     "libraries": "库",
@@ -138,13 +136,7 @@
     "thumbnailSizeHelper": "更大的缩略图更清晰，但会占用更多磁盘空间。",
     "taskPoolSize": "任务池大小",
     "taskPoolSizeHelper": "可同时运行的后台任务数量。",
-    "serverPort": "服务器端口",
-    "contextPath": "上下文路径",
-    "contextPathHelper": "服务器对外服务的基础路径，例如 /kmrs。",
     "koboProxy": "Kobo 代理",
-    "koboPort": "Kobo 端口",
-    "kepubifyPath": "Kepubify 路径",
-    "kepubifyPathHelper": "kepubify 二进制文件的路径，用于 EPUB 到 KEPUB 的转换。",
     "unsaved_other": "{{count}} 项未保存的更改",
     "discard": "放弃",
     "fixInvalid": "请先修正上方无效的字段再保存。",
@@ -155,16 +147,6 @@
     "medium": "中",
     "large": "大",
     "xlarge": "特大"
-  },
-  "multiSource": {
-    "notSet": "未设置",
-    "overridden": "数据库覆盖",
-    "fromConfig": "来自配置",
-    "default": "默认",
-    "clearOverride": "清除覆盖",
-    "clearOverrideTooltip": "清除数据库中的覆盖值",
-    "effective": "生效值：{{value}}",
-    "none": "无"
   },
   "rotateKey": {
     "button": "轮换「记住我」密钥",
@@ -183,8 +165,7 @@
   },
   "validation": {
     "positiveDays": "天数必须是正整数。",
-    "positiveInt": "必须是正整数。",
-    "contextPath": "必须以 / 开头、以字母或数字结尾，例如 /kmrs。"
+    "positiveInt": "必须是正整数。"
   },
   "logfile": {
     "title": "日志文件",

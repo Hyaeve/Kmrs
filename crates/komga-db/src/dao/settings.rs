@@ -60,12 +60,6 @@ impl SettingsDao {
         self.save_setting(key, &value.to_string())
     }
 
-    pub fn delete_setting(&self, key: &str) -> Result<()> {
-        let conn = self.db.rw()?;
-        conn.execute("DELETE FROM SERVER_SETTINGS WHERE KEY = ?", [key])?;
-        Ok(())
-    }
-
     pub fn delete_all_settings(&self) -> Result<()> {
         let conn = self.db.rw()?;
         conn.execute("DELETE FROM SERVER_SETTINGS", [])?;
@@ -226,9 +220,6 @@ mod tests {
         assert_eq!(dao.get_setting_bool("FLAG").unwrap(), Some(true));
         dao.save_setting_i64("NUM", 42).unwrap();
         assert_eq!(dao.get_setting_i64("NUM").unwrap(), Some(42));
-
-        dao.delete_setting("FOO").unwrap();
-        assert_eq!(dao.get_setting("FOO").unwrap(), None);
     }
 
     #[test]

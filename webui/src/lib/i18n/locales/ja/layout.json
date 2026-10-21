@@ -63,11 +63,13 @@
   },
   "libraryMenu": {
     "actions": "{{name}} の操作",
+    "allLibraries": "すべてのライブラリ",
     "scan": "スキャン",
     "scanDeep": "スキャン（詳細）",
     "analyze": "分析",
     "refreshMetadata": "メタデータを更新",
     "emptyTrash": "ゴミ箱を空にする",
+    "emptyTrashAllBody": "すべてのライブラリで、ファイルが見つからないメディアの情報を完全に削除します。この操作は取り消せません。",
     "scanQueued": "スキャンをキューに追加しました",
     "scanFailed": "スキャンをキューに追加できませんでした",
     "analyzeQueued": "分析をキューに追加しました",

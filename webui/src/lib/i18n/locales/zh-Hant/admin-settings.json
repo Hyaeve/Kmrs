@@ -37,9 +37,7 @@
     "security": "安全性",
     "thumbnails": "縮圖",
     "tasks": "任務",
-    "server": "伺服器",
-    "kobo": "Kobo",
-    "kepubify": "Kepubify"
+    "kobo": "Kobo"
   },
   "content": {
     "libraries": "書庫",
@@ -138,13 +136,7 @@
     "thumbnailSizeHelper": "較大的縮圖更清晰，但會佔用更多磁碟空間。",
     "taskPoolSize": "任務池大小",
     "taskPoolSizeHelper": "可同時執行的背景任務數量。",
-    "serverPort": "伺服器連接埠",
-    "contextPath": "內容路徑",
-    "contextPathHelper": "伺服器對外服務的基礎路徑，例如 /kmrs。",
     "koboProxy": "Kobo 代理",
-    "koboPort": "Kobo 連接埠",
-    "kepubifyPath": "Kepubify 路徑",
-    "kepubifyPathHelper": "kepubify 執行檔的路徑，用於 EPUB 轉 KEPUB。",
     "unsaved_other": "{{count}} 項未儲存的變更",
     "discard": "捨棄",
     "fixInvalid": "請修正上方無效的欄位後再儲存。",
@@ -155,16 +147,6 @@
     "medium": "中",
     "large": "大",
     "xlarge": "XL"
-  },
-  "multiSource": {
-    "notSet": "未設定",
-    "overridden": "已在資料庫中覆寫",
-    "fromConfig": "來自設定檔",
-    "default": "預設",
-    "clearOverride": "清除覆寫",
-    "clearOverrideTooltip": "清除資料庫覆寫",
-    "effective": "有效值：{{value}}",
-    "none": "無"
   },
   "rotateKey": {
     "button": "輪換「記住我」金鑰",
@@ -183,8 +165,7 @@
   },
   "validation": {
     "positiveDays": "必須是正整數天數。",
-    "positiveInt": "必須是正整數。",
-    "contextPath": "必須以 / 開頭，並以字母或數字結尾，例如 /kmrs。"
+    "positiveInt": "必須是正整數。"
   },
   "logfile": {
     "title": "記錄檔",

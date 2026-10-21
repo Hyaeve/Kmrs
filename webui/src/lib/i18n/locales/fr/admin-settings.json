@@ -39,9 +39,7 @@
     "security": "Sécurité",
     "thumbnails": "Miniatures",
     "tasks": "Tâches",
-    "server": "Serveur",
-    "kobo": "Kobo",
-    "kepubify": "Kepubify"
+    "kobo": "Kobo"
   },
   "content": {
     "libraries": "Bibliothèques",
@@ -158,13 +156,7 @@
     "thumbnailSizeHelper": "Des miniatures plus grandes sont plus nettes mais occupent plus d'espace disque.",
     "taskPoolSize": "Taille du pool de tâches",
     "taskPoolSizeHelper": "Nombre de tâches d'arrière-plan pouvant s'exécuter en parallèle.",
-    "serverPort": "Port du serveur",
-    "contextPath": "Chemin de contexte",
-    "contextPathHelper": "Chemin de base sous lequel le serveur est servi, p. ex. /kmrs.",
     "koboProxy": "Proxy Kobo",
-    "koboPort": "Port Kobo",
-    "kepubifyPath": "Chemin de kepubify",
-    "kepubifyPathHelper": "Chemin vers le binaire kepubify, utilisé pour la conversion EPUB vers KEPUB.",
     "unsaved_one": "{{count}} modification non enregistrée",
     "unsaved_many": "{{count}} modifications non enregistrées",
     "unsaved_other": "{{count}} modifications non enregistrées",
@@ -177,16 +169,6 @@
     "medium": "Moyenne",
     "large": "Grande",
     "xlarge": "XL"
-  },
-  "multiSource": {
-    "notSet": "Non défini",
-    "overridden": "Remplacé dans la base de données",
-    "fromConfig": "Depuis la configuration",
-    "default": "Par défaut",
-    "clearOverride": "Effacer le remplacement",
-    "clearOverrideTooltip": "Effacer le remplacement en base de données",
-    "effective": "Effectif : {{value}}",
-    "none": "aucun"
   },
   "rotateKey": {
     "button": "Rotation de la clé « Rester connecté »",
@@ -205,8 +187,7 @@
   },
   "validation": {
     "positiveDays": "Doit être un nombre entier positif de jours.",
-    "positiveInt": "Doit être un nombre entier positif.",
-    "contextPath": "Doit commencer par / et finir par une lettre ou un chiffre, p. ex. /kmrs."
+    "positiveInt": "Doit être un nombre entier positif."
   },
   "logfile": {
     "title": "Journal",

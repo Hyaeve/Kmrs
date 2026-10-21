@@ -32,7 +32,7 @@ pub struct FileConfig {
 }
 
 /// Daily check for newer kmrs releases on GitHub (kmrs enhancement; the Java version only
-/// fetches the release list on demand). The outcome surfaces at `/api/v1/releases/latest`.
+/// fetches the release list on demand). The outcome surfaces at `/api/v1/update-check`.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct FileUpdateCheck {
@@ -304,7 +304,7 @@ pub fn render(file: &FileConfig, config: &ServerConfig, source: Option<&Path>) -
         &mut out,
         fserver.and_then(|s| s.context_path.as_ref()).is_some(),
         format!(
-            "context-path = {} # env: SERVER_SERVLET_CONTEXT_PATH; URL prefix, empty = root",
+            "context-path = {} # env: SERVER_SERVLET_CONTEXT_PATH; prefix added to generated links (OPDS/Kobo); routes are not mounted under it, so the reverse proxy must strip the prefix",
             q(config.server_context_path.as_deref().unwrap_or("/"))
         ),
     );
@@ -582,7 +582,7 @@ pub fn render(file: &FileConfig, config: &ServerConfig, source: Option<&Path>) -
 
     out.push_str("[update-check]\n");
     out.push_str(
-        "# daily check for a newer kmrs release on GitHub, exposed at /api/v1/releases/latest\n\
+        "# daily check for a newer kmrs release on GitHub, exposed at /api/v1/update-check\n\
          # (kmrs enhancement; the Java version only fetches the release list on demand)\n",
     );
     push_line(

@@ -108,7 +108,7 @@ async fn authorize(
         .states
         .insert(state_key.clone(), registration_id.clone());
 
-    let base = base_url_from_headers(&headers, &state.settings);
+    let base = base_url_from_headers(&headers, &state.config);
     let redirect_uri = registration
         .redirect_uri
         .clone()
@@ -213,7 +213,7 @@ async fn callback(
     };
 
     // exchange the code for a token (client_secret_basic)
-    let base = base_url_from_headers(&headers, &state.settings);
+    let base = base_url_from_headers(&headers, &state.config);
     let redirect_uri = registration
         .redirect_uri
         .clone()

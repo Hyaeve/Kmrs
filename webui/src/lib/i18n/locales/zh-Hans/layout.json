@@ -63,11 +63,13 @@
   },
   "libraryMenu": {
     "actions": "{{name}} 操作",
+    "allLibraries": "所有库",
     "scan": "扫描",
     "scanDeep": "扫描（深度）",
     "analyze": "分析",
     "refreshMetadata": "刷新元数据",
     "emptyTrash": "清空回收站",
+    "emptyTrashAllBody": "将永久删除所有库中文件已丢失的媒体信息，此操作无法撤销。",
     "scanQueued": "扫描已加入队列",
     "scanFailed": "无法将扫描加入队列",
     "analyzeQueued": "分析已加入队列",

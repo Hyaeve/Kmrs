@@ -11,11 +11,7 @@ const KEY_REMEMBER_ME_KEY: &str = "REMEMBER_ME_KEY";
 const KEY_REMEMBER_ME_DURATION: &str = "REMEMBER_ME_DURATION";
 const KEY_THUMBNAIL_SIZE: &str = "THUMBNAIL_SIZE";
 const KEY_TASK_POOL_SIZE: &str = "TASK_POOL_SIZE";
-const KEY_SERVER_PORT: &str = "SERVER_PORT";
-const KEY_SERVER_CONTEXT_PATH: &str = "SERVER_CONTEXT_PATH";
 const KEY_KOBO_PROXY: &str = "KOBO_PROXY";
-const KEY_KOBO_PORT: &str = "KOBO_PORT";
-const KEY_KEPUBIFY_PATH: &str = "KEPUBIFY_PATH";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ThumbnailSize {
@@ -63,11 +59,7 @@ pub struct KomgaSettings {
     pub remember_me_duration: Duration,
     pub thumbnail_size: ThumbnailSize,
     pub task_pool_size: u32,
-    pub server_port: Option<u16>,
-    pub server_context_path: Option<String>,
     pub kobo_proxy: bool,
-    pub kobo_port: Option<u16>,
-    pub kepubify_path: Option<String>,
 }
 
 pub struct SettingsProvider {
@@ -103,15 +95,7 @@ impl SettingsProvider {
                     &dao.get_setting(KEY_THUMBNAIL_SIZE)?.unwrap_or_default(),
                 ),
                 task_pool_size: dao.get_setting_i64(KEY_TASK_POOL_SIZE)?.unwrap_or(2).max(0) as u32,
-                server_port: dao.get_setting_i64(KEY_SERVER_PORT)?.map(|v| v as u16),
-                server_context_path: dao
-                    .get_setting(KEY_SERVER_CONTEXT_PATH)?
-                    .filter(|s| !s.is_empty()),
                 kobo_proxy: dao.get_setting_bool(KEY_KOBO_PROXY)?.unwrap_or(false),
-                kobo_port: dao.get_setting_i64(KEY_KOBO_PORT)?.map(|v| v as u16),
-                kepubify_path: dao
-                    .get_setting(KEY_KEPUBIFY_PATH)?
-                    .filter(|s| !s.is_empty()),
             })
         };
         let inner = read().expect("failed to load server settings");

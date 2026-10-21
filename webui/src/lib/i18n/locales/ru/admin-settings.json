@@ -40,9 +40,7 @@
     "security": "Безопасность",
     "thumbnails": "Миниатюры",
     "tasks": "Задачи",
-    "server": "Сервер",
-    "kobo": "Kobo",
-    "kepubify": "Kepubify"
+    "kobo": "Kobo"
   },
   "content": {
     "libraries": "Библиотеки",
@@ -168,13 +166,7 @@
     "thumbnailSizeHelper": "Большие миниатюры выглядят чётче, но занимают больше места на диске.",
     "taskPoolSize": "Размер пула задач",
     "taskPoolSizeHelper": "Сколько фоновых задач может выполняться одновременно.",
-    "serverPort": "Порт сервера",
-    "contextPath": "Контекстный путь",
-    "contextPathHelper": "Базовый путь, под которым отдаётся сервер, например /kmrs.",
     "koboProxy": "Прокси Kobo",
-    "koboPort": "Порт Kobo",
-    "kepubifyPath": "Путь к kepubify",
-    "kepubifyPathHelper": "Путь к исполняемому файлу kepubify, используется для конвертации EPUB в KEPUB.",
     "unsaved_one": "{{count}} несохранённое изменение",
     "unsaved_few": "{{count}} несохранённых изменения",
     "unsaved_many": "{{count}} несохранённых изменений",
@@ -188,16 +180,6 @@
     "medium": "Средний",
     "large": "Большой",
     "xlarge": "XL"
-  },
-  "multiSource": {
-    "notSet": "Не задано",
-    "overridden": "Переопределено в базе данных",
-    "fromConfig": "Из конфигурации",
-    "default": "По умолчанию",
-    "clearOverride": "Сбросить переопределение",
-    "clearOverrideTooltip": "Сбросить переопределение из базы данных",
-    "effective": "Действует: {{value}}",
-    "none": "нет"
   },
   "rotateKey": {
     "button": "Сменить ключ «Запомнить меня»",
@@ -216,8 +198,7 @@
   },
   "validation": {
     "positiveDays": "Должно быть положительным целым числом дней.",
-    "positiveInt": "Должно быть положительным целым числом.",
-    "contextPath": "Должен начинаться с / и заканчиваться буквой или цифрой, например /kmrs."
+    "positiveInt": "Должно быть положительным целым числом."
   },
   "logfile": {
     "title": "Журнал",

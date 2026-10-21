@@ -17,9 +17,9 @@
 //! Auth semantics, from komga's `SecurityConfiguration.kt` and `application.yml`:
 //! - `/actuator/health`: permitAll — anonymous gets the bare status; ADMIN gets details
 //!   (`management.endpoint.health.show-details: when_authorized`).
-//! - `/actuator/info`: permitAll (`management.info.java/os.enabled: true`).
-//! - everything else (flyway, logfile, metrics, scheduledtasks, sessions): ADMIN only
-//!   (`requestMatchers(EndpointRequest.toAnyEndpoint()).hasRole(ADMIN)`).
+//! - everything else, the links page included: ADMIN only
+//!   (`requestMatchers(EndpointRequest.toAnyEndpoint()).hasRole(ADMIN)`; `toAnyEndpoint()`
+//!   also matches the links endpoint, per Spring Boot 3.5's `EndpointRequest`).
 //!
 //! All responses carry Spring's actuator media type `application/vnd.spring-boot.actuator.v3+json`.
 
@@ -71,7 +71,11 @@ fn actuator_response<T: Serialize>(body: &T) -> Response {
 // region links
 
 /// Spring's actuator discovery page (`/actuator`): links to every exposed endpoint.
-async fn get_links(headers: axum::http::HeaderMap) -> Response {
+async fn get_links(
+    headers: axum::http::HeaderMap,
+    auth: RequireAuth,
+) -> Result<Response, ApiError> {
+    auth.0.require_admin()?;
     let base = base_url(&headers);
     let link =
         |href: String, templated: bool| serde_json::json!({"href": href, "templated": templated});
@@ -99,7 +103,7 @@ async fn get_links(headers: axum::http::HeaderMap) -> Response {
         "sessions".into(),
         link(format!("{actuator}/sessions{{?username}}"), true),
     );
-    actuator_response(&serde_json::json!({ "_links": links }))
+    Ok(actuator_response(&serde_json::json!({ "_links": links })))
 }
 
 /// Scheme/host of this server as the client sees it, honoring the de-facto forwarded headers
@@ -435,9 +439,10 @@ struct InfoOs {
 
 /// `management.info.java/os.enabled: true`. The `java` section keeps Spring's shape for
 /// compatibility but holds no made-up JVM values; `os` reports the platform.
-async fn get_info() -> Response {
+async fn get_info(auth: RequireAuth) -> Result<Response, ApiError> {
+    auth.0.require_admin()?;
     let (os_name, os_version) = os_name_version();
-    actuator_response(&InfoBody {
+    Ok(actuator_response(&InfoBody {
         git: InfoGit {
             branch: env!("GIT_BRANCH").to_string(),
             commit: InfoGitCommit {
@@ -472,7 +477,7 @@ async fn get_info() -> Response {
             version: os_version,
             arch: os_arch(),
         },
-    })
+    }))
 }
 
 /// `os.name` as Spring reports it (from `System.getProperty("os.name")`), with the kernel
@@ -1164,8 +1169,10 @@ mod tests {
     #[tokio::test]
     async fn info_shape() {
         let (state, _rx) = test_state();
+        seed_user(&state, "admin@komga.org", true, "k1");
+        seed_user(&state, "user@komga.org", false, "k2");
         let app = test_router(state);
-        let (status, headers, bytes) = call(&app, "GET", "/actuator/info", None).await;
+        let (status, headers, bytes) = call(&app, "GET", "/actuator/info", Some("k1")).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(headers.get(CONTENT_TYPE).unwrap(), ACTUATOR_JSON);
         let body = json(&bytes);
@@ -1180,13 +1187,19 @@ mod tests {
         assert!(body["os"]["name"].is_string());
         assert!(body["os"]["version"].is_string());
         assert!(body["os"]["arch"].is_string());
+
+        let (status, _, _) = call(&app, "GET", "/actuator/info", Some("k2")).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        let (status, _, _) = call(&app, "GET", "/actuator/info", None).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
     async fn links_shape() {
         let (state, _rx) = test_state();
+        seed_user(&state, "admin@komga.org", true, "k1");
         let app = test_router(state);
-        let (status, headers, bytes) = call(&app, "GET", "/actuator", None).await;
+        let (status, headers, bytes) = call(&app, "GET", "/actuator", Some("k1")).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(headers.get(CONTENT_TYPE).unwrap(), ACTUATOR_JSON);
         let links = &json(&bytes)["_links"];
@@ -1214,11 +1227,12 @@ mod tests {
         let request = Request::builder()
             .method("GET")
             .uri("/actuator")
+            .header("X-API-Key", "k1")
             .header("X-Forwarded-Proto", "https")
             .header("X-Forwarded-Host", "komga.example.org")
             .body(Body::empty())
             .unwrap();
-        let response = app.oneshot(request).await.unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
@@ -1228,6 +1242,9 @@ mod tests {
             links["flyway"]["href"],
             "https://komga.example.org/actuator/flyway"
         );
+
+        let (status, _, _) = call(&app, "GET", "/actuator", None).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]

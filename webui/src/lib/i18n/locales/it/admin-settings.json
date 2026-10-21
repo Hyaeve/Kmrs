@@ -39,9 +39,7 @@
     "security": "Sicurezza",
     "thumbnails": "Miniature",
     "tasks": "Attività",
-    "server": "Server",
-    "kobo": "Kobo",
-    "kepubify": "Kepubify"
+    "kobo": "Kobo"
   },
   "content": {
     "libraries": "Librerie",
@@ -158,13 +156,7 @@
     "thumbnailSizeHelper": "Miniature più grandi sono più nitide ma occupano più spazio su disco.",
     "taskPoolSize": "Dimensione pool attività",
     "taskPoolSizeHelper": "Quante attività in background possono essere eseguite contemporaneamente.",
-    "serverPort": "Porta server",
-    "contextPath": "Percorso di contesto",
-    "contextPathHelper": "Percorso base sotto cui viene servito il server, es. /kmrs.",
     "koboProxy": "Proxy Kobo",
-    "koboPort": "Porta Kobo",
-    "kepubifyPath": "Percorso kepubify",
-    "kepubifyPathHelper": "Percorso del binario kepubify, usato per la conversione da EPUB a KEPUB.",
     "unsaved_one": "{{count}} modifica non salvata",
     "unsaved_many": "{{count}} modifiche non salvate",
     "unsaved_other": "{{count}} modifiche non salvate",
@@ -177,16 +169,6 @@
     "medium": "Media",
     "large": "Grande",
     "xlarge": "XL"
-  },
-  "multiSource": {
-    "notSet": "Non impostato",
-    "overridden": "Sovrascritto nel database",
-    "fromConfig": "Da configurazione",
-    "default": "Predefinito",
-    "clearOverride": "Rimuovi override",
-    "clearOverrideTooltip": "Rimuovi l'override del database",
-    "effective": "Effettivo: {{value}}",
-    "none": "nessuno"
   },
   "rotateKey": {
     "button": "Ruota chiave «Ricordami»",
@@ -205,8 +187,7 @@
   },
   "validation": {
     "positiveDays": "Deve essere un numero intero positivo di giorni.",
-    "positiveInt": "Deve essere un numero intero positivo.",
-    "contextPath": "Deve iniziare con / e finire con una lettera o una cifra, es. /kmrs."
+    "positiveInt": "Deve essere un numero intero positivo."
   },
   "logfile": {
     "title": "File di log",
