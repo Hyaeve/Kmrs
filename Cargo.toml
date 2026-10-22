@@ -62,7 +62,7 @@ image = "0.25"
 moka = { version = "0.12", features = ["future", "sync"] }
 sysinfo = { version = "0.39", default-features = false, features = ["system", "disk"] }
 jiff = "0.2"
-zip = { version = "8", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 roxmltree = "0.21"
 scraper = "0.27"
 compress-tools = { version = "0.16", default-features = false, features = ["static"] }
@@ -70,7 +70,7 @@ compress-tools = { version = "0.16", default-features = false, features = ["stat
 # per process and serializes every FFI call behind a mutex, so per-thread bindings are
 # impossible; the global PDF document cache in komga-media relies on it for Sync
 pdfium-render = "0.9"
-tantivy = "0.26.2"
+tantivy = "0.27.0"
 # opt-in heap profiling (komga-server `profiling` feature)
 tikv-jemallocator = { version = "0.6", features = ["profiling"] }
 tikv-jemalloc-ctl = { version = "0.6", features = ["profiling"] }
