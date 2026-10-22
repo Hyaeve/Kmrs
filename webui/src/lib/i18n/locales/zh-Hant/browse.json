@@ -82,8 +82,8 @@
     "markSeriesFailed_other": "{{total}} 個系列中有 {{failed}} 個失敗",
     "matchKomfQueued_other": "已為 {{count}} 個系列排入 komf 比對",
     "matchKomfFailed_other": "{{total}} 個系列中有 {{failed}} 個失敗",
-    "deleteBooksFiles_other": "已刪除 {{count}} 本書的檔案",
-    "deleteSeriesFiles_other": "已刪除 {{count}} 個系列的檔案",
+    "deleteBooksFiles_other": "已為 {{count}} 本書排隊刪除檔案",
+    "deleteSeriesFiles_other": "已為 {{count}} 個系列排隊刪除檔案",
     "deleteFilesFailed": "{{total}} 項中有 {{failed}} 項失敗"
   }
 }

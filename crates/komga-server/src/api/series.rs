@@ -2200,19 +2200,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn series_delete_file_submits_task() {
+    async fn series_delete_file_queues_only_once() {
         let state = test_state();
         admin(&state);
         seed_library(&state, "lib1", "Library One");
         seed_series(&state, "s1", "lib1", "Berserk");
         let app = test_app(&state);
 
-        let request = Request::delete("/api/v1/series/s1/file")
-            .header("X-API-Key", ADMIN_KEY)
-            .body(Body::empty())
-            .unwrap();
-        let response = app.clone().oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        for _ in 0..2 {
+            let request = Request::delete("/api/v1/series/s1/file")
+                .header("X-API-Key", ADMIN_KEY)
+                .body(Body::empty())
+                .unwrap();
+            let response = app.clone().oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::ACCEPTED);
+        }
 
         let tasks = komga_db::dao::tasks::TasksDao::new(state.tasks_db.clone())
             .find_all()

@@ -125,6 +125,29 @@ pub struct TaskTypeStatsDto {
     pub total_time_ms: i64,
     pub max_time_ms: i64,
     pub failures: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_failure: Option<TaskFailureStatsDto>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskFailureStatsDto {
+    pub task_id: String,
+    pub task_type: String,
+    #[serde(with = "dto_datetime")]
+    pub finished_at: time::OffsetDateTime,
+    pub error: String,
+}
+
+impl From<crate::service::tasks::TaskOutcome> for TaskFailureStatsDto {
+    fn from(outcome: crate::service::tasks::TaskOutcome) -> Self {
+        Self {
+            task_id: outcome.task_id,
+            task_type: outcome.task_type.to_string(),
+            finished_at: outcome.finished_at,
+            error: outcome.error.expect("failure outcome has an error"),
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]

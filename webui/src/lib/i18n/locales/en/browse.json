@@ -99,10 +99,10 @@
     "matchKomfQueued_other": "Queued komf matches for {{count}} series",
     "matchKomfFailed_one": "{{failed}} of {{total}} series failed",
     "matchKomfFailed_other": "{{failed}} of {{total}} series failed",
-    "deleteBooksFiles_one": "Deleted files for {{count}} book",
-    "deleteBooksFiles_other": "Deleted files for {{count}} books",
-    "deleteSeriesFiles_one": "Deleted files for {{count}} series",
-    "deleteSeriesFiles_other": "Deleted files for {{count}} series",
+    "deleteBooksFiles_one": "File deletion queued for {{count}} book",
+    "deleteBooksFiles_other": "File deletion queued for {{count}} books",
+    "deleteSeriesFiles_one": "File deletion queued for {{count}} series",
+    "deleteSeriesFiles_other": "File deletion queued for {{count}} series",
     "deleteFilesFailed": "{{failed}} of {{total}} failed"
   }
 }

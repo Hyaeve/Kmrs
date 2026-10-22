@@ -4261,7 +4261,7 @@ mod tests {
             "{ids:?}"
         );
 
-        // delete file: 202 + task
+        // delete file
         let (status, _, _) = call(&app, "DELETE", "/api/v1/books/b1/file", Some(&auth), None).await;
         assert_eq!(status, StatusCode::ACCEPTED);
         let ids: Vec<String> = komga_db::dao::tasks::TasksDao::new(state.tasks_db.clone())

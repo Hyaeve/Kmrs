@@ -133,14 +133,14 @@
     "matchKomfFailed_few": "Не удалось обработать {{failed}} серии из {{total}}",
     "matchKomfFailed_many": "Не удалось обработать {{failed}} серий из {{total}}",
     "matchKomfFailed_other": "Не удалось обработать {{failed}} серии из {{total}}",
-    "deleteBooksFiles_one": "Удалены файлы {{count}} книги",
-    "deleteBooksFiles_few": "Удалены файлы {{count}} книг",
-    "deleteBooksFiles_many": "Удалены файлы {{count}} книг",
-    "deleteBooksFiles_other": "Удалены файлы {{count}} книг",
-    "deleteSeriesFiles_one": "Удалены файлы {{count}} серии",
-    "deleteSeriesFiles_few": "Удалены файлы {{count}} серий",
-    "deleteSeriesFiles_many": "Удалены файлы {{count}} серий",
-    "deleteSeriesFiles_other": "Удалены файлы {{count}} серий",
+    "deleteBooksFiles_one": "Удаление файлов {{count}} книги поставлено в очередь",
+    "deleteBooksFiles_few": "Удаление файлов {{count}} книг поставлено в очередь",
+    "deleteBooksFiles_many": "Удаление файлов {{count}} книг поставлено в очередь",
+    "deleteBooksFiles_other": "Удаление файлов {{count}} книг поставлено в очередь",
+    "deleteSeriesFiles_one": "Удаление файлов {{count}} серии поставлено в очередь",
+    "deleteSeriesFiles_few": "Удаление файлов {{count}} серий поставлено в очередь",
+    "deleteSeriesFiles_many": "Удаление файлов {{count}} серий поставлено в очередь",
+    "deleteSeriesFiles_other": "Удаление файлов {{count}} серий поставлено в очередь",
     "deleteFilesFailed": "Не удалось: {{failed}} из {{total}}"
   }
 }

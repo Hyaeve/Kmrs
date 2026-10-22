@@ -58,6 +58,7 @@ export function BookCardMenu({ book, trigger, navItem, onSelect }: BookCardMenuP
       setDeleteOpen(false)
       invalidate()
     },
+    onError: (e) => showToast(e instanceof Error ? e.message : t('detail:toast.deleteFileFailed')),
   })
   const analyzeMutation = useMutation({
     mutationFn: () => booksApi.analyze(book.id),

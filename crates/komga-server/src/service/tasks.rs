@@ -14,11 +14,46 @@ use std::sync::Arc;
 /// Wakes the task processor after a save, like `TaskAddedEvent` wakes the Java executor.
 pub type TaskNotify = Arc<tokio::sync::Notify>;
 
+#[derive(Debug, Clone)]
+pub struct TaskOutcome {
+    pub task_id: String,
+    pub task_type: &'static str,
+    pub finished_at: time::OffsetDateTime,
+    pub error: Option<String>,
+}
+
+impl TaskOutcome {
+    pub fn is_success(&self) -> bool {
+        self.error.is_none()
+    }
+}
+
+#[derive(Default)]
+struct TaskResults {
+    failures: std::sync::Mutex<BTreeMap<&'static str, TaskOutcome>>,
+}
+
+impl TaskResults {
+    fn record(&self, outcome: TaskOutcome) {
+        if outcome.error.is_some() {
+            self.failures
+                .lock()
+                .unwrap()
+                .insert(outcome.task_type, outcome);
+        }
+    }
+
+    fn last_failure(&self, task_type: &str) -> Option<TaskOutcome> {
+        self.failures.lock().unwrap().get(task_type).cloned()
+    }
+}
+
 #[derive(Clone)]
 pub struct TaskEmitter {
     db: Database,
     tasks_db: Database,
     notify: TaskNotify,
+    results: Arc<TaskResults>,
 }
 
 impl TaskEmitter {
@@ -27,6 +62,7 @@ impl TaskEmitter {
             db,
             tasks_db,
             notify,
+            results: Arc::new(TaskResults::default()),
         }
     }
 
@@ -40,7 +76,16 @@ impl TaskEmitter {
             db,
             tasks_db: self.tasks_db.clone(),
             notify: self.notify.clone(),
+            results: self.results.clone(),
         }
+    }
+
+    pub fn record_outcome(&self, outcome: TaskOutcome) {
+        self.results.record(outcome);
+    }
+
+    pub fn last_failure(&self, task_type: &str) -> Option<TaskOutcome> {
+        self.results.last_failure(task_type)
     }
 
     pub fn submit(&self, task: Task) -> komga_db::Result<()> {
@@ -415,5 +460,40 @@ impl TaskEmitter {
                 unique_id: String::new(),
             },
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn outcome(task_type: &'static str, error: Option<&str>) -> TaskOutcome {
+        TaskOutcome {
+            task_id: format!("{task_type}_id"),
+            task_type,
+            finished_at: komga_core::time_codec::now_utc(),
+            error: error.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn failure_results_are_shared_and_not_cleared_by_success() {
+        let db = Database::open_in_memory(false).unwrap();
+        let emitter = TaskEmitter::new(db.clone(), db, Arc::new(tokio::sync::Notify::new()));
+        emitter.record_outcome(outcome("DeleteSeries", Some("first")));
+
+        let task_context = emitter.with_db(Database::open_in_memory(false).unwrap());
+        emitter.record_outcome(outcome("DeleteSeries", None));
+        emitter.record_outcome(outcome("DeleteBook", Some("other")));
+        emitter.record_outcome(outcome("DeleteSeries", Some("latest")));
+
+        let failure = task_context.last_failure("DeleteSeries").unwrap();
+        assert_eq!(failure.error.as_deref(), Some("latest"));
+        assert!(!failure.is_success());
+        assert_eq!(
+            task_context.last_failure("DeleteBook").unwrap().task_id,
+            "DeleteBook_id"
+        );
+        assert!(task_context.last_failure("ScanLibrary").is_none());
     }
 }

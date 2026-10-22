@@ -82,8 +82,8 @@
     "markSeriesFailed_other": "{{total}} シリーズ中 {{failed}} シリーズが失敗しました",
     "matchKomfQueued_other": "{{count}} シリーズの komf マッチをキューに追加しました",
     "matchKomfFailed_other": "{{total}} シリーズ中 {{failed}} シリーズが失敗しました",
-    "deleteBooksFiles_other": "{{count}} 冊のファイルを削除しました",
-    "deleteSeriesFiles_other": "{{count}} シリーズのファイルを削除しました",
+    "deleteBooksFiles_other": "{{count}} 冊のファイル削除をキューに追加しました",
+    "deleteSeriesFiles_other": "{{count}} シリーズのファイル削除をキューに追加しました",
     "deleteFilesFailed": "{{total}} 件中 {{failed}} 件が失敗しました"
   }
 }

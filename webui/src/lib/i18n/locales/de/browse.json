@@ -99,10 +99,10 @@
     "matchKomfQueued_other": "komf-Abgleiche für {{count}} Serien eingereiht",
     "matchKomfFailed_one": "{{failed}} von {{total}} Serie fehlgeschlagen",
     "matchKomfFailed_other": "{{failed}} von {{total}} Serien fehlgeschlagen",
-    "deleteBooksFiles_one": "Dateien für {{count}} Buch gelöscht",
-    "deleteBooksFiles_other": "Dateien für {{count}} Bücher gelöscht",
-    "deleteSeriesFiles_one": "Dateien für {{count}} Serie gelöscht",
-    "deleteSeriesFiles_other": "Dateien für {{count}} Serien gelöscht",
+    "deleteBooksFiles_one": "Dateilöschung für {{count}} Buch in die Warteschlange eingereiht",
+    "deleteBooksFiles_other": "Dateilöschung für {{count}} Bücher in die Warteschlange eingereiht",
+    "deleteSeriesFiles_one": "Dateilöschung für {{count}} Serie in die Warteschlange eingereiht",
+    "deleteSeriesFiles_other": "Dateilöschung für {{count}} Serien in die Warteschlange eingereiht",
     "deleteFilesFailed": "{{failed}} von {{total}} fehlgeschlagen"
   }
 }

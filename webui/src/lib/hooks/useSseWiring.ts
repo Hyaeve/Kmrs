@@ -1,11 +1,13 @@
 import { useEffect, useRef } from 'react'
 import { useMatch } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
 import { sse, type SseEventName } from '@/lib/api/sse'
-import type { TaskQueueStatus } from '@/lib/api/types'
+import type { FileDeletionOutcome, TaskQueueStatus } from '@/lib/api/types'
 import { useAuthStore } from '@/lib/store/auth'
 import { useTaskQueue } from '@/lib/store/taskQueue'
 import { useThumbnailBust } from '@/lib/store/thumbnails'
+import { showToast } from '@/lib/store/toast'
 
 // a library change can add/remove whole content trees, so it cascades everywhere
 const ALL_FAMILIES = ['libraries', 'series', 'books', 'dashboard', 'collections', 'readlists']
@@ -50,6 +52,7 @@ const THUMB_EVENTS: Record<string, (d: { seriesId?: string; bookId?: string; col
 
 /** Wires the SSE stream to react-query invalidation while authenticated. */
 export function useSseWiring() {
+  const { t } = useTranslation()
   const status = useAuthStore((s) => s.status)
   const queryClient = useQueryClient()
   const clear = useAuthStore((s) => s.clear)
@@ -120,6 +123,14 @@ export function useSseWiring() {
         setTaskStatus(data as TaskQueueStatus)
       }),
     )
+    offs.push(
+      sse.on('FileDeletionCompleted', (data) => {
+        const outcome = data as FileDeletionOutcome
+        void queryClient.invalidateQueries({ queryKey: ['admin', 'stats', 'server'] })
+        void queryClient.invalidateQueries({ queryKey: ['admin', 'duplicates'] })
+        if (!outcome.success) showToast(outcome.error || t('detail:toast.deleteFilesFailed'))
+      }),
+    )
 
     // reader closed with deferred events pending
     if (!readerOpen && (pendingKeys.current.size > 0 || pendingThumbs.current.size > 0)) flush()
@@ -128,5 +139,5 @@ export function useSseWiring() {
       clearTimeout(timer)
       offs.forEach((off) => off())
     }
-  }, [status, queryClient, clear, bump, setTaskStatus, readerOpen])
+  }, [status, queryClient, clear, bump, setTaskStatus, readerOpen, t])
 }

@@ -116,6 +116,17 @@ pub struct TaskQueueSseDto {
     pub count_by_type: BTreeMap<String, i64>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileDeletionCompletedSseDto {
+    pub task_id: String,
+    pub task_type: String,
+    #[serde(with = "komga_core::dto::dto_datetime")]
+    pub finished_at: time::OffsetDateTime,
+    pub success: bool,
+    pub error: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

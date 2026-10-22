@@ -268,6 +268,20 @@ async fn map_event(state: &AppState, user: &KomgaUser, event: DomainEvent) -> Op
             },
             admin
         ),
+        DomainEvent::FileDeletionCompleted(outcome) => {
+            let success = outcome.is_success();
+            out!(
+                "FileDeletionCompleted",
+                dto::FileDeletionCompletedSseDto {
+                    task_id: outcome.task_id,
+                    task_type: outcome.task_type.to_string(),
+                    finished_at: outcome.finished_at,
+                    success,
+                    error: outcome.error,
+                },
+                admin
+            )
+        }
 
         DomainEvent::ReadListAdded(r) => out!(
             "ReadListAdded",
@@ -827,6 +841,46 @@ mod tests {
         assert!(
             !acc.contains("BookImported"),
             "non-admin received BookImported: {acc:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn file_deletion_completed_admin_only() {
+        let state = test_state();
+        let admin_id = insert_user(&state.db, "admin@komga.org", true);
+        insert_api_key(&state.db, &admin_id, "admin-key");
+        let user_id = insert_user(&state.db, "user@komga.org", false);
+        insert_api_key(&state.db, &user_id, "user-key");
+
+        let mut admin_body = connect(&state, "admin-key").await;
+        let mut user_body = connect(&state, "user-key").await;
+        wait_subscribed(&state).await;
+        state
+            .events
+            .send(DomainEvent::FileDeletionCompleted(
+                crate::service::tasks::TaskOutcome {
+                    task_id: "DELETE_SERIES_s1".into(),
+                    task_type: "DeleteSeries",
+                    finished_at: time::OffsetDateTime::UNIX_EPOCH,
+                    error: Some("boom".into()),
+                },
+            ))
+            .unwrap();
+
+        let acc = read_until(
+            &mut admin_body,
+            "event:FileDeletionCompleted",
+            Duration::from_secs(2),
+        )
+        .await;
+        assert!(
+            acc.contains("event:FileDeletionCompleted\ndata:{\"taskId\":\"DELETE_SERIES_s1\",\"taskType\":\"DeleteSeries\",\"finishedAt\":\"1970-01-01T00:00:00Z\",\"success\":false,\"error\":\"boom\"}"),
+            "unexpected payload in: {acc:?}"
+        );
+        let acc = read_for(&mut user_body, Duration::from_millis(150)).await;
+        assert!(
+            !acc.contains("FileDeletionCompleted"),
+            "non-admin received FileDeletionCompleted: {acc:?}"
         );
     }
 
