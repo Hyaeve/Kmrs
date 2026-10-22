@@ -104,15 +104,25 @@ jobs:
             type=raw,value=latest
             type=sha,format=long,prefix=sha-
       - name: Smoke test (amd64)
+        shell: bash
         run: |
-          trap 'docker logs kmrs' ERR
+          set -euo pipefail
+          trap 'docker inspect kmrs || true; docker logs kmrs || true' ERR
           docker buildx build --platform linux/amd64 --load -t kmrs:smoke .
           docker run -d --name kmrs --user 1000:1000 -p 25600:25600 kmrs:smoke
+          healthy=false
           for i in $(seq 1 30); do
-            curl -sf http://localhost:25600/actuator/health > /dev/null && break || sleep 2
+            if curl -fsS http://localhost:25600/actuator/health > /dev/null; then
+              healthy=true
+              break
+            fi
+            sleep 2
           done
-          curl -sf http://localhost:25600/ | grep -q "<title>KMReader</title>"
-          curl -sf http://localhost:25600/api/v1/claim | grep -q '"isClaimed":false'
+          test "$healthy" = true
+          curl -fsS --retry 5 --retry-all-errors --retry-delay 2 \
+            http://localhost:25600/ | grep -q "<title>KMReader</title>"
+          curl -fsS --retry 5 --retry-all-errors --retry-delay 2 \
+            http://localhost:25600/api/v1/claim | grep -q '"isClaimed":false'
           echo "server is up: web UI and API verified"
       - uses: docker/build-push-action@v7
         with:
