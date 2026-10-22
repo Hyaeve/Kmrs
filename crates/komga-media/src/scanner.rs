@@ -439,7 +439,7 @@ fn walk_dir(ctx: &mut WalkContext, dir: &Path, ancestors: &mut Vec<PathBuf>) {
             .extension()
             .map(|e| e.to_string_lossy().to_lowercase())
             .unwrap_or_default();
-        let is_supported_strm = ctx.scan_strm && is_supported_strm(&file_name, &ctx.extensions);
+        let is_supported_strm = ctx.scan_strm && is_supported_strm(&file_name);
         if (ctx.extensions.contains(&ext) || is_supported_strm) && !file_name.starts_with('.') {
             books.push(path_to_book(&path, &meta));
         }
@@ -655,8 +655,9 @@ fn contains_ignore_case(haystack: &str, needle: &str) -> bool {
 
 /// STRM files carry the expected entity extension before the pointer extension, with an optional
 /// CAS/ED2K transport layer: `cbz.strm`, `book.pdf.strm`, `book.pdf.cas.strm`.
-fn is_supported_strm(file_name: &str, extensions: &[String]) -> bool {
-    parse_strm_name(file_name).is_some_and(|parsed| extensions.contains(&parsed.entity_extension))
+fn is_supported_strm(file_name: &str) -> bool {
+    parse_strm_name(file_name)
+        .is_some_and(|parsed| is_supported_entity_extension(&parsed.entity_extension))
 }
 
 fn is_url_path_char(b: u8) -> bool {
@@ -896,7 +897,7 @@ mod tests {
             .collect();
         assert_eq!(
             names,
-            ["b", "bookpdf", "casbook", "ed2kbook"]
+            ["b", "e", "zip", "bookpdf", "bookepub", "casbook", "ed2kbook", "bookcbz"]
                 .into_iter()
                 .collect()
         );
@@ -1291,24 +1292,45 @@ mod tests {
 
     #[test]
     fn strm_requires_a_supported_secondary_extension() {
-        let extensions = ["cbz", "zip", "pdf", "epub"]
-            .into_iter()
-            .map(str::to_string)
-            .collect::<Vec<_>>();
-        assert!(is_supported_strm("cbz.strm", &extensions));
-        assert!(is_supported_strm("book.cbz.strm", &extensions));
-        assert!(is_supported_strm("BOOK.PDF.STRM", &extensions));
-        assert!(is_supported_strm("book.pdf.cas.strm", &extensions));
-        assert!(is_supported_strm("BOOK.PDF.ED2K.STRM", &extensions));
-        assert!(is_supported_strm("pdf.cas.strm", &extensions));
-        assert!(!is_supported_strm("mkv.strm", &extensions));
-        assert!(!is_supported_strm("book.mkv.cas.strm", &extensions));
-        assert!(!is_supported_strm("book.pdf.foo.strm", &extensions));
-        assert!(!is_supported_strm("book.cas.strm", &extensions));
-        assert!(!is_supported_strm("cas.strm", &extensions));
-        assert!(!is_supported_strm("ed2k.strm", &extensions));
-        assert!(!is_supported_strm("book.txt.strm", &extensions));
-        assert!(!is_supported_strm("plain.strm", &extensions));
+        assert!(is_supported_strm("cbz.strm"));
+        assert!(is_supported_strm("book.cbz.strm"));
+        assert!(is_supported_strm("BOOK.PDF.STRM"));
+        assert!(is_supported_strm("book.pdf.cas.strm"));
+        assert!(is_supported_strm("BOOK.PDF.ED2K.STRM"));
+        assert!(is_supported_strm("pdf.cas.strm"));
+        assert!(!is_supported_strm("mkv.strm"));
+        assert!(!is_supported_strm("book.mkv.cas.strm"));
+        assert!(!is_supported_strm("book.pdf.foo.strm"));
+        assert!(!is_supported_strm("book.cas.strm"));
+        assert!(!is_supported_strm("cas.strm"));
+        assert!(!is_supported_strm("ed2k.strm"));
+        assert!(!is_supported_strm("book.txt.strm"));
+        assert!(!is_supported_strm("plain.strm"));
+    }
+
+    #[test]
+    fn strm_scan_imports_chinese_pdf_pointer_with_physical_scans_disabled() {
+        let (_tmp, root) = test_root();
+        let dir = root.join("strm-only");
+        create_dir_all(&dir).unwrap();
+        touch(&dir, "这就是地理1 地球.pdf.strm");
+
+        let result = Scanner::new()
+            .scan_root_folder(
+                &root,
+                &ScanOptions {
+                    scan_cbx: false,
+                    scan_pdf: false,
+                    scan_epub: false,
+                    scan_strm: true,
+                    ..ScanOptions::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(result.series.len(), 1);
+        assert_eq!(result.series[0].1.len(), 1);
+        assert_eq!(result.series[0].1[0].name, "这就是地理1 地球");
     }
 
     #[test]
