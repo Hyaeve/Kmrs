@@ -10,7 +10,9 @@ use komga_core::model::series::Series;
 use komga_core::model::sidecar::{SidecarSource, SidecarType};
 use komga_core::time_codec;
 use regex::Regex;
+use std::any::Any;
 use std::collections::BTreeSet;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use time::OffsetDateTime;
 
@@ -318,6 +320,86 @@ fn record_failed_directory(ctx: &mut WalkContext, path: &Path) {
 }
 
 fn walk_dir(ctx: &mut WalkContext, dir: &Path, ancestors: &mut Vec<PathBuf>) {
+    let depth = ancestors.len();
+    // Keep one malformed path from aborting every series in the library.
+    if let Err(payload) = catch_unwind(AssertUnwindSafe(|| walk_dir_inner(ctx, dir, ancestors))) {
+        ancestors.truncate(depth);
+        tracing::warn!(
+            "Skipping directory {} after scan panic: {}",
+            dir.display(),
+            panic_message(payload)
+        );
+        record_failed_directory(ctx, dir);
+    }
+}
+
+fn panic_message(payload: Box<dyn Any + Send>) -> String {
+    if let Some(message) = payload.downcast_ref::<&str>() {
+        (*message).to_string()
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "unknown panic".to_string()
+    }
+}
+
+#[derive(Default)]
+struct ScannedEntry {
+    book: Option<Book>,
+    series_sidecar: Option<Sidecar>,
+    book_sidecar: Option<TempSidecar>,
+}
+
+fn scan_regular_entry(
+    ctx: &WalkContext,
+    path: &Path,
+    file_name: &str,
+    meta: &std::fs::Metadata,
+) -> ScannedEntry {
+    #[cfg(test)]
+    if file_name == "__kmrs_force_scan_panic__.cbz" {
+        panic!("forced scanner panic for isolation test");
+    }
+
+    let ext = path
+        .extension()
+        .map(|extension| extension.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    let is_supported_strm = ctx.scan_strm && is_supported_strm(file_name);
+    let book = ((ctx.extensions.contains(&ext) || is_supported_strm)
+        && !file_name.starts_with('.'))
+    .then(|| path_to_book(path, meta));
+
+    let series_sidecar = ctx
+        .series_consumers
+        .iter()
+        .find(|consumer| consumer.matches(file_name))
+        .map(|consumer| Sidecar {
+            url: path_to_url(path),
+            parent_url: path.parent().map(path_to_url).unwrap_or_default(),
+            last_modified_time: updated_time(meta),
+            type_: consumer.type_(),
+            source: SidecarSource::Series,
+        });
+
+    let book_sidecar = ctx
+        .book_consumers
+        .iter()
+        .any(|consumer| consumer.matches_prefilter(file_name))
+        .then(|| TempSidecar {
+            name: file_name.to_string(),
+            url: path_to_url(path),
+            last_modified_time: updated_time(meta),
+        });
+
+    ScannedEntry {
+        book,
+        series_sidecar,
+        book_sidecar,
+    }
+}
+
+fn walk_dir_inner(ctx: &mut WalkContext, dir: &Path, ancestors: &mut Vec<PathBuf>) {
     // preVisitDirectory: dot-prefixed or excluded directories are skipped as a whole subtree
     let name = dir
         .file_name()
@@ -434,36 +516,29 @@ fn walk_dir(ctx: &mut WalkContext, dir: &Path, ancestors: &mut Vec<PathBuf>) {
                 continue;
             }
         };
-
-        let ext = path
-            .extension()
-            .map(|e| e.to_string_lossy().to_lowercase())
-            .unwrap_or_default();
-        let is_supported_strm = ctx.scan_strm && is_supported_strm(&file_name);
-        if (ctx.extensions.contains(&ext) || is_supported_strm) && !file_name.starts_with('.') {
-            books.push(path_to_book(&path, &meta));
+        // Isolate file-level parsing failures so the rest of this directory can still import.
+        let scanned = match catch_unwind(AssertUnwindSafe(|| {
+            scan_regular_entry(ctx, &path, &file_name, &meta)
+        })) {
+            Ok(scanned) => scanned,
+            Err(payload) => {
+                tracing::warn!(
+                    "Skipping file {} after scan panic: {}",
+                    path.display(),
+                    panic_message(payload)
+                );
+                record_failed_directory(ctx, &path);
+                continue;
+            }
+        };
+        if let Some(book) = scanned.book {
+            books.push(book);
         }
-
-        if let Some(consumer) = ctx.series_consumers.iter().find(|c| c.matches(&file_name)) {
-            series_sidecars.push(Sidecar {
-                url: path_to_url(&path),
-                parent_url: path_to_url(dir),
-                last_modified_time: updated_time(&meta),
-                type_: consumer.type_(),
-                source: SidecarSource::Series,
-            });
+        if let Some(sidecar) = scanned.series_sidecar {
+            series_sidecars.push(sidecar);
         }
-
-        if ctx
-            .book_consumers
-            .iter()
-            .any(|c| c.matches_prefilter(&file_name))
-        {
-            sidecar_candidates.push(TempSidecar {
-                name: file_name,
-                url: path_to_url(&path),
-                last_modified_time: updated_time(&meta),
-            });
+        if let Some(sidecar) = scanned.book_sidecar {
+            sidecar_candidates.push(sidecar);
         }
     }
 
@@ -1306,6 +1381,75 @@ mod tests {
         assert!(!is_supported_strm("ed2k.strm"));
         assert!(!is_supported_strm("book.txt.strm"));
         assert!(!is_supported_strm("plain.strm"));
+    }
+
+    #[test]
+    fn strm_scan_handles_fullwidth_parenthesis_in_realistic_filenames() {
+        let (_tmp, root) = test_root();
+        let series_dir = root.join("知乎付费文章3000篇");
+        create_dir_all(&series_dir).unwrap();
+        let names = [
+            "第 4 节 分手失重（大理游番外）.pdf.strm",
+            "第 5 节 分手失重（江陵番外）.pdf.strm",
+            "第 2 节 暧昧失温（见家长番外）.pdf.strm",
+            "知乎盐选 _ 高考模拟作文题详解（二）.pdf.strm",
+            "知乎盐选 _ 高考作文备考之素材活用（系列二）.pdf.strm",
+            "知乎盐选 _ 部级直属高校（二）.pdf.strm",
+            "知乎盐选 _ 部级直属高校（一）.pdf.strm",
+            "知乎盐选 _ 逐流光（谢怀玉番外）.pdf.strm",
+            "知乎盐选 _ 逐流光（赵熠番外）.pdf.strm",
+            "知乎盐选 _ 逐流光（真真番外）.pdf.strm",
+            "知乎盐选 _ 逐流光（宋安宁番外）.pdf.strm",
+            "知乎盐选 _ 谋妻（两个甜甜的番外）.pdf.strm",
+            "（纯干货）中国特色公文用词汇编，笔杆子请惠存！ - 知乎.pdf.strm",
+            "（被）光速打脸是种怎样的体验？ - 知乎.pdf.strm",
+        ];
+        for name in names {
+            touch(&series_dir, name);
+        }
+
+        let result = Scanner::new()
+            .scan_root_folder(
+                &root,
+                &ScanOptions {
+                    scan_cbx: false,
+                    scan_pdf: false,
+                    scan_epub: false,
+                    scan_strm: true,
+                    ..ScanOptions::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(result.series.len(), 1);
+        assert_eq!(result.series[0].1.len(), names.len());
+    }
+
+    #[test]
+    fn one_panicking_entry_does_not_abort_the_library_scan() {
+        let (_tmp, root) = test_root();
+        let series_dir = root.join("series");
+        create_dir_all(&series_dir).unwrap();
+        touch(&series_dir, "__kmrs_force_scan_panic__.cbz");
+        touch(&series_dir, "still-imported.pdf.strm");
+
+        let result = Scanner::new()
+            .scan_root_folder(
+                &root,
+                &ScanOptions {
+                    scan_cbx: false,
+                    scan_pdf: false,
+                    scan_epub: false,
+                    scan_strm: true,
+                    ..ScanOptions::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(result.series.len(), 1);
+        assert_eq!(result.series[0].1.len(), 1);
+        assert_eq!(result.series[0].1[0].name, "still-imported");
+        assert!(!result.failed_directories.is_empty());
     }
 
     #[test]

@@ -981,6 +981,145 @@ mod tests {
             .all(|(status, page_count)| status == "UNKNOWN" && *page_count == 0));
     }
 
+    #[tokio::test]
+    async fn scan_strm_handles_realistic_fullwidth_parenthesis_names() {
+        let state = series_tests::test_state();
+        let root = visible_tempdir("strm-unicode-scan");
+        let book_dir = root.join("知乎付费文章3000篇");
+        std::fs::create_dir_all(&book_dir).unwrap();
+        for name in [
+            "第 4 节 分手失重（大理游番外）.pdf.strm",
+            "（纯干货）中国特色公文用词汇编，笔杆子请惠存！ - 知乎.pdf.strm",
+            "（被）光速打脸是种怎样的体验？ - 知乎.pdf.strm",
+        ] {
+            std::fs::write(
+                book_dir.join(name),
+                b"http://127.0.0.1:1/never-requested.pdf\n",
+            )
+            .unwrap();
+        }
+
+        let library = test_library("lib-strm-unicode", &format!("file:{}/", root.display()));
+        seed_library(&state.db, &library);
+        LibrarySettingDao::new(state.kmrs_db.clone())
+            .set(
+                &library.id,
+                LibrarySettings {
+                    scan_strm: true,
+                    real_time_scan: false,
+                    write_metadata: false,
+                },
+            )
+            .unwrap();
+
+        let notify: TaskNotify = std::sync::Arc::new(tokio::sync::Notify::new());
+        let emitter = crate::service::TaskEmitter::new(
+            state.db.clone(),
+            state.tasks_db.clone(),
+            notify.clone(),
+        );
+        let handle = TaskProcessor::start(state.clone(), notify);
+        emitter
+            .scan_library(
+                "lib-strm-unicode",
+                false,
+                komga_core::task::HIGHEST_PRIORITY,
+            )
+            .unwrap();
+
+        let done = wait_until(|| queue_empty(&state)).await;
+        handle.abort();
+        assert!(done, "queue did not drain: {:?}", task_ids(&state));
+
+        let count: i64 = state
+            .db
+            .ro()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM BOOK", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 3);
+    }
+
+    #[tokio::test]
+    async fn scan_strm_handles_tongman_fullwidth_parenthesis_names() {
+        let state = series_tests::test_state();
+        let root = visible_tempdir("strm-tongman-unicode-scan");
+        let book_dir = root.join("少儿西游记");
+        std::fs::create_dir_all(&book_dir).unwrap();
+        let names = [
+            "少儿《西游记》之09《人参果》（扫描）-(0).pdf.strm",
+            "少儿《西游记》之10《波月洞》（扫描）-(0).pdf.strm",
+            "少儿《西游记》之11《平顶山》（扫描）-(0).pdf.strm",
+            "少儿《西游记》之12《乌鸡国》（扫描）-(0).pdf.strm",
+            "少儿《西游记》之13《火云洞》（扫描）-(0).pdf.strm",
+            "少儿《西游记》之14《车迟国》（扫描）-(0).pdf.strm",
+            "少儿《西游记》之15《通天河》（扫描）-(0).pdf.strm",
+            "少儿《西游记》之16《金兜洞》（扫描）-(0).pdf.strm",
+            "少儿《西游记》之17《女儿国》（扫描）-(0).pdf.strm",
+            "少儿《西游记》之18《真假悟空》（扫描）-(0).pdf.strm",
+            "少儿《西游记》之19《火焰山》（扫描）-(0).pdf.strm",
+            "少儿《西游记》之20《伏龙寺》（扫描）-(0).pdf.strm",
+            "少儿《西游记》之21《假西天》（扫描）-(0).pdf.strm",
+            "少儿《西游记》之22《假西天》（扫描）-(0).pdf.strm",
+            "少儿《西游记》之23《盘丝洞》（扫描）-(0).pdf.strm",
+            "少儿《西游记》之24《战三魔》（扫描）-(0).pdf.strm",
+            "少儿《西游记》之25《比丘国》（扫描）-(0).pdf.strm",
+            "少儿《西游记》之26《无底洞》（扫描）-(0).pdf.strm",
+            "少儿《西游记》之27《连环洞》（扫描）-(0).pdf.strm",
+            "少儿《西游记》之28《斗狮精》（扫描）-(0).pdf.strm",
+            "少儿《西游记》之29《玄英洞》（扫描）-(0).pdf.strm",
+            "少儿《西游记》之30《天竺国》（扫描）-(0).pdf.strm",
+            "少儿《西游记》之31《得真经》（扫描）-().pdf.strm",
+        ];
+        for name in names {
+            std::fs::write(
+                book_dir.join(name),
+                b"http://127.0.0.1:1/never-requested.pdf\n",
+            )
+            .unwrap();
+        }
+
+        let library = test_library("lib-strm-tongman", &format!("file:{}/", root.display()));
+        seed_library(&state.db, &library);
+        LibrarySettingDao::new(state.kmrs_db.clone())
+            .set(
+                &library.id,
+                LibrarySettings {
+                    scan_strm: true,
+                    real_time_scan: false,
+                    write_metadata: false,
+                },
+            )
+            .unwrap();
+
+        let notify: TaskNotify = std::sync::Arc::new(tokio::sync::Notify::new());
+        let emitter = crate::service::TaskEmitter::new(
+            state.db.clone(),
+            state.tasks_db.clone(),
+            notify.clone(),
+        );
+        let handle = TaskProcessor::start(state.clone(), notify);
+        emitter
+            .scan_library(
+                "lib-strm-tongman",
+                false,
+                komga_core::task::HIGHEST_PRIORITY,
+            )
+            .unwrap();
+
+        let done = wait_until(|| queue_empty(&state)).await;
+        handle.abort();
+        assert!(done, "queue did not drain: {:?}", task_ids(&state));
+
+        let count: i64 = state
+            .db
+            .ro()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM BOOK", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 23);
+    }
+
     #[test]
     fn scan_candidates_exclude_strm() {
         let state = series_tests::test_state();
