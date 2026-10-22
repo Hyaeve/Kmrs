@@ -82,8 +82,8 @@
     "markSeriesFailed_other": "{{total}} 个系列中有 {{failed}} 个失败",
     "matchKomfQueued_other": "已为 {{count}} 个系列排队 komf 匹配",
     "matchKomfFailed_other": "{{total}} 个系列中有 {{failed}} 个失败",
-    "deleteBooksFiles_other": "已删除 {{count}} 本书的文件",
-    "deleteSeriesFiles_other": "已删除 {{count}} 个系列的文件",
+    "deleteBooksFiles_other": "已为 {{count}} 本书排队删除文件",
+    "deleteSeriesFiles_other": "已为 {{count}} 个系列排队删除文件",
     "deleteFilesFailed": "{{total}} 项中有 {{failed}} 项失败"
   }
 }

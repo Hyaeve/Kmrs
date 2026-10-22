@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
 import { Trans, useTranslation } from 'react-i18next'
 import { booksApi } from '@/lib/api/books'
 import type { BookDto } from '@/lib/api/types'
@@ -12,15 +12,10 @@ interface DeleteBookFileDialogProps {
 
 export function DeleteBookFileDialog({ book, onOpenChange }: DeleteBookFileDialogProps) {
   const { t } = useTranslation('admin-maintenance')
-  const queryClient = useQueryClient()
 
   const mutation = useMutation({
     mutationFn: (bookId: string) => booksApi.deleteFile(bookId),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['admin', 'duplicates'] })
-      void queryClient.invalidateQueries({ queryKey: ['books'] })
-      onOpenChange(false)
-    },
+    onSuccess: () => onOpenChange(false),
   })
 
   const close = () => {

@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next'
+import { relativeTime } from '@/lib/utils/format'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { Section } from '@/components/account/Section'
 import { formatDuration, taskTypeLabel } from './format'
@@ -8,7 +9,7 @@ export function TaskExecutionPanel() {
   const { t } = useTranslation('admin-settings')
   const stats = useServerStats()
 
-  const types = stats.data?.tasks.types.filter((task) => task.executions > 0) ?? []
+  const types = stats.data?.tasks.types.filter((task) => task.executions > 0 || task.failures > 0) ?? []
   const failureCount = stats.data?.tasks.types.reduce((sum, task) => sum + task.failures, 0) ?? 0
 
   return (
@@ -34,7 +35,14 @@ export function TaskExecutionPanel() {
             <tbody>
               {types.map((task) => (
                 <tr key={task.type} className="border-t border-line">
-                  <td className="py-2 pr-4 whitespace-nowrap text-ink-2">{taskTypeLabel(task.type)}</td>
+                  <td className="py-2 pr-4 whitespace-nowrap text-ink-2">
+                    {taskTypeLabel(task.type)}
+                    {task.lastFailure && (
+                      <p className="mt-1 max-w-96 whitespace-normal text-xs text-danger">
+                        {task.lastFailure.error} · {relativeTime(task.lastFailure.finishedAt)}
+                      </p>
+                    )}
+                  </td>
                   <td className="py-2 pr-4 text-right font-mono text-xs text-ink">{task.executions}</td>
                   <td className="py-2 pr-4 text-right whitespace-nowrap text-ink-2">{formatDuration(task.totalTimeMs / 1000)}</td>
                   <td className="py-2 text-right whitespace-nowrap text-ink-2">{formatDuration(task.maxTimeMs / 1000)}</td>

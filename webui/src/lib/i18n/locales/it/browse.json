@@ -116,12 +116,12 @@
     "matchKomfFailed_one": "{{failed}} serie su {{total}} non riuscita",
     "matchKomfFailed_many": "{{failed}} serie su {{total}} non riuscite",
     "matchKomfFailed_other": "{{failed}} serie su {{total}} non riuscite",
-    "deleteBooksFiles_one": "File eliminati per {{count}} libro",
-    "deleteBooksFiles_many": "File eliminati per {{count}} libri",
-    "deleteBooksFiles_other": "File eliminati per {{count}} libri",
-    "deleteSeriesFiles_one": "File eliminati per {{count}} serie",
-    "deleteSeriesFiles_many": "File eliminati per {{count}} serie",
-    "deleteSeriesFiles_other": "File eliminati per {{count}} serie",
+    "deleteBooksFiles_one": "Eliminazione dei file in coda per {{count}} libro",
+    "deleteBooksFiles_many": "Eliminazione dei file in coda per {{count}} libri",
+    "deleteBooksFiles_other": "Eliminazione dei file in coda per {{count}} libri",
+    "deleteSeriesFiles_one": "Eliminazione dei file in coda per {{count}} serie",
+    "deleteSeriesFiles_many": "Eliminazione dei file in coda per {{count}} serie",
+    "deleteSeriesFiles_other": "Eliminazione dei file in coda per {{count}} serie",
     "deleteFilesFailed": "{{failed}} su {{total}} non riusciti"
   }
 }

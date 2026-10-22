@@ -133,13 +133,20 @@ async fn server_stats(
     }
     let types = by_type
         .into_iter()
-        .map(|(task_type, (queued, executed))| TaskTypeStatsDto {
-            task_type,
-            queued,
-            executions: executed.executions,
-            total_time_ms: executed.total.as_millis() as i64,
-            max_time_ms: executed.max.as_millis() as i64,
-            failures: executed.failures,
+        .map(|(task_type, (queued, executed))| {
+            let last_failure = state
+                .task_emitter
+                .last_failure(&task_type)
+                .map(crate::dto::stats::TaskFailureStatsDto::from);
+            TaskTypeStatsDto {
+                task_type,
+                queued,
+                executions: executed.executions,
+                total_time_ms: executed.total.as_millis() as i64,
+                max_time_ms: executed.max.as_millis() as i64,
+                failures: executed.failures,
+                last_failure,
+            }
         })
         .collect();
 
@@ -1113,6 +1120,14 @@ mod tests {
             std::time::Duration::ZERO,
             false,
         );
+        app.state
+            .task_emitter
+            .record_outcome(crate::service::tasks::TaskOutcome {
+                task_id: "t2".into(),
+                task_type: "StatsExecTask",
+                finished_at: komga_core::time_codec::now_utc(),
+                error: Some("boom".into()),
+            });
 
         let (status, body) = app.get_json("/api/v1/stats/server", "k").await;
         assert_eq!(status, StatusCode::OK);
@@ -1126,10 +1141,15 @@ mod tests {
         assert_eq!(executed["totalTimeMs"], 120);
         assert_eq!(executed["maxTimeMs"], 120);
         assert_eq!(executed["failures"], 1);
+        assert_eq!(executed["lastFailure"]["taskId"], "t2");
+        assert_eq!(executed["lastFailure"]["taskType"], "StatsExecTask");
+        assert_eq!(executed["lastFailure"]["error"], "boom");
+        assert!(executed["lastFailure"]["finishedAt"].is_string());
         let queued_only = find("StatsQueueTask");
         assert_eq!(queued_only["queued"], 1);
         assert_eq!(queued_only["executions"], 0);
         assert_eq!(queued_only["failures"], 0);
+        assert!(queued_only["lastFailure"].is_null());
 
         assert!(body["process"]["startTime"]
             .as_str()

@@ -42,6 +42,7 @@ export function SeriesCardMenu({ series, trigger, onSelect }: { series: SeriesDt
       setDeleteOpen(false)
       invalidate()
     },
+    onError: (e) => showToast(e instanceof Error ? e.message : t('detail:toast.deleteFilesFailed')),
   })
   const analyzeMutation = useMutation({
     mutationFn: () => seriesApi.analyze(series.id),

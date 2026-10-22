@@ -72,6 +72,8 @@ pub enum DomainEvent {
     SmartListUpdated(SmartListEvent),
     SmartListDeleted(SmartListEvent),
     SmartListThumbnailChanged(SmartListEvent),
+
+    FileDeletionCompleted(crate::service::tasks::TaskOutcome),
 }
 
 /// A smart list with its share scope resolved at publish time: consumers see a deletion
