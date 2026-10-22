@@ -12,6 +12,7 @@
 # same as the komga image), and prepares the mount points for the target stage.
 FROM --platform=$BUILDPLATFORM debian:trixie-slim AS base
 ARG TARGETARCH
+ARG KEPUBIFY_VERSION=v4.0.4
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
  && case "$TARGETARCH" in \
@@ -22,7 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
     curl -fsSL "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-linux-$arch.tgz" \
       | tar -xz -C /tmp --strip-components=1 lib/libpdfium.so \
  && test -s /tmp/libpdfium.so \
- && curl -fsSL "https://github.com/pgaskin/kepubify/releases/latest/download/kepubify-linux-$kepub" -o /tmp/kepubify \
+ && curl -fsSL "https://github.com/pgaskin/kepubify/releases/download/${KEPUBIFY_VERSION}/kepubify-linux-$kepub" -o /tmp/kepubify \
  && test -s /tmp/kepubify \
  && install -d -m 777 /staging/config /staging/data
 
