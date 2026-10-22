@@ -245,18 +245,16 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         {isAdmin(user) && (
           <>
             <div className="mt-5 mb-1.5 px-3 text-[11px] font-medium tracking-[0.08em] text-ink-3 uppercase">
-              {t('nav.import')}
-            </div>
-            <NavItem to="/import/books" icon={<TrayArrowDown />} onClick={onNavigate}>
-              {t('nav.importBooks')}
-            </NavItem>
-            <NavItem to="/import/readlist" icon={<Playlist />} onClick={onNavigate}>
-              {t('nav.importReadlist')}
-            </NavItem>
-
-            <div className="mt-5 mb-1.5 px-3 text-[11px] font-medium tracking-[0.08em] text-ink-3 uppercase">
               {t('nav.administration')}
             </div>
+            <NavGroup icon={<TrayArrowDown />} label={t('nav.import')} match={['/import']}>
+              <NavItem to="/import/books" icon={<TrayArrowDown />} onClick={onNavigate}>
+                {t('nav.importBooks')}
+              </NavItem>
+              <NavItem to="/import/readlist" icon={<Playlist />} onClick={onNavigate}>
+                {t('nav.importReadlist')}
+              </NavItem>
+            </NavGroup>
             <NavGroup
               icon={<Database />}
               label={t('nav.server')}
