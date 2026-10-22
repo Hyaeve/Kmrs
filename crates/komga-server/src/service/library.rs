@@ -117,7 +117,6 @@ pub fn update_library_with_settings(
         &current,
         to_update,
         current_settings.scan_strm != settings.scan_strm,
-        current_settings.real_time_scan != settings.real_time_scan,
     ) {
         state
             .task_emitter
@@ -155,14 +154,12 @@ fn check_library_should_rescan(
     existing: &Library,
     updated: &Library,
     scan_strm_changed: bool,
-    real_time_scan_changed: bool,
 ) -> bool {
     existing.root != updated.root
         || existing.oneshots_directory != updated.oneshots_directory
         || existing.scan_cbx != updated.scan_cbx
         || existing.scan_pdf != updated.scan_pdf
         || scan_strm_changed
-        || real_time_scan_changed
         || existing.scan_epub != updated.scan_epub
         || existing.scan_force_modified_time != updated.scan_force_modified_time
         || existing.scan_directory_exclusions != updated.scan_directory_exclusions

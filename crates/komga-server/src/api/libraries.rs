@@ -7,7 +7,7 @@ use crate::state::AppState;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::{routing, Json, Router};
-use komga_core::dto::library::{LibraryDto, ScanIntervalDto};
+use komga_core::dto::library::LibraryDto;
 use komga_core::model::library::Library;
 use komga_core::task::{BookMetadataPatchCapability, HIGHEST_PRIORITY, HIGH_PRIORITY};
 use komga_core::time_codec::now_utc;
@@ -66,7 +66,6 @@ async fn get_libraries(
     libraries.sort_by_key(|l| l.name.to_lowercase());
     let settings_dao = LibrarySettingDao::new(state.kmrs_db.clone());
     let scan_strm_libraries = settings_dao.scan_strm_library_ids()?;
-    let real_time_libraries = settings_dao.real_time_scan_library_ids()?;
     let write_metadata_libraries = settings_dao.write_metadata_library_ids()?;
     Ok(Json(
         libraries
@@ -76,7 +75,7 @@ async fn get_libraries(
                     l,
                     user.is_admin(),
                     scan_strm_libraries.contains(&l.id),
-                    real_time_libraries.contains(&l.id),
+                    false,
                     write_metadata_libraries.contains(&l.id),
                 )
             })
@@ -101,7 +100,7 @@ async fn get_library_by_id(
         &library,
         user.is_admin(),
         settings.scan_strm,
-        settings.real_time_scan,
+        false,
         settings.write_metadata,
     )))
 }
@@ -140,14 +139,7 @@ async fn add_library(
         violations.push(blank_violation("root", "must not be blank"));
     }
     let scan_strm = body.scan_strm;
-    let real_time_scan = body.scan_interval == ScanIntervalDto::RealTime;
     let write_metadata = body.write_metadata;
-    if real_time_scan && !scan_strm {
-        violations.push(blank_violation(
-            "scanInterval",
-            "Real-time scan requires scanning STRM",
-        ));
-    }
     if !violations.is_empty() {
         return Err(ApiError::Violations(violations));
     }
@@ -192,7 +184,7 @@ async fn add_library(
         &library,
         LibrarySettings {
             scan_strm,
-            real_time_scan,
+            real_time_scan: false,
             write_metadata,
         },
     )
@@ -201,7 +193,7 @@ async fn add_library(
         &created,
         true,
         scan_strm,
-        real_time_scan,
+        false,
         write_metadata,
     )))
 }
@@ -239,20 +231,6 @@ async fn update_library_by_id(
         .write_metadata
         .unwrap_or(current_settings.write_metadata);
     let requested_interval = body.scan_interval;
-    let requested_real_time = requested_interval == Some(ScanIntervalDto::RealTime);
-    if requested_real_time && !scan_strm {
-        return Err(ApiError::Violations(vec![blank_violation(
-            "scanInterval",
-            "Real-time scan requires scanning STRM",
-        )]));
-    }
-    let real_time_scan = if requested_real_time {
-        true
-    } else if requested_interval.is_some() {
-        false
-    } else {
-        current_settings.real_time_scan && scan_strm
-    };
 
     let to_update = Library {
         name: body.name.unwrap_or_else(|| existing.name.clone()),
@@ -294,13 +272,7 @@ async fn update_library_by_id(
         scan_on_startup: body.scan_on_startup.unwrap_or(existing.scan_on_startup),
         scan_interval: requested_interval
             .map(|i| i.to_domain())
-            .unwrap_or_else(|| {
-                if real_time_scan {
-                    komga_core::model::library::ScanInterval::Disabled
-                } else {
-                    existing.scan_interval
-                }
-            }),
+            .unwrap_or(existing.scan_interval),
         scan_cbx: body.scan_cbx.unwrap_or(existing.scan_cbx),
         scan_pdf: body.scan_pdf.unwrap_or(existing.scan_pdf),
         scan_epub: body.scan_epub.unwrap_or(existing.scan_epub),
@@ -335,7 +307,7 @@ async fn update_library_by_id(
         &to_update,
         LibrarySettings {
             scan_strm,
-            real_time_scan,
+            real_time_scan: false,
             write_metadata,
         },
     )
@@ -1069,27 +1041,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn real_time_scan_requires_strm_and_round_trips() {
+    async fn legacy_real_time_scan_normalizes_to_disabled() {
         use komga_db::dao::library_setting::LibrarySettingDao;
 
         let (app, key) = admin_app();
         let dir = tempfile::tempdir().unwrap();
-        let invalid_root = dir.path().join("invalid");
-        std::fs::create_dir(&invalid_root).unwrap();
-        let (status, body) = app
-            .request_json(
-                "POST",
-                "/api/v1/libraries",
-                &key,
-                Some(serde_json::json!({
-                    "name":"Invalid",
-                    "root":invalid_root.to_str().unwrap(),
-                    "scanInterval":"REAL_TIME"
-                })),
-            )
-            .await;
-        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
-
         let root = dir.path().join("manga");
         std::fs::create_dir(&root).unwrap();
         let (status, body) = app
@@ -1106,7 +1062,7 @@ mod tests {
             )
             .await;
         assert_eq!(status, StatusCode::OK, "{body}");
-        assert_eq!(body["scanInterval"], "REAL_TIME");
+        assert_eq!(body["scanInterval"], "DISABLED");
         let id = body["id"].as_str().unwrap().to_string();
 
         let scan_interval: String = app
@@ -1125,7 +1081,7 @@ mod tests {
             .get(&id)
             .unwrap();
         assert!(settings.scan_strm);
-        assert!(settings.real_time_scan);
+        assert!(!settings.real_time_scan);
 
         let (status, _) = app
             .request_json(

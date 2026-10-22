@@ -31,7 +31,7 @@ impl LibrarySettingDao {
         match rows.next()? {
             Some(row) => Ok(LibrarySettings {
                 scan_strm: row.get(0)?,
-                real_time_scan: row.get(1)?,
+                real_time_scan: false,
                 write_metadata: row.get(2)?,
             }),
             None => Ok(LibrarySettings::default()),
@@ -39,7 +39,7 @@ impl LibrarySettingDao {
     }
 
     pub fn set(&self, library_id: &str, settings: LibrarySettings) -> Result<()> {
-        if !settings.scan_strm && !settings.real_time_scan && !settings.write_metadata {
+        if !settings.scan_strm && !settings.write_metadata {
             return self.delete(library_id);
         }
         let now = time_codec::format_datetime(time_codec::now_utc());
@@ -55,7 +55,7 @@ impl LibrarySettingDao {
             rusqlite::params![
                 library_id,
                 settings.scan_strm,
-                settings.real_time_scan,
+                false,
                 settings.write_metadata,
                 now,
                 now
@@ -76,14 +76,6 @@ impl LibrarySettingDao {
         let conn = self.db.ro()?;
         let mut stmt =
             conn.prepare("SELECT LIBRARY_ID FROM LIBRARY_SETTING WHERE SCAN_STRM = 1")?;
-        let rows = stmt.query_map([], |row| row.get(0))?;
-        Ok(rows.collect::<std::result::Result<BTreeSet<_>, _>>()?)
-    }
-
-    pub fn real_time_scan_library_ids(&self) -> Result<BTreeSet<String>> {
-        let conn = self.db.ro()?;
-        let mut stmt =
-            conn.prepare("SELECT LIBRARY_ID FROM LIBRARY_SETTING WHERE REAL_TIME_SCAN = 1")?;
         let rows = stmt.query_map([], |row| row.get(0))?;
         Ok(rows.collect::<std::result::Result<BTreeSet<_>, _>>()?)
     }
@@ -165,29 +157,27 @@ mod tests {
     }
 
     #[test]
-    fn round_trips_real_time_scan() {
+    fn legacy_real_time_value_is_ignored() {
         let dao = test_dao();
         dao.set(
             "l1",
             LibrarySettings {
                 scan_strm: true,
-                real_time_scan: true,
+                real_time_scan: false,
                 write_metadata: false,
             },
         )
         .unwrap();
-        assert_eq!(
-            dao.get("l1").unwrap(),
-            LibrarySettings {
-                scan_strm: true,
-                real_time_scan: true,
-                write_metadata: false,
-            }
-        );
-        assert_eq!(
-            dao.real_time_scan_library_ids().unwrap(),
-            ["l1".to_string()].into_iter().collect()
-        );
+        dao.db
+            .rw()
+            .unwrap()
+            .execute(
+                "UPDATE LIBRARY_SETTING SET REAL_TIME_SCAN = 1 WHERE LIBRARY_ID = ?",
+                ["l1"],
+            )
+            .unwrap();
+
+        assert!(!dao.get("l1").unwrap().real_time_scan);
     }
 
     #[test]

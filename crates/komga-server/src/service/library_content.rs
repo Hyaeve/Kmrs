@@ -390,10 +390,6 @@ pub fn scan_root_folder(
         sidecar_dao.delete_by_library_id_and_urls(&library.id, &gone_urls)?;
     }
 
-    if library_settings.real_time_scan {
-        purge_deleted_strm(state, library)?;
-    }
-
     if library.empty_trash_after_scan {
         empty_trash(state, library, "Trash emptied automatically after scan")?;
     } else {
@@ -403,108 +399,6 @@ pub fn scan_root_folder(
     let _ = state
         .events
         .send(DomainEvent::LibraryScanned(library.clone()));
-    Ok(())
-}
-
-/// Real-time STRM monitoring treats pointer deletion as final: purge only the trashed
-/// STRM books and all-STRM series, leaving ordinary file trash untouched.
-fn purge_deleted_strm(state: &AppState, library: &Library) -> Result<()> {
-    use komga_core::search::*;
-
-    let series_dao = SeriesDao::new(state.db.clone());
-    let deleted_series = series_dao.find_all_by_condition(
-        Some(&SearchConditionSeries::AllOf {
-            conditions: vec![
-                SearchConditionSeries::LibraryId {
-                    operator: Equality::Is {
-                        value: library.id.clone(),
-                    },
-                },
-                SearchConditionSeries::Deleted {
-                    deleted: BooleanOp::IsTrue,
-                },
-            ],
-        }),
-        &SearchContext::default(),
-    )?;
-    let book_dao = BookDao::new(state.db.clone());
-    let mut series_to_purge = vec![];
-    let mut cascaded_books = vec![];
-    let mut purged_series_ids = BTreeSet::new();
-    for series in deleted_series {
-        let books = book_dao.find_by_series_id(&series.id)?;
-        if !books.is_empty() && books.iter().all(Book::is_strm) {
-            cascaded_books.extend(books);
-            purged_series_ids.insert(series.id.clone());
-            series_to_purge.push(series);
-        }
-    }
-
-    const REASON: &str = "STRM file deleted during real-time monitoring";
-    crate::service::series::delete_many(state, &series_to_purge)?;
-    for book in &cascaded_books {
-        insert_history(
-            state,
-            HistoricalEventType::BookPurged,
-            Some(&book.id),
-            Some(&book.series_id),
-            REASON,
-            &book_path(book),
-        )?;
-    }
-    for series in &series_to_purge {
-        insert_history(
-            state,
-            HistoricalEventType::SeriesPurged,
-            None,
-            Some(&series.id),
-            REASON,
-            &series_path(series),
-        )?;
-    }
-
-    let deleted_books = book_dao.find_all_by_condition(
-        Some(&SearchConditionBook::AllOf {
-            conditions: vec![
-                SearchConditionBook::LibraryId {
-                    operator: Equality::Is {
-                        value: library.id.clone(),
-                    },
-                },
-                SearchConditionBook::Deleted {
-                    deleted: BooleanOp::IsTrue,
-                },
-            ],
-        }),
-        &SearchContext::default(),
-        &[],
-    )?;
-    let books_to_purge: Vec<Book> = deleted_books
-        .into_iter()
-        .filter(|book| book.is_strm() && !purged_series_ids.contains(&book.series_id))
-        .collect();
-    if books_to_purge.is_empty() {
-        return Ok(());
-    }
-    crate::service::book::delete_many(state, &books_to_purge)?;
-    for book in &books_to_purge {
-        insert_history(
-            state,
-            HistoricalEventType::BookPurged,
-            Some(&book.id),
-            Some(&book.series_id),
-            REASON,
-            &book_path(book),
-        )?;
-    }
-    let mut seen = BTreeSet::new();
-    for book in &books_to_purge {
-        if seen.insert(book.series_id.clone()) {
-            if let Some(series) = series_dao.find_by_id(&book.series_id)? {
-                crate::service::series::sort_books(state, &series)?;
-            }
-        }
-    }
     Ok(())
 }
 
@@ -1572,68 +1466,6 @@ mod tests {
         assert_eq!(
             trashed[0].properties.get("reason").map(String::as_str),
             Some("File is no longer on disk")
-        );
-    }
-
-    #[test]
-    fn realtime_strm_deletion_purges_only_strm_trash() {
-        let state = test_state();
-        let tmp = tempfile::tempdir().unwrap();
-        let root = scan_root(&tmp);
-        let strm_path = write_file(
-            &root.join("strm-series"),
-            "remote.cbz.strm",
-            b"https://example.test/remote.cbz\n",
-        );
-        let normal_path = write_file(&root.join("normal-series"), "v01.cbz", b"normal");
-        let lib = library(&state.db, "lib1", &root);
-        LibrarySettingDao::new(state.kmrs_db.clone())
-            .set(
-                &lib.id,
-                komga_db::dao::library_setting::LibrarySettings {
-                    scan_strm: true,
-                    real_time_scan: true,
-                    write_metadata: false,
-                },
-            )
-            .unwrap();
-        scan(&state, &lib);
-        assert_eq!(all_books(&state).len(), 2);
-
-        std::fs::remove_file(strm_path).unwrap();
-        std::fs::remove_file(normal_path).unwrap();
-        scan(&state, &lib);
-
-        let series = all_series(&state);
-        assert!(
-            !series.iter().any(|series| series.name == "strm-series"),
-            "all-STRM series must be purged"
-        );
-        let normal_series = series
-            .iter()
-            .find(|series| series.name == "normal-series")
-            .expect("ordinary series must stay in trash");
-        assert!(normal_series.deleted_date.is_some());
-
-        let books = all_books(&state);
-        assert!(
-            !books.iter().any(Book::is_strm),
-            "deleted STRM books must be purged"
-        );
-        let normal_book = books
-            .iter()
-            .find(|book| book.series_id == normal_series.id)
-            .expect("ordinary book must stay in trash");
-        assert!(normal_book.deleted_date.is_some());
-
-        let purged: Vec<_> = history_events(&state)
-            .into_iter()
-            .filter(|event| event.type_ == HistoricalEventType::BookPurged)
-            .collect();
-        assert_eq!(purged.len(), 1);
-        assert_eq!(
-            purged[0].properties.get("reason").map(String::as_str),
-            Some("STRM file deleted during real-time monitoring")
         );
     }
 

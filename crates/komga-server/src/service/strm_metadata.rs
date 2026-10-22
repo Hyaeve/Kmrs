@@ -68,6 +68,9 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
         return Err(StrmMetadataError::PathEscape);
     };
     std::fs::create_dir_all(parent)?;
+    if std::fs::read(path).is_ok_and(|existing| existing == bytes) {
+        return Ok(());
+    }
     let file_name = path
         .file_name()
         .and_then(|name| name.to_str())
@@ -518,6 +521,28 @@ mod tests {
         std::fs::write(&path, b"old").unwrap();
         atomic_write(&path, b"new").unwrap();
         assert_eq!(std::fs::read(path).unwrap(), b"new");
+    }
+
+    #[test]
+    fn atomic_write_leaves_identical_content_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("series.json");
+        atomic_write(&path, b"same").unwrap();
+
+        let fixed_time = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(86_400);
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(fixed_time)
+            .unwrap();
+
+        atomic_write(&path, b"same").unwrap();
+
+        assert_eq!(
+            std::fs::metadata(path).unwrap().modified().unwrap(),
+            fixed_time
+        );
     }
 
     #[test]

@@ -147,7 +147,6 @@ export function LibraryDialog({ open, onOpenChange, library }: LibraryDialogProp
                         options={SCAN_INTERVAL_OPTIONS.map((o) => ({
                           value: o.value,
                           label: t(o.labelKey),
-                          disabled: o.value === 'REAL_TIME' && !form.scanStrm,
                         }))}
                         value={form.scanInterval}
                         onChange={(v) => set('scanInterval', v)}
@@ -159,12 +158,7 @@ export function LibraryDialog({ open, onOpenChange, library }: LibraryDialogProp
                           key={key}
                           label={t(labelKey)}
                           checked={form[key]}
-                          onChange={(v) => {
-                            set(key, v)
-                            if (key === 'scanStrm' && !v && form.scanInterval === 'REAL_TIME') {
-                              set('scanInterval', 'DISABLED')
-                            }
-                          }}
+                          onChange={(v) => set(key, v)}
                         />
                       ))}
                     </div>

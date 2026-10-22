@@ -180,7 +180,7 @@ fn kmrs_db_migrations() {
     let applied = Migrator::new(&migrations, Placeholders::default())
         .migrate(&conn)
         .unwrap();
-    assert_eq!(applied, 14);
+    assert_eq!(applied, 15);
     for name in [
         "SERIES_METADATA_CONTRIBUTION",
         "KOMF_INTEGRATION",

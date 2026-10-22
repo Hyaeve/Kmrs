@@ -35,7 +35,7 @@ export type MediaStatus = 'UNKNOWN' | 'ERROR' | 'READY' | 'UNSUPPORTED' | 'OUTDA
 export type MediaProfile = 'DIVINA' | 'PDF' | 'EPUB'
 export type Role = 'ADMIN' | 'USER' | 'FILE_DOWNLOAD' | 'PAGE_STREAMING' | 'KOBO_SYNC' | 'KOREADER_SYNC'
 
-export type ScanInterval = 'DISABLED' | 'REAL_TIME' | 'HOURLY' | 'EVERY_6H' | 'EVERY_12H' | 'DAILY' | 'WEEKLY'
+export type ScanInterval = 'DISABLED' | 'HOURLY' | 'EVERY_6H' | 'EVERY_12H' | 'DAILY' | 'WEEKLY'
 export type SeriesCover = 'FIRST' | 'FIRST_UNREAD_OR_FIRST' | 'FIRST_UNREAD_OR_LAST' | 'LAST'
 
 export interface LibraryDto {

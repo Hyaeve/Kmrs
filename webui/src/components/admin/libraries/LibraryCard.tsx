@@ -14,6 +14,7 @@ import {
 } from '@phosphor-icons/react'
 import { librariesApi } from '@/lib/api/libraries'
 import type { LibraryDto } from '@/lib/api/types'
+import { showToast } from '@/lib/store/toast'
 import { cn } from '@/lib/utils/cn'
 import { formatBytes } from '@/lib/utils/format'
 import { Button } from '@/components/ui/Button'
@@ -34,16 +35,35 @@ export function LibraryCard({ library, onEdit, onDelete }: LibraryCardProps) {
   const queryClient = useQueryClient()
   const [actionError, setActionError] = useState<string | null>(null)
 
-  const handlers = {
+  const handlers = (queued: string, failed: string) => ({
     onMutate: () => setActionError(null),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['libraries'] }),
-    onError: (err: unknown) => setActionError(err instanceof Error ? err.message : t('libraries.actionFailed')),
-  }
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['libraries'] })
+      showToast(queued)
+    },
+    onError: (err: unknown) => {
+      const message = err instanceof Error ? err.message : failed
+      setActionError(message)
+      showToast(message)
+    },
+  })
 
-  const scan = useMutation({ mutationFn: (deep: boolean) => librariesApi.scan(library.id, deep), ...handlers })
-  const analyze = useMutation({ mutationFn: () => librariesApi.analyze(library.id), ...handlers })
-  const refresh = useMutation({ mutationFn: () => librariesApi.refreshMetadata(library.id), ...handlers })
-  const emptyTrash = useMutation({ mutationFn: () => librariesApi.emptyTrash(library.id), ...handlers })
+  const scan = useMutation({
+    mutationFn: (deep: boolean) => librariesApi.scan(library.id, deep),
+    ...handlers(t('layout:libraryMenu.scanQueued'), t('layout:libraryMenu.scanFailed')),
+  })
+  const analyze = useMutation({
+    mutationFn: () => librariesApi.analyze(library.id),
+    ...handlers(t('layout:libraryMenu.analyzeQueued'), t('layout:libraryMenu.analyzeFailed')),
+  })
+  const refresh = useMutation({
+    mutationFn: () => librariesApi.refreshMetadata(library.id),
+    ...handlers(t('layout:libraryMenu.refreshQueued'), t('layout:libraryMenu.refreshFailed')),
+  })
+  const emptyTrash = useMutation({
+    mutationFn: () => librariesApi.emptyTrash(library.id),
+    ...handlers(t('layout:libraryMenu.emptyTrashQueued'), t('layout:libraryMenu.emptyTrashFailed')),
+  })
   const busy = scan.isPending || analyze.isPending || refresh.isPending || emptyTrash.isPending
 
   const intervalKey = scanIntervalBadgeKey(library.scanInterval)

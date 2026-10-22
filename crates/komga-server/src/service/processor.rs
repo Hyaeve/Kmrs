@@ -982,7 +982,7 @@ mod tests {
     }
 
     #[test]
-    fn scan_candidates_exclude_strm_even_when_realtime_is_enabled() {
+    fn scan_candidates_exclude_strm() {
         let state = series_tests::test_state();
         let root = visible_tempdir("strm-realtime");
         let book_dir = root.join("series1");
@@ -1004,7 +1004,7 @@ mod tests {
                 &library.id,
                 LibrarySettings {
                     scan_strm: true,
-                    real_time_scan: true,
+                    real_time_scan: false,
                     write_metadata: false,
                 },
             )
