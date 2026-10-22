@@ -107,8 +107,13 @@ jobs:
         shell: bash
         run: |
           set -eu
-          trap 'docker inspect kmrs || true; docker logs kmrs || true' ERR
+          trap 'code=$?; { echo "Docker smoke failed with exit code $code"; docker inspect kmrs || true; docker logs kmrs || true; } >> "$GITHUB_STEP_SUMMARY"; exit "$code"' ERR
+          {
+            echo "### Docker smoke checkpoints"
+            echo "- building amd64 image"
+          } >> "$GITHUB_STEP_SUMMARY"
           docker buildx build --platform linux/amd64 --load -t kmrs:smoke .
+          echo "- image built; starting container" >> "$GITHUB_STEP_SUMMARY"
           docker run -d --name kmrs --user 1000:1000 -p 25600:25600 kmrs:smoke
           healthy=false
           for i in $(seq 1 30); do
@@ -119,12 +124,15 @@ jobs:
             sleep 2
           done
           test "$healthy" = true
+          echo "- health endpoint ready" >> "$GITHUB_STEP_SUMMARY"
           home="$(curl -fsS --retry 5 --retry-all-errors --retry-delay 2 \
             http://localhost:25600/)"
           [[ "$home" == *"<title>KMReader</title>"* ]]
+          echo "- embedded web UI verified" >> "$GITHUB_STEP_SUMMARY"
           claim="$(curl -fsS --retry 5 --retry-all-errors --retry-delay 2 \
             http://localhost:25600/api/v1/claim)"
           [[ "$claim" == *'"isClaimed":false'* ]]
+          echo "- claim endpoint verified" >> "$GITHUB_STEP_SUMMARY"
           echo "server is up: web UI and API verified"
       - uses: docker/build-push-action@v7
         with:
