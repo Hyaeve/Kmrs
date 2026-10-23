@@ -3405,13 +3405,11 @@ mod tests {
                 .and_then(|name| name.to_str()),
             Some("remote.cbz")
         );
-        assert_eq!(
-            std::path::Path::new(&cache_path)
-                .parent()
-                .and_then(|path| path.file_name())
-                .and_then(|name| name.to_str()),
-            Some("b1")
-        );
+        assert!(std::path::Path::new(&cache_path)
+            .parent()
+            .and_then(|path| path.file_name())
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("127.0.0.1_")));
 
         let (status, _, _) = call(
             &app,

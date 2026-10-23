@@ -93,10 +93,6 @@ fn cache_dir(state: &AppState) -> PathBuf {
     }
 }
 
-fn book_cache_dir(state: &AppState, book_id: &str) -> PathBuf {
-    cache_dir(state).join(book_id)
-}
-
 fn cache_is_fresh(last_accessed_at: time::OffsetDateTime, now: time::OffsetDateTime) -> bool {
     now - last_accessed_at < time::Duration::hours(STRM_CACHE_IDLE_HOURS)
 }
@@ -143,6 +139,41 @@ fn sanitize_file_component(value: &str) -> String {
         .to_string()
 }
 
+fn percent_decode(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let hex = |byte: u8| match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    };
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            if let (Some(high), Some(low)) = (hex(bytes[index + 1]), hex(bytes[index + 2])) {
+                out.push((high << 4) | low);
+                index += 3;
+                continue;
+            }
+        }
+        out.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn cache_component(value: &str) -> String {
+    let mut safe = sanitize_file_component(&percent_decode(value));
+    if safe.is_empty() || matches!(safe.as_str(), "." | "..") {
+        safe = "_".to_string();
+    }
+    if is_windows_reserved_name(&safe) {
+        safe.insert(0, '_');
+    }
+    safe
+}
+
 fn is_windows_reserved_name(name: &str) -> bool {
     let stem = name.split('.').next().unwrap_or(name).to_ascii_uppercase();
     matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
@@ -151,19 +182,29 @@ fn is_windows_reserved_name(name: &str) -> bool {
             && stem.as_bytes()[3].is_ascii_digit())
 }
 
+fn remote_path_segments(url: &Url) -> Vec<String> {
+    url.path_segments()
+        .map(|segments| {
+            segments
+                .filter(|segment| !segment.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn file_name_from_url(url: &Url, media_type: &str, fallback: &str) -> String {
-    let candidate = url
-        .path_segments()
-        .and_then(|mut segments| segments.next_back())
-        .filter(|name| !name.is_empty())
-        .unwrap_or(fallback);
+    let candidate = (!url.path().ends_with('/'))
+        .then(|| remote_path_segments(url).into_iter().next_back())
+        .flatten()
+        .unwrap_or_else(|| fallback.to_string());
     let fallback = sanitize_file_component(fallback);
     let fallback = if fallback.is_empty() {
         "strm-download".to_string()
     } else {
         fallback
     };
-    let mut name = sanitize_file_component(candidate);
+    let mut name = sanitize_file_component(&percent_decode(&candidate));
     if name.is_empty() || matches!(name.as_str(), "." | "..") {
         name = fallback;
     }
@@ -177,6 +218,30 @@ fn file_name_from_url(url: &Url, media_type: &str, fallback: &str) -> String {
     name
 }
 
+fn cache_path_for_url(
+    root: &Path,
+    url: &Url,
+    media_type: &str,
+    fallback: &str,
+) -> (PathBuf, String) {
+    let host = url
+        .host_str()
+        .map(|host| match url.port() {
+            Some(port) => format!("{host}_{port}"),
+            None => host.to_string(),
+        })
+        .unwrap_or_else(|| "remote".to_string());
+    let mut directory = root.join(cache_component(&host));
+    let segments = remote_path_segments(url);
+    let has_file_name = !url.path().ends_with('/') && !segments.is_empty();
+    let directory_count = segments.len().saturating_sub(usize::from(has_file_name));
+    for segment in &segments[..directory_count] {
+        directory.push(cache_component(segment));
+    }
+    let file_name = file_name_from_url(url, media_type, fallback);
+    (directory.join(&file_name), file_name)
+}
+
 fn cache_path_uses_file_name(path: &Path, file_name: &str) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
@@ -187,8 +252,18 @@ fn cache_path_is_within(root: &Path, path: &Path) -> bool {
     path.starts_with(root)
 }
 
+fn cache_path_is_current(state: &AppState, book: &Book, source: &StrmSource) -> bool {
+    let Ok(url) = Url::parse(&source.source_url) else {
+        return false;
+    };
+    let media_type = source.media_type.as_deref().unwrap_or_default();
+    let (expected, _) = cache_path_for_url(&cache_dir(state), &url, media_type, &book.name);
+    Path::new(&source.cache_path) == expected
+}
+
 fn remove_cache_file(state: &AppState, book_id: &str, path: &Path) {
-    if !cache_path_is_within(&cache_dir(state), path) {
+    let root = cache_dir(state);
+    if !cache_path_is_within(&root, path) {
         tracing::warn!(
             book_id,
             path = %path.display(),
@@ -206,8 +281,14 @@ fn remove_cache_file(state: &AppState, book_id: &str, path: &Path) {
             );
         }
     }
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::remove_dir(parent);
+    let mut parent = path.parent();
+    while let Some(directory) =
+        parent.filter(|directory| *directory != root && directory.starts_with(&root))
+    {
+        if std::fs::remove_dir(directory).is_err() {
+            break;
+        }
+        parent = directory.parent();
     }
 }
 
@@ -264,10 +345,11 @@ fn resolved_cache_path(state: &AppState, book: &Book) -> Option<PathBuf> {
     let source = StrmSourceDao::new(state.kmrs_db.clone())
         .get(&book.id)
         .ok()??;
-    let path = PathBuf::from(source.cache_path);
+    let path = PathBuf::from(&source.cache_path);
     (path.is_file()
         && cache_path_is_within(&cache_dir(state), &path)
         && cache_path_uses_file_name(&path, &source.file_name)
+        && cache_path_is_current(state, book, &source)
         && cache_is_fresh(source.last_accessed_at, time_codec::now_utc()))
     .then_some(path)
 }
@@ -386,6 +468,7 @@ pub async fn resolve_strm(state: &AppState, book: &Book) -> Result<StrmSource, S
             && Path::new(&existing.cache_path).is_file()
             && cache_path_is_within(&cache_dir(state), Path::new(&existing.cache_path))
             && cache_path_uses_file_name(Path::new(&existing.cache_path), &existing.file_name)
+            && cache_path_is_current(state, book, existing)
             && cache_is_fresh(existing.last_accessed_at, time_codec::now_utc())
         {
             let media = MediaDao::new(state.db.clone()).find_by_id(&book.id)?;
@@ -422,9 +505,9 @@ pub async fn resolve_strm(state: &AppState, book: &Book) -> Result<StrmSource, S
         }
     }
 
-    let book_cache_dir = book_cache_dir(state, &book.id);
-    tokio::fs::create_dir_all(&book_cache_dir).await?;
-    let partial = book_cache_dir.join(format!("{}.partial", uuid::Uuid::new_v4()));
+    let partial_dir = cache_dir(state).join(".partial");
+    tokio::fs::create_dir_all(&partial_dir).await?;
+    let partial = partial_dir.join(format!("{}.partial", uuid::Uuid::new_v4()));
     let response = http_client().get(source_url.clone()).send().await?;
     let status = response.status();
     if !status.is_success() {
@@ -462,8 +545,11 @@ pub async fn resolve_strm(state: &AppState, book: &Book) -> Result<StrmSource, S
     let media_type = header_media_type
         .filter(|value| value != detect::APPLICATION_OCTET_STREAM)
         .unwrap_or(detected_media_type);
-    let file_name = file_name_from_url(&final_url, &media_type, &book.name);
-    let final_path = book_cache_dir.join(&file_name);
+    let (final_path, file_name) =
+        cache_path_for_url(&cache_dir(state), &final_url, &media_type, &book.name);
+    if let Some(parent) = final_path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
 
     if final_path.exists() {
         tokio::fs::remove_file(&final_path).await?;
@@ -537,6 +623,25 @@ mod tests {
             Path::new("/cache/b1.cbz"),
             &file_name
         ));
+    }
+
+    #[test]
+    fn cache_paths_mirror_remote_directories_and_file_name() {
+        let url =
+            Url::parse("https://cloud.example.test/library/%E6%BC%AB%E7%94%BB/Series/My-Book.cbz")
+                .unwrap();
+        let (path, file_name) = cache_path_for_url(
+            Path::new("/cache"),
+            &url,
+            detect::APPLICATION_ZIP,
+            "fallback",
+        );
+        assert_eq!(file_name, "My-Book.cbz");
+        assert_eq!(
+            path,
+            Path::new("/cache/cloud.example.test/library/漫画/Series/My-Book.cbz")
+        );
+        assert_ne!(path, Path::new("/cache/b1/My-Book.cbz"));
     }
 
     #[test]
