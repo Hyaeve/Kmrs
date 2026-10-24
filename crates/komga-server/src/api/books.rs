@@ -3409,7 +3409,13 @@ mod tests {
             .parent()
             .and_then(|path| path.file_name())
             .and_then(|name| name.to_str())
-            .is_some_and(|name| name.starts_with("127.0.0.1_")));
+            .is_some_and(|name| name == "s1"));
+        assert_eq!(
+            std::path::Path::new(&cache_path)
+                .parent()
+                .and_then(|path| path.parent()),
+            Some(config_dir.path().join("strm-cache").as_path())
+        );
 
         let (status, _, _) = call(
             &app,
@@ -3431,6 +3437,124 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn strm_file_request_streams_redirected_content_from_series_cache() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let mut state = test_state_with_settings();
+        let config_dir = tempfile::tempdir().unwrap();
+        state.config = Arc::new(crate::config::ServerConfig {
+            config_dir: config_dir.path().to_path_buf(),
+            ..(*state.config).clone()
+        });
+        let db = state.db.clone();
+        seed_library(&db, "l1");
+        seed_series(&db, "s1", "l1");
+        seed_user(&db, "admin@example.org", "pw", true);
+
+        let source = std::fs::read(FIXTURE_ZIP).unwrap();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let server_hits = hits.clone();
+        let server_body = source.clone();
+        let upstream = Router::new()
+            .route(
+                "/pointer",
+                axum::routing::get(|| async {
+                    axum::response::Redirect::temporary("/files/remote.cbz")
+                }),
+            )
+            .route(
+                "/files/remote.cbz",
+                axum::routing::get(move || {
+                    let hits = server_hits.clone();
+                    let body = server_body.clone();
+                    async move {
+                        hits.fetch_add(1, Ordering::SeqCst);
+                        (
+                            [(axum::http::header::CONTENT_TYPE, "application/zip")],
+                            body,
+                        )
+                    }
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, upstream).await.unwrap();
+        });
+
+        let work = tempfile::tempdir().unwrap();
+        let series_dir = work.path().join("作品 目录");
+        std::fs::create_dir_all(&series_dir).unwrap();
+        db.rw()
+            .unwrap()
+            .execute(
+                "UPDATE SERIES SET URL = ? WHERE ID = 's1'",
+                [komga_media::scanner::path_to_url(&series_dir)],
+            )
+            .unwrap();
+        let strm_path = series_dir.join("remote.strm");
+        std::fs::write(&strm_path, format!("http://{address}/pointer\n")).unwrap();
+        seed_book(
+            &db,
+            "b1",
+            "s1",
+            "l1",
+            &komga_media::scanner::path_to_url(&strm_path),
+        );
+        seed_media(
+            &db,
+            "b1",
+            MediaStatus::Unknown,
+            detect::APPLICATION_OCTET_STREAM,
+            vec![],
+        );
+
+        let app = test_router(state.clone());
+        let (status, headers, body) = call(
+            &app,
+            "GET",
+            "/api/v1/books/b1/file",
+            Some(&basic("admin@example.org", "pw")),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(headers["content-length"], source.len().to_string());
+        assert_eq!(body, source);
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+
+        let (status, _, body) = call(
+            &app,
+            "GET",
+            "/api/v1/books/b1/file",
+            Some(&basic("admin@example.org", "pw")),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, source);
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+
+        let resolved = komga_db::dao::strm_source::StrmSourceDao::new(state.kmrs_db.clone())
+            .get("b1")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            std::path::Path::new(&resolved.cache_path),
+            config_dir
+                .path()
+                .join("strm-cache")
+                .join("作品 目录")
+                .join("remote.cbz")
+        );
+        assert!(std::path::Path::new(&resolved.cache_path)
+            .parent()
+            .unwrap()
+            .is_dir());
         server.abort();
     }
 

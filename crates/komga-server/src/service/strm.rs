@@ -10,6 +10,7 @@ use komga_core::model::media::MediaStatus;
 use komga_core::task::BookMetadataPatchCapability;
 use komga_core::time_codec;
 use komga_db::dao::media::MediaDao;
+use komga_db::dao::series::SeriesDao;
 use komga_db::dao::strm_source::{StrmSource, StrmSourceDao};
 use komga_media::detect;
 use reqwest::header::CONTENT_TYPE;
@@ -218,28 +219,46 @@ fn file_name_from_url(url: &Url, media_type: &str, fallback: &str) -> String {
     name
 }
 
-fn cache_path_for_url(
-    root: &Path,
-    url: &Url,
-    media_type: &str,
-    fallback: &str,
-) -> (PathBuf, String) {
-    let host = url
-        .host_str()
-        .map(|host| match url.port() {
-            Some(port) => format!("{host}_{port}"),
-            None => host.to_string(),
-        })
-        .unwrap_or_else(|| "remote".to_string());
-    let mut directory = root.join(cache_component(&host));
-    let segments = remote_path_segments(url);
-    let has_file_name = !url.path().ends_with('/') && !segments.is_empty();
-    let directory_count = segments.len().saturating_sub(usize::from(has_file_name));
-    for segment in &segments[..directory_count] {
-        directory.push(cache_component(segment));
+fn safe_cache_directory_name(value: &str) -> Option<String> {
+    if value.trim().is_empty() {
+        return None;
     }
-    let file_name = file_name_from_url(url, media_type, fallback);
-    (directory.join(&file_name), file_name)
+    let safe = cache_component(value);
+    (!safe.is_empty() && safe != "_").then_some(safe)
+}
+
+fn cache_directory_name(state: &AppState, book: &Book) -> Result<String, StrmError> {
+    let series = SeriesDao::new(state.db.clone()).find_by_id(&book.series_id)?;
+    let folder_name = series.as_ref().and_then(|series| {
+        PathBuf::from(url_to_file_path(&series.url))
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+    });
+    Ok(folder_name
+        .as_deref()
+        .and_then(safe_cache_directory_name)
+        .or_else(|| {
+            series
+                .as_ref()
+                .and_then(|series| safe_cache_directory_name(&series.name))
+        })
+        .unwrap_or_else(|| cache_component(&book.series_id)))
+}
+
+fn cache_path_for_directory(root: &Path, directory_name: &str, file_name: &str) -> PathBuf {
+    root.join(directory_name).join(file_name)
+}
+
+fn cache_path_for_book(
+    state: &AppState,
+    book: &Book,
+    file_name: &str,
+) -> Result<PathBuf, StrmError> {
+    Ok(cache_path_for_directory(
+        &cache_dir(state),
+        &cache_directory_name(state, book)?,
+        file_name,
+    ))
 }
 
 fn cache_path_uses_file_name(path: &Path, file_name: &str) -> bool {
@@ -253,11 +272,9 @@ fn cache_path_is_within(root: &Path, path: &Path) -> bool {
 }
 
 fn cache_path_is_current(state: &AppState, book: &Book, source: &StrmSource) -> bool {
-    let Ok(url) = Url::parse(&source.source_url) else {
+    let Ok(expected) = cache_path_for_book(state, book, &source.file_name) else {
         return false;
     };
-    let media_type = source.media_type.as_deref().unwrap_or_default();
-    let (expected, _) = cache_path_for_url(&cache_dir(state), &url, media_type, &book.name);
     Path::new(&source.cache_path) == expected
 }
 
@@ -545,8 +562,8 @@ pub async fn resolve_strm(state: &AppState, book: &Book) -> Result<StrmSource, S
     let media_type = header_media_type
         .filter(|value| value != detect::APPLICATION_OCTET_STREAM)
         .unwrap_or(detected_media_type);
-    let (final_path, file_name) =
-        cache_path_for_url(&cache_dir(state), &final_url, &media_type, &book.name);
+    let file_name = file_name_from_url(&final_url, &media_type, &book.name);
+    let final_path = cache_path_for_book(state, book, &file_name)?;
     if let Some(parent) = final_path.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
@@ -626,21 +643,9 @@ mod tests {
     }
 
     #[test]
-    fn cache_paths_mirror_remote_directories_and_file_name() {
-        let url =
-            Url::parse("https://cloud.example.test/library/%E6%BC%AB%E7%94%BB/Series/My-Book.cbz")
-                .unwrap();
-        let (path, file_name) = cache_path_for_url(
-            Path::new("/cache"),
-            &url,
-            detect::APPLICATION_ZIP,
-            "fallback",
-        );
-        assert_eq!(file_name, "My-Book.cbz");
-        assert_eq!(
-            path,
-            Path::new("/cache/cloud.example.test/library/漫画/Series/My-Book.cbz")
-        );
+    fn cache_paths_use_series_directory_and_remote_file_name() {
+        let path = cache_path_for_directory(Path::new("/cache"), "作品 目录", "My-Book.cbz");
+        assert_eq!(path, Path::new("/cache/作品 目录/My-Book.cbz"));
         assert_ne!(path, Path::new("/cache/b1/My-Book.cbz"));
     }
 
@@ -669,7 +674,9 @@ mod tests {
         let now = time_codec::now_utc();
         let dao = StrmSourceDao::new(state.kmrs_db.clone());
         for (book_id, accessed_hours_ago) in [("b1", 3), ("b2", 2), ("b3", 1)] {
-            let path = cache_dir(&state).join(book_id).join("book.cbz");
+            let path = cache_dir(&state)
+                .join(format!("series-{book_id}"))
+                .join("book.cbz");
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(&path, b"123456").unwrap();
             dao.upsert(
@@ -689,13 +696,13 @@ mod tests {
         enforce_cache_limit(&state, Some("b3"), 12).unwrap();
 
         assert!(dao.get("b1").unwrap().is_none());
-        assert!(!cache_dir(&state).join("b1").exists());
+        assert!(!cache_dir(&state).join("series-b1").exists());
         assert!(dao.get("b2").unwrap().is_some());
         assert!(dao.get("b3").unwrap().is_some());
     }
 
     #[test]
-    fn cleanup_removes_idle_cache_entries() {
+    fn cleanup_removes_idle_entries_and_empty_series_directory() {
         let mut state = crate::service::series::tests::test_state();
         let config_dir = tempfile::tempdir().unwrap();
         state.config = std::sync::Arc::new(crate::config::ServerConfig {
@@ -705,8 +712,11 @@ mod tests {
 
         let now = time_codec::now_utc();
         let dao = StrmSourceDao::new(state.kmrs_db.clone());
-        for (book_id, accessed_hours_ago) in [("b1", 4), ("b2", 2)] {
-            let path = cache_dir(&state).join(book_id).join("book.cbz");
+        let series_dir = cache_dir(&state).join("作品目录");
+        for (book_id, file_name, accessed_hours_ago) in
+            [("b1", "expired.cbz", 4), ("b2", "active.cbz", 2)]
+        {
+            let path = series_dir.join(file_name);
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(&path, b"123456").unwrap();
             dao.upsert(
@@ -716,7 +726,7 @@ mod tests {
                 now,
                 now - time::Duration::hours(accessed_hours_ago),
                 &path.to_string_lossy(),
-                "book.cbz",
+                file_name,
                 Some(detect::APPLICATION_ZIP),
                 6,
             )
@@ -725,7 +735,22 @@ mod tests {
 
         assert_eq!(cleanup_cache(&state).unwrap(), 1);
         assert!(dao.get("b1").unwrap().is_none());
-        assert!(!cache_dir(&state).join("b1").exists());
+        assert!(!series_dir.join("expired.cbz").exists());
+        assert!(series_dir.join("active.cbz").exists());
+        assert!(series_dir.is_dir());
         assert!(dao.get("b2").unwrap().is_some());
+
+        state
+            .kmrs_db
+            .rw()
+            .unwrap()
+            .execute(
+                "UPDATE STRM_SOURCE SET LAST_ACCESSED_AT = ? WHERE BOOK_ID = 'b2'",
+                [time_codec::format_datetime(now - time::Duration::hours(4))],
+            )
+            .unwrap();
+        assert_eq!(cleanup_cache(&state).unwrap(), 1);
+        assert!(dao.get("b2").unwrap().is_none());
+        assert!(!series_dir.exists());
     }
 }
