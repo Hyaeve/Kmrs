@@ -644,11 +644,11 @@ mod tests {
             .unwrap()
     }
 
-    fn events(state: &AppState) -> tokio::sync::broadcast::Receiver<DomainEvent> {
+    fn events(state: &AppState) -> crate::events::DomainReceiver {
         state.events.subscribe()
     }
 
-    fn recv_book_imported(rx: &mut tokio::sync::broadcast::Receiver<DomainEvent>) -> DomainEvent {
+    fn recv_book_imported(rx: &mut crate::events::DomainReceiver) -> DomainEvent {
         for _ in 0..10 {
             let event = rx.try_recv().unwrap();
             if matches!(event, DomainEvent::BookImported { .. }) {

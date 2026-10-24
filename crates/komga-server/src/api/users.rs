@@ -916,9 +916,7 @@ mod tests {
     }
 
     /// Next `UserUpdated` on the bus; anything else (notably `UserDeleted`) fails the test.
-    async fn next_user_updated(
-        rx: &mut tokio::sync::broadcast::Receiver<crate::events::DomainEvent>,
-    ) -> (String, bool) {
+    async fn next_user_updated(rx: &mut crate::events::DomainReceiver) -> (String, bool) {
         let event = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
             .await
             .unwrap()

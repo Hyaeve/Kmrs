@@ -75,18 +75,28 @@ struct Outgoing {
     scope: Scope,
 }
 
-/// One frame of the SSE wire format. Spring's `SseEventBuilder` writes fields without a
-/// space after the colon (`data:{...}`, `event:Name`, `:comment`), matched here byte for byte.
 enum Wire {
     Comment(&'static str),
-    Event { name: &'static str, data: String },
+    Event {
+        id: String,
+        name: &'static str,
+        data: String,
+    },
+    // On-demand snapshots have no recorded event to resume from.
+    Snapshot {
+        name: &'static str,
+        data: String,
+    },
 }
 
 impl Wire {
     fn encode(self) -> String {
         match self {
             Wire::Comment(comment) => format!(":{comment}\n\n"),
-            Wire::Event { name, data } => format!("event:{name}\ndata:{data}\n\n"),
+            Wire::Event { id, name, data } => {
+                format!("id:{id}\nevent:{name}\ndata:{data}\n\n")
+            }
+            Wire::Snapshot { name, data } => format!("event:{name}\ndata:{data}\n\n"),
         }
     }
 }
@@ -95,12 +105,30 @@ async fn sse_events(
     auth: RequireAuth,
     State(state): State<AppState>,
     Extension(intervals): Extension<SseIntervals>,
+    headers: axum::http::HeaderMap,
 ) -> Response {
     let user = auth.0.user;
+    let last_event_id = headers
+        .get("last-event-id")
+        .map(|value| value.to_str().unwrap_or_default());
+    let (mut events, resume) = state.events.subscribe_with_replay(last_event_id);
     let (tx, rx) = mpsc::channel::<Wire>(64);
 
     tokio::spawn(async move {
-        let mut events = state.events.subscribe();
+        match resume {
+            crate::events::Resume::Live => {}
+            crate::events::Resume::Replay(replay) => {
+                for recorded in replay {
+                    let Some(wire) = map_recorded_event(&state, &user, recorded).await else {
+                        continue;
+                    };
+                    if tx.send(wire).await.is_err() {
+                        return;
+                    }
+                }
+            }
+        }
+
         let mut heartbeat = tokio::time::interval(intervals.heartbeat);
         heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut task_status = tokio::time::interval(intervals.task_status);
@@ -124,7 +152,7 @@ async fn sse_events(
                         Ok(counts) => {
                             let total = counts.values().sum();
                             let dto = dto::TaskQueueSseDto { count: total, count_by_type: counts };
-                            Wire::Event { name: "TaskQueueStatus", data: serde_json::to_string(&dto).unwrap() }
+                            Wire::Snapshot { name: "TaskQueueStatus", data: serde_json::to_string(&dto).unwrap() }
                         }
                         Err(e) => {
                             tracing::warn!("could not count tasks for SSE: {e}");
@@ -134,13 +162,13 @@ async fn sse_events(
                 }
                 event = events.recv() => {
                     match event {
-                        Ok(domain) => match map_event(&state, &user, domain).await {
-                            Some(outgoing) => Wire::Event { name: outgoing.name, data: outgoing.data.to_string() },
+                        Ok(recorded) => match map_recorded_event(&state, &user, recorded).await {
+                            Some(wire) => wire,
                             None => continue,
                         },
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                            tracing::warn!("SSE receiver lagged by {n} events");
-                            continue;
+                            tracing::warn!("SSE receiver lagged by {n} events; closing stream for recovery");
+                            break;
                         }
                         Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                     }
@@ -158,6 +186,21 @@ async fn sse_events(
         .header(axum::http::header::CACHE_CONTROL, "no-cache")
         .body(Body::from_stream(stream))
         .unwrap()
+}
+
+async fn map_recorded_event(
+    state: &AppState,
+    user: &KomgaUser,
+    recorded: crate::events::RecordedEvent,
+) -> Option<Wire> {
+    let id = recorded.id;
+    map_event(state, user, recorded.event)
+        .await
+        .map(|outgoing| Wire::Event {
+            id,
+            name: outgoing.name,
+            data: outgoing.data.to_string(),
+        })
 }
 
 /// `handleSseEvent`: maps a domain event to its SSE name/payload, applying the
@@ -728,6 +771,259 @@ mod tests {
             "text/event-stream"
         );
         response.into_body()
+    }
+
+    async fn connect_with_last_event_id(
+        state: &AppState,
+        api_key: &str,
+        last_event_id: &str,
+    ) -> Body {
+        let request = Request::get("/sse/v1/events")
+            .header("X-API-Key", api_key)
+            .header("Last-Event-ID", last_event_id)
+            .body(Body::empty())
+            .unwrap();
+        let response = test_app(state).oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        response.into_body()
+    }
+
+    fn event_id(acc: &str, event_name: &str) -> String {
+        let event_line = format!("event:{event_name}");
+        acc.split("\n\n")
+            .find(|frame| frame.lines().any(|line| line == event_line))
+            .and_then(|frame| {
+                frame
+                    .lines()
+                    .find_map(|line| line.strip_prefix("id:"))
+                    .map(str::to_owned)
+            })
+            .unwrap_or_else(|| panic!("no id for {event_name} in: {acc:?}"))
+    }
+
+    #[tokio::test]
+    async fn resumes_without_gaps_or_duplicates() {
+        let state = test_state();
+        let user_id = insert_user(&state.db, "admin@komga.org", true);
+        insert_api_key(&state.db, &user_id, "key1");
+
+        let mut initial = connect(&state, "key1").await;
+        wait_subscribed(&state).await;
+        state
+            .events
+            .send(DomainEvent::SeriesAdded(sample_series("s0", "l1")))
+            .unwrap();
+        let first = read_until(&mut initial, "\"seriesId\":\"s0\"", Duration::from_secs(2)).await;
+        let last_event_id = event_id(&first, "SeriesAdded");
+        drop(initial);
+
+        let _ = state
+            .events
+            .send(DomainEvent::SeriesAdded(sample_series("s1", "l1")));
+        let mut resumed = connect_with_last_event_id(&state, "key1", &last_event_id).await;
+        state
+            .events
+            .send(DomainEvent::SeriesAdded(sample_series("s2", "l1")))
+            .unwrap();
+
+        let acc = read_until(&mut resumed, "\"seriesId\":\"s2\"", Duration::from_secs(2)).await;
+        assert!(
+            !acc.contains("\"seriesId\":\"s0\""),
+            "replayed old event: {acc:?}"
+        );
+        let offline = acc
+            .find("\"seriesId\":\"s1\"")
+            .unwrap_or_else(|| panic!("offline event was not replayed: {acc:?}"));
+        let live = acc
+            .find("\"seriesId\":\"s2\"")
+            .unwrap_or_else(|| panic!("live event after resume was lost: {acc:?}"));
+        assert!(offline < live, "events arrived out of order: {acc:?}");
+        assert_eq!(
+            acc.matches("event:SeriesAdded").count(),
+            2,
+            "duplicate event: {acc:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn incomplete_history_is_not_replayed() {
+        let state = test_state();
+        let user_id = insert_user(&state.db, "admin@komga.org", true);
+        insert_api_key(&state.db, &user_id, "key1");
+
+        let mut initial = connect(&state, "key1").await;
+        wait_subscribed(&state).await;
+        state
+            .events
+            .send(DomainEvent::SeriesAdded(sample_series("s0", "l1")))
+            .unwrap();
+        let first = read_until(&mut initial, "\"seriesId\":\"s0\"", Duration::from_secs(2)).await;
+        let last_event_id = event_id(&first, "SeriesAdded");
+        drop(initial);
+
+        for i in 1..=1025 {
+            let _ = state.events.send(DomainEvent::SeriesAdded(sample_series(
+                &format!("offline-{i}"),
+                "l1",
+            )));
+        }
+        let mut resumed = connect_with_last_event_id(&state, "key1", &last_event_id).await;
+        state
+            .events
+            .send(DomainEvent::SeriesAdded(sample_series("live", "l1")))
+            .unwrap();
+        let acc = read_until(
+            &mut resumed,
+            "\"seriesId\":\"live\"",
+            Duration::from_secs(2),
+        )
+        .await;
+        assert!(
+            !acc.contains("event:Reset"),
+            "unexpected custom event: {acc:?}"
+        );
+        assert!(
+            !acc.contains("offline-"),
+            "replayed partial history: {acc:?}"
+        );
+        assert_eq!(
+            acc.matches("event:SeriesAdded").count(),
+            1,
+            "unexpected replay: {acc:?}"
+        );
+
+        let live_id = event_id(&acc, "SeriesAdded");
+        let mut resumed_again = connect_with_last_event_id(&state, "key1", &live_id).await;
+        state
+            .events
+            .send(DomainEvent::SeriesAdded(sample_series("after", "l1")))
+            .unwrap();
+        let acc = read_until(
+            &mut resumed_again,
+            "\"seriesId\":\"after\"",
+            Duration::from_secs(2),
+        )
+        .await;
+        assert!(
+            acc.contains("\"seriesId\":\"after\""),
+            "live event after incomplete resume was lost: {acc:?}"
+        );
+        assert_eq!(
+            acc.matches("event:SeriesAdded").count(),
+            1,
+            "duplicate event: {acc:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn replay_preserves_event_scope() {
+        let state = test_state();
+        let admin_id = insert_user(&state.db, "admin@komga.org", true);
+        insert_api_key(&state.db, &admin_id, "admin-key");
+        let owner_id = insert_user(&state.db, "owner@komga.org", false);
+        insert_api_key(&state.db, &owner_id, "owner-key");
+        let other_id = insert_user(&state.db, "other@komga.org", false);
+        insert_api_key(&state.db, &other_id, "other-key");
+
+        let mut initial = connect(&state, "admin-key").await;
+        wait_subscribed(&state).await;
+        state
+            .events
+            .send(DomainEvent::SeriesAdded(sample_series("s0", "l1")))
+            .unwrap();
+        let first = read_until(&mut initial, "\"seriesId\":\"s0\"", Duration::from_secs(2)).await;
+        let last_event_id = event_id(&first, "SeriesAdded");
+        drop(initial);
+
+        let _ = state.events.send(DomainEvent::BookImported {
+            book: Some(sample_book("b1", "s1", "l1")),
+            source_file: "/data/incoming/v01.cbz".into(),
+            success: true,
+            message: None,
+        });
+        let _ = state
+            .events
+            .send(DomainEvent::ReadProgressChanged(ReadProgress {
+                book_id: "b1".into(),
+                user_id: owner_id.clone(),
+                page: 3,
+                completed: false,
+                read_date: now_utc(),
+                device_id: String::new(),
+                device_name: String::new(),
+                locator: None,
+                created_date: now_utc(),
+                last_modified_date: now_utc(),
+            }));
+
+        let mut admin = connect_with_last_event_id(&state, "admin-key", &last_event_id).await;
+        let mut owner = connect_with_last_event_id(&state, "owner-key", &last_event_id).await;
+        let mut other = connect_with_last_event_id(&state, "other-key", &last_event_id).await;
+        let admin_acc = read_until(&mut admin, "event:BookImported", Duration::from_secs(2)).await;
+        let owner_acc = read_until(
+            &mut owner,
+            "event:ReadProgressChanged",
+            Duration::from_secs(2),
+        )
+        .await;
+        let other_acc = read_for(&mut other, Duration::from_millis(150)).await;
+
+        assert!(
+            admin_acc.contains("event:BookImported"),
+            "admin missed replay: {admin_acc:?}"
+        );
+        assert!(
+            owner_acc.contains("event:ReadProgressChanged"),
+            "owner missed replay: {owner_acc:?}"
+        );
+        assert!(
+            !admin_acc.contains("ReadProgressChanged"),
+            "admin received another user's progress: {admin_acc:?}"
+        );
+        assert!(
+            !owner_acc.contains("BookImported"),
+            "non-admin received admin event: {owner_acc:?}"
+        );
+        assert!(
+            !other_acc.contains("BookImported"),
+            "non-admin received admin event: {other_acc:?}"
+        );
+        assert!(
+            !other_acc.contains("ReadProgressChanged"),
+            "other user received private progress: {other_acc:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn non_utf8_last_event_id_starts_live() {
+        let state = test_state();
+        let user_id = insert_user(&state.db, "admin@komga.org", true);
+        insert_api_key(&state.db, &user_id, "key1");
+        let request = Request::get("/sse/v1/events")
+            .header("X-API-Key", "key1")
+            .header(
+                "Last-Event-ID",
+                axum::http::HeaderValue::from_bytes(b"\xff").unwrap(),
+            )
+            .body(Body::empty())
+            .unwrap();
+        let response = test_app(&state).oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let mut body = response.into_body();
+        state
+            .events
+            .send(DomainEvent::SeriesAdded(sample_series("live", "l1")))
+            .unwrap();
+        let acc = read_until(&mut body, "\"seriesId\":\"live\"", Duration::from_secs(2)).await;
+        assert!(
+            !acc.contains("event:Reset"),
+            "unexpected custom event: {acc:?}"
+        );
+        assert!(
+            acc.contains("\"seriesId\":\"live\""),
+            "live event was lost: {acc:?}"
+        );
     }
 
     #[tokio::test]
