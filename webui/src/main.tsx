@@ -14,13 +14,14 @@ import { queryClient } from './lib/queryClient'
 import { Toaster } from './components/Toaster'
 import { TooltipProvider } from './components/ui/Tooltip'
 import { KomfJobsPanel } from './components/KomfJobsPanel'
+import { PwaUpdatePrompt } from './components/PwaUpdatePrompt'
 import { applyTheme, useUiStore } from './lib/store/ui'
 
 applyTheme(useUiStore.getState().theme)
 useUiStore.subscribe((s) => applyTheme(s.theme))
 
-if (import.meta.env.PROD && 'serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'))
+if ((import.meta.env.PROD || import.meta.env.MODE === 'pwa') && 'serviceWorker' in navigator) {
+  void import('./pwa/register').then(({ registerPwa }) => registerPwa())
 }
 window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
   if (useUiStore.getState().theme === 'system') applyTheme('system')
@@ -34,6 +35,7 @@ createRoot(document.getElementById('root')!).render(
           <RouterProvider router={router} />
           <Toaster />
           <KomfJobsPanel />
+          <PwaUpdatePrompt />
         </MotionConfig>
       </TooltipProvider>
     </QueryClientProvider>
