@@ -76,7 +76,6 @@ function NavItem({
   children,
   end,
   onClick,
-  trailing,
   actions,
 }: {
   to: string
@@ -84,7 +83,6 @@ function NavItem({
   children: React.ReactNode
   end?: boolean
   onClick?: () => void
-  trailing?: React.ReactNode
   /** overlay controls (e.g. the admin actions menu); rendered as siblings of the
       link so no interactive element nests inside the <a> */
   actions?: React.ReactNode
@@ -104,7 +102,6 @@ function NavItem({
     >
       <span className="[&_svg]:size-[18px]">{icon}</span>
       <span className="min-w-0 flex-1 truncate">{children}</span>
-      {trailing}
     </NavLink>
   )
   if (!actions) return link
@@ -155,16 +152,20 @@ function NavGroup({
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const { t } = useTranslation('layout')
-  const { data: libraries, isLoading } = useQuery({ queryKey: ['libraries'], queryFn: librariesApi.list })
+  const { data: libraries, isLoading: librariesLoading } = useQuery({ queryKey: ['libraries'], queryFn: librariesApi.list })
   const user = useAuthStore((s) => s.user)
-  const { pinned } = usePinnedLibraries()
+  const { pinned, isPending: pinnedPending } = usePinnedLibraries()
   const [pinDialogOpen, setPinDialogOpen] = useState(false)
-  const librariesCollapsed = useUiStore((s) => s.sidebarLibrariesCollapsed)
-  const setLibrariesCollapsed = useUiStore((s) => s.setSidebarLibrariesCollapsed)
+  const librariesExpandedOverride = useUiStore((s) => s.sidebarLibrariesExpanded)
+  const setLibrariesExpanded = useUiStore((s) => s.setSidebarLibrariesExpanded)
 
-  const pinnedIndex = new Map((pinned ?? []).map((id, i) => [id, i]))
-  const pinRank = (id: string) => pinnedIndex.get(id) ?? Number.MAX_SAFE_INTEGER
-  const sortedLibraries = libraries?.slice().sort((a, b) => pinRank(a.id) - pinRank(b.id))
+  const pinnedIds = pinned ?? []
+  const pinnedSet = new Set(pinnedIds)
+  const pinnedLibraries = pinnedIds.map((id) => libraries?.find((l) => l.id === id)).filter((l) => !!l)
+  const unpinnedLibraries = (libraries ?? []).filter((l) => !pinnedSet.has(l.id))
+  const librariesExpanded = librariesExpandedOverride ?? pinnedLibraries.length === 0
+  const visibleLibraries = librariesExpanded ? [...pinnedLibraries, ...unpinnedLibraries] : pinnedLibraries
+  const librariesPending = librariesLoading || pinnedPending
 
   return (
     <div className="flex h-full flex-col">
@@ -183,13 +184,11 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         <div className="mt-5 mb-1.5 flex items-center justify-between px-3">
           <button
             type="button"
-            onClick={() => setLibrariesCollapsed(!librariesCollapsed)}
+            onClick={() => setLibrariesExpanded(!librariesExpanded)}
             className="flex cursor-pointer items-center gap-1 text-[11px] font-medium tracking-[0.08em] text-ink-3 uppercase transition-colors hover:text-ink-2"
           >
             {t('nav.libraries')}
-            <CaretRight
-              className={cn('size-3 transition-transform duration-150', !librariesCollapsed && 'rotate-90')}
-            />
+            <CaretRight className={cn('size-3 transition-transform duration-150', librariesExpanded && 'rotate-90')} />
           </button>
           {libraries && libraries.length > 0 && (
             <IconButton
@@ -201,31 +200,29 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             </IconButton>
           )}
         </div>
-        {!librariesCollapsed && (
+        {(librariesExpanded || visibleLibraries.length > 0 || librariesPending) && (
           <>
-            {isLoading && (
+            {librariesPending && (
               <div className="flex flex-col gap-2 px-3">
                 <Skeleton className="h-6 w-3/4" />
                 <Skeleton className="h-6 w-1/2" />
               </div>
             )}
-            {sortedLibraries?.map((lib) => (
-              <NavItem
-                key={lib.id}
-                to={`/libraries/${lib.id}/series`}
-                icon={<BookBookmark />}
-                onClick={onNavigate}
-                trailing={
-                  pinnedIndex.has(lib.id) ? (
-                    <PushPin weight="fill" className="size-3 shrink-0 text-ink-3" aria-label={t('nav.pinned')} />
-                  ) : undefined
-                }
-                actions={isAdmin(user) ? <SidebarLibraryMenu library={lib} /> : undefined}
-              >
-                {lib.name}
-              </NavItem>
-            ))}
-            {libraries?.length === 0 && <p className="px-3 text-[13px] text-ink-3">{t('nav.noLibraries')}</p>}
+            {!librariesPending &&
+              visibleLibraries.map((lib) => (
+                <NavItem
+                  key={lib.id}
+                  to={`/libraries/${lib.id}/series`}
+                  icon={<BookBookmark />}
+                  onClick={onNavigate}
+                  actions={isAdmin(user) ? <SidebarLibraryMenu library={lib} /> : undefined}
+                >
+                  {lib.name}
+                </NavItem>
+              ))}
+            {!librariesPending && libraries?.length === 0 && (
+              <p className="px-3 text-[13px] text-ink-3">{t('nav.noLibraries')}</p>
+            )}
           </>
         )}
 
