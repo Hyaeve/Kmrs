@@ -1113,7 +1113,7 @@ mod tests {
 </ComicInfo>"#;
 
     fn recv_until(
-        rx: &mut tokio::sync::broadcast::Receiver<DomainEvent>,
+        rx: &mut crate::events::DomainReceiver,
         predicate: impl Fn(&DomainEvent) -> bool,
     ) -> DomainEvent {
         for _ in 0..50 {
