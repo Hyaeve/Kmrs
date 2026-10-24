@@ -7,8 +7,7 @@ export type ScaleType = 'SCREEN' | 'WIDTH' | 'WIDTH_SHRINK_ONLY' | 'HEIGHT' | 'O
 export type ContinuousScaleType = 'WIDTH' | 'ORIGINAL'
 export type ReaderBackground = 'BLACK' | 'GRAY' | 'WHITE'
 export type EpubTheme = 'DAY' | 'SEPIA' | 'NIGHT'
-/** server:* values are font families served by the komga fonts API */
-export type EpubFontFamily = 'Original' | `server:${string}`
+export type EpubFontFamily = 'Original' | `server:${string}` | `local:${string}`
 
 interface ReaderSettings {
   scale: ScaleType
