@@ -10,6 +10,7 @@ import { Slider } from '@/components/ui/Slider'
 import { Switch } from '@/components/ui/Switch'
 import { Row, Section } from '@/components/reader/panel'
 import { isServerFont, serverFontValue } from '@/components/reader/epub/fonts'
+import { LocalFontPicker } from '@/components/reader/epub/LocalFontPicker'
 import { cn } from '@/lib/utils/cn'
 
 const THEME_VALUES: EpubTheme[] = ['DAY', 'SEPIA', 'NIGHT']
@@ -134,6 +135,10 @@ export function EpubSettingsPanel({ open, onAlwaysFullscreenChange, onClose }: E
                       >
                         {t('epub.fontPublisher')}
                       </button>
+                      <LocalFontPicker
+                        value={fontFamily}
+                        onSelect={(epubFontFamily) => update({ epubFontFamily })}
+                      />
                       {serverFonts.map((family) => (
                         <button
                           key={family}
